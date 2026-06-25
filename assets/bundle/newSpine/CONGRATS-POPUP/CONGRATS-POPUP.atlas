@@ -1,0 +1,55 @@
+
+CONGRATS-POPUP.png
+size: 1803, 1370
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Backlight
+  rotate: true
+  xy: 1160, 488
+  size: 880, 636
+  orig: 902, 648
+  offset: 11, 11
+  index: -1
+CONTINUE
+  rotate: false
+  xy: 2, 20
+  size: 193, 35
+  orig: 194, 36
+  offset: 0, 1
+  index: -1
+Congrats
+  rotate: false
+  xy: 645, 113
+  size: 395, 97
+  orig: 397, 99
+  offset: 1, 1
+  index: -1
+Khungtien
+  rotate: false
+  xy: 2, 57
+  size: 641, 153
+  orig: 641, 153
+  offset: 0, 0
+  index: -1
+Sunlight
+  rotate: false
+  xy: 2, 212
+  size: 1156, 1156
+  orig: 1360, 1165
+  offset: 102, 4
+  index: -1
+den
+  rotate: true
+  xy: 645, 44
+  size: 67, 145
+  orig: 67, 145
+  offset: 0, 0
+  index: -1
+khung
+  rotate: false
+  xy: 1160, 2
+  size: 641, 484
+  orig: 641, 484
+  offset: 0, 0
+  index: -1

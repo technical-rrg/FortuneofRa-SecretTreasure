@@ -1,0 +1,76 @@
+
+symbol-WILD.png
+size: 218, 512
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+D
+  rotate: true
+  xy: 96, 41
+  size: 66, 89
+  orig: 69, 91
+  offset: 2, 1
+  index: -1
+D-sd
+  rotate: true
+  xy: 113, 109
+  size: 76, 97
+  orig: 78, 100
+  offset: 1, 2
+  index: -1
+Frame
+  rotate: true
+  xy: 2, 282
+  size: 228, 214
+  orig: 326, 312
+  offset: 49, 49
+  index: -1
+I
+  rotate: true
+  xy: 90, 2
+  size: 37, 82
+  orig: 39, 84
+  offset: 1, 1
+  index: -1
+I-sd
+  rotate: true
+  xy: 2, 63
+  size: 46, 92
+  orig: 48, 94
+  offset: 1, 1
+  index: -1
+L
+  rotate: true
+  xy: 2, 6
+  size: 55, 86
+  orig: 57, 88
+  offset: 1, 1
+  index: -1
+L-sd
+  rotate: true
+  xy: 2, 111
+  size: 65, 94
+  orig: 67, 98
+  offset: 1, 2
+  index: -1
+Layer 33
+  rotate: true
+  xy: 174, 4
+  size: 35, 42
+  orig: 40, 49
+  offset: 4, 3
+  index: -1
+W
+  rotate: false
+  xy: 113, 187
+  size: 100, 93
+  orig: 102, 95
+  offset: 1, 1
+  index: -1
+W-sd
+  rotate: false
+  xy: 2, 178
+  size: 109, 102
+  orig: 112, 104
+  offset: 2, 1
+  index: -1

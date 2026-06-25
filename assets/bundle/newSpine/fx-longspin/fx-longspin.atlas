@@ -1,0 +1,153 @@
+
+fx-longspin.png
+size: 1840,1523
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+longspin-fx_00
+  rotate: false
+  xy: 2, 1118
+  size: 306, 403
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_01
+  rotate: false
+  xy: 617, 715
+  size: 305, 401
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_02
+  rotate: true
+  xy: 2, 2
+  size: 305, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_03
+  rotate: false
+  xy: 2, 714
+  size: 306, 402
+  orig: 317, 415
+  offset: 6, 7
+  index: -1
+longspin-fx_04
+  rotate: false
+  xy: 309, 310
+  size: 305, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_05
+  rotate: true
+  xy: 406, 3
+  size: 305, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_06
+  rotate: true
+  xy: 1214, 5
+  size: 304, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_07
+  rotate: false
+  xy: 1229, 1120
+  size: 304, 401
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_08
+  rotate: false
+  xy: 1229, 411
+  size: 304, 401
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_09
+  rotate: false
+  xy: 310, 1119
+  size: 305, 402
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_10
+  rotate: false
+  xy: 310, 715
+  size: 305, 402
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_11
+  rotate: false
+  xy: 616, 311
+  size: 305, 402
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_12
+  rotate: true
+  xy: 810, 4
+  size: 305, 402
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_13
+  rotate: false
+  xy: 2, 309
+  size: 305, 403
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_14
+  rotate: false
+  xy: 923, 1119
+  size: 304, 402
+  orig: 317, 415
+  offset: 7, 6
+  index: -1
+longspin-fx_15
+  rotate: false
+  xy: 617, 1118
+  size: 304, 403
+  orig: 317, 415
+  offset: 6, 6
+  index: -1
+longspin-fx_16
+  rotate: true
+  xy: 924, 814
+  size: 303, 403
+  orig: 317, 415
+  offset: 7, 6
+  index: -1
+longspin-fx_17
+  rotate: false
+  xy: 1535, 1120
+  size: 303, 401
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_18
+  rotate: true
+  xy: 1329, 815
+  size: 303, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_19
+  rotate: false
+  xy: 1535, 411
+  size: 303, 402
+  orig: 317, 415
+  offset: 7, 7
+  index: -1
+longspin-fx_20
+  rotate: false
+  xy: 923, 311
+  size: 304, 402
+  orig: 317, 415
+  offset: 6, 7
+  index: -1

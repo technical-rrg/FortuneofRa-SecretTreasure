@@ -1,0 +1,55 @@
+
+Anim-Jackpot-Grand.png
+size: 2015, 1762
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Ellipse 1 copy
+  rotate: true
+  xy: 2, 404
+  size: 1356, 1002
+  orig: 1426, 1035
+  offset: 35, 33
+  index: -1
+Layer 3
+  rotate: true
+  xy: 1832, 23
+  size: 355, 100
+  orig: 1920, 1080
+  offset: 775, 506
+  index: -1
+Mini
+  rotate: false
+  xy: 388, 221
+  size: 601, 181
+  orig: 1920, 1080
+  offset: 660, 602
+  index: -1
+Star
+  rotate: false
+  xy: 2, 18
+  size: 384, 384
+  orig: 512, 512
+  offset: 64, 64
+  index: -1
+circle-light
+  rotate: true
+  xy: 1006, 380
+  size: 1179, 920
+  orig: 1230, 949
+  offset: 22, 16
+  index: -1
+numberframe
+  rotate: false
+  xy: 1006, 1561
+  size: 1007, 199
+  orig: 1920, 1080
+  offset: 449, 330
+  index: -1
+textbox
+  rotate: false
+  xy: 991, 2
+  size: 839, 376
+  orig: 1920, 1080
+  offset: 542, 516
+  index: -1

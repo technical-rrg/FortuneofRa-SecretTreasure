@@ -1,0 +1,20 @@
+
+gold.png
+size: 219, 114
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Layer 33
+  rotate: false
+  xy: 182, 70
+  size: 35, 42
+  orig: 40, 49
+  offset: 4, 3
+  index: -1
+gold-topaz-denoise-enhance-2x
+  rotate: false
+  xy: 2, 2
+  size: 178, 110
+  orig: 184, 116
+  offset: 3, 4
+  index: -1

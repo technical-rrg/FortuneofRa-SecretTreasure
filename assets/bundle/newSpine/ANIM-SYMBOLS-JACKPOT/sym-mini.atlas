@@ -1,0 +1,41 @@
+
+sym-mini.png
+size: 686, 470
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Layer 3
+  rotate: false
+  xy: 470, 241
+  size: 214, 227
+  orig: 300, 300
+  offset: 43, 35
+  index: -1
+Layer 4
+  rotate: true
+  xy: 470, 87
+  size: 152, 139
+  orig: 300, 300
+  offset: 75, 95
+  index: -1
+Layer 5
+  rotate: true
+  xy: 611, 139
+  size: 100, 69
+  orig: 300, 300
+  offset: 127, 94
+  index: -1
+Light
+  rotate: false
+  xy: 2, 2
+  size: 466, 466
+  orig: 512, 512
+  offset: 29, 30
+  index: -1
+MINI copy
+  rotate: false
+  xy: 470, 16
+  size: 142, 69
+  orig: 300, 300
+  offset: 78, 46
+  index: -1

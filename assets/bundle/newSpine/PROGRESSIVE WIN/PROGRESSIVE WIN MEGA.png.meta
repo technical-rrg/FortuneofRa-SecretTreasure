@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "e3605b5c-a6b4-4a0c-9c55-503289e33740",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "e3605b5c-a6b4-4a0c-9c55-503289e33740@6c48a",
+      "displayName": "PROGRESSIVE WIN MEGA",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "e3605b5c-a6b4-4a0c-9c55-503289e33740",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "e3605b5c-a6b4-4a0c-9c55-503289e33740@f9941",
+      "displayName": "PROGRESSIVE WIN MEGA",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 2,
+        "trimY": 2,
+        "width": 1795,
+        "height": 1655,
+        "rawWidth": 1799,
+        "rawHeight": 1659,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -897.5,
+            -827.5,
+            0,
+            897.5,
+            -827.5,
+            0,
+            -897.5,
+            827.5,
+            0,
+            897.5,
+            827.5,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            2,
+            1657,
+            1797,
+            1657,
+            2,
+            2,
+            1797,
+            2
+          ],
+          "nuv": [
+            0.0011117287381878821,
+            0.0012055455093429777,
+            0.9988882712618121,
+            0.0012055455093429777,
+            0.0011117287381878821,
+            0.9987944544906571,
+            0.9988882712618121,
+            0.9987944544906571
+          ],
+          "minPos": [
+            -897.5,
+            -827.5,
+            0
+          ],
+          "maxPos": [
+            897.5,
+            827.5,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "e3605b5c-a6b4-4a0c-9c55-503289e33740@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "e3605b5c-a6b4-4a0c-9c55-503289e33740@6c48a"
+  }
+}

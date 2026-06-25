@@ -1,0 +1,104 @@
+
+sym-King.png
+size: 454,505
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Effect/symbol_K_00000
+  rotate: false
+  xy: 445, 488
+  size: 7, 15
+  orig: 150, 154
+  offset: 1, 11
+  index: -1
+Effect/symbol_K_00001
+  rotate: false
+  xy: 2, 9
+  size: 34, 41
+  orig: 150, 154
+  offset: 1, 11
+  index: -1
+Effect/symbol_K_00002
+  rotate: true
+  xy: 156, 2
+  size: 57, 83
+  orig: 150, 154
+  offset: 1, 11
+  index: -1
+Effect/symbol_K_00003
+  rotate: true
+  xy: 310, 109
+  size: 91, 141
+  orig: 150, 154
+  offset: 1, 9
+  index: -1
+Effect/symbol_K_00004
+  rotate: false
+  xy: 322, 351
+  size: 121, 152
+  orig: 150, 154
+  offset: 1, 1
+  index: -1
+Effect/symbol_K_00005
+  rotate: true
+  xy: 156, 61
+  size: 142, 152
+  orig: 150, 154
+  offset: 1, 1
+  index: -1
+Effect/symbol_K_00006
+  rotate: true
+  xy: 168, 355
+  size: 148, 152
+  orig: 150, 154
+  offset: 1, 1
+  index: -1
+Effect/symbol_K_00007
+  rotate: true
+  xy: 168, 205
+  size: 148, 152
+  orig: 150, 154
+  offset: 1, 1
+  index: -1
+Effect/symbol_K_00008
+  rotate: true
+  xy: 2, 52
+  size: 139, 152
+  orig: 150, 154
+  offset: 10, 1
+  index: -1
+Effect/symbol_K_00009
+  rotate: false
+  xy: 322, 202
+  size: 112, 147
+  orig: 150, 154
+  offset: 37, 6
+  index: -1
+Effect/symbol_K_00010
+  rotate: true
+  xy: 310, 30
+  size: 77, 126
+  orig: 150, 154
+  offset: 71, 27
+  index: -1
+Effect/symbol_K_00011
+  rotate: false
+  xy: 38, 15
+  size: 34, 35
+  orig: 150, 154
+  offset: 91, 118
+  index: -1
+SDsymbol_K
+  rotate: true
+  xy: 2, 343
+  size: 160, 164
+  orig: 162, 166
+  offset: 1, 1
+  index: -1
+symbol_K
+  rotate: true
+  xy: 2, 193
+  size: 148, 152
+  orig: 150, 154
+  offset: 1, 1
+  index: -1

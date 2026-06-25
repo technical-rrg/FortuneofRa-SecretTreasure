@@ -1,0 +1,55 @@
+
+Anim-Jackpot-Major.png
+size: 2015, 1763
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Ellipse 1 copy
+  rotate: true
+  xy: 2, 405
+  size: 1356, 1002
+  orig: 1426, 1035
+  offset: 35, 33
+  index: -1
+Layer 3
+  rotate: true
+  xy: 1823, 24
+  size: 355, 100
+  orig: 1920, 1080
+  offset: 775, 506
+  index: -1
+Mini
+  rotate: false
+  xy: 388, 211
+  size: 591, 192
+  orig: 1920, 1080
+  offset: 665, 587
+  index: -1
+Star
+  rotate: false
+  xy: 2, 19
+  size: 384, 384
+  orig: 512, 512
+  offset: 64, 64
+  index: -1
+circle-light
+  rotate: true
+  xy: 1006, 381
+  size: 1179, 920
+  orig: 1230, 949
+  offset: 22, 16
+  index: -1
+numberframe
+  rotate: false
+  xy: 1006, 1562
+  size: 1007, 199
+  orig: 1920, 1080
+  offset: 449, 330
+  index: -1
+textbox
+  rotate: false
+  xy: 981, 2
+  size: 840, 377
+  orig: 1920, 1080
+  offset: 541, 516
+  index: -1

@@ -1,0 +1,111 @@
+
+sym-WILD.png
+size: 1795, 480
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Chest
+  rotate: false
+  xy: 1631, 361
+  size: 155, 117
+  orig: 166, 122
+  offset: 7, 1
+  index: -1
+Coin_R
+  rotate: false
+  xy: 1134, 3
+  size: 176, 104
+  orig: 180, 106
+  offset: 3, 1
+  index: -1
+Effect/Layer 13
+  rotate: true
+  xy: 1548, 51
+  size: 56, 65
+  orig: 62, 73
+  offset: 3, 5
+  index: -1
+Effect/Layer 33
+  rotate: false
+  xy: 1511, 5
+  size: 35, 42
+  orig: 40, 49
+  offset: 4, 3
+  index: -1
+Flower_01
+  rotate: false
+  xy: 972, 2
+  size: 79, 105
+  orig: 105, 116
+  offset: 15, 2
+  index: -1
+Flower_02
+  rotate: false
+  xy: 1053, 2
+  size: 79, 105
+  orig: 105, 116
+  offset: 11, 2
+  index: -1
+Flower_03
+  rotate: false
+  xy: 1631, 253
+  size: 144, 106
+  orig: 147, 108
+  offset: 1, 1
+  index: -1
+Flower_04
+  rotate: false
+  xy: 1312, 5
+  size: 197, 102
+  orig: 200, 104
+  offset: 2, 1
+  index: -1
+Fortune
+  rotate: true
+  xy: 834, 35
+  size: 443, 136
+  orig: 447, 138
+  offset: 3, 1
+  index: -1
+Lanterns_01
+  rotate: true
+  xy: 1615, 49
+  size: 91, 176
+  orig: 91, 207
+  offset: 0, 0
+  index: -1
+Panel
+  rotate: false
+  xy: 2, 31
+  size: 669, 447
+  orig: 671, 449
+  offset: 1, 1
+  index: -1
+SDFortune
+  rotate: true
+  xy: 673, 33
+  size: 445, 159
+  orig: 453, 164
+  offset: 3, 3
+  index: -1
+SDShangri
+  rotate: false
+  xy: 972, 285
+  size: 657, 193
+  orig: 665, 201
+  offset: 4, 4
+  index: -1
+Shangri
+  rotate: false
+  xy: 972, 109
+  size: 641, 174
+  orig: 642, 174
+  offset: 0, 0
+  index: -1
+coin_L
+  rotate: false
+  xy: 1615, 142
+  size: 178, 109
+  orig: 182, 111
+  offset: 1, 1
+  index: -1

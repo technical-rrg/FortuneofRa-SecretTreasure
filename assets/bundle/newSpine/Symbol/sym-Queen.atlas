@@ -1,0 +1,104 @@
+
+sym-Queen.png
+size: 1388,171
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+SDsymbol_Q
+  rotate: true
+  xy: 2, 5
+  size: 164, 170
+  orig: 166, 172
+  offset: 1, 1
+  index: -1
+effsymbol_Q/symbol_Q_00000
+  rotate: false
+  xy: 2, 2
+  size: 1, 1
+  orig: 1, 1
+  offset: 0, 0
+  index: -1
+effsymbol_Q/symbol_Q_00001
+  rotate: true
+  xy: 1148, 8
+  size: 28, 45
+  orig: 154, 160
+  offset: 3, 26
+  index: -1
+effsymbol_Q/symbol_Q_00002
+  rotate: true
+  xy: 1239, 11
+  size: 63, 95
+  orig: 154, 160
+  offset: 1, 14
+  index: -1
+effsymbol_Q/symbol_Q_00003
+  rotate: true
+  xy: 1239, 76
+  size: 93, 122
+  orig: 154, 160
+  offset: 1, 11
+  index: -1
+effsymbol_Q/symbol_Q_00004
+  rotate: false
+  xy: 907, 22
+  size: 125, 147
+  orig: 154, 160
+  offset: 1, 1
+  index: -1
+effsymbol_Q/symbol_Q_00005
+  rotate: false
+  xy: 627, 14
+  size: 146, 155
+  orig: 154, 160
+  offset: 1, 1
+  index: -1
+effsymbol_Q/symbol_Q_00006
+  rotate: false
+  xy: 328, 11
+  size: 151, 158
+  orig: 154, 160
+  offset: 2, 1
+  index: -1
+effsymbol_Q/symbol_Q_00007
+  rotate: false
+  xy: 481, 11
+  size: 144, 158
+  orig: 154, 160
+  offset: 9, 1
+  index: -1
+effsymbol_Q/symbol_Q_00008
+  rotate: false
+  xy: 775, 11
+  size: 130, 158
+  orig: 154, 160
+  offset: 23, 1
+  index: -1
+effsymbol_Q/symbol_Q_00009
+  rotate: false
+  xy: 1034, 16
+  size: 112, 153
+  orig: 154, 160
+  offset: 41, 6
+  index: -1
+effsymbol_Q/symbol_Q_00010
+  rotate: false
+  xy: 1148, 38
+  size: 89, 131
+  orig: 154, 160
+  offset: 64, 28
+  index: -1
+effsymbol_Q/symbol_Q_00011
+  rotate: false
+  xy: 1336, 4
+  size: 50, 70
+  orig: 154, 160
+  offset: 93, 85
+  index: -1
+symbol_Q
+  rotate: false
+  xy: 174, 11
+  size: 152, 158
+  orig: 154, 160
+  offset: 1, 1
+  index: -1

@@ -1,0 +1,41 @@
+
+sym-major.png
+size: 700, 471
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Light
+  rotate: false
+  xy: 2, 3
+  size: 466, 466
+  orig: 512, 512
+  offset: 29, 30
+  index: -1
+MAJOR
+  rotate: false
+  xy: 470, 190
+  size: 195, 71
+  orig: 300, 300
+  offset: 52, 40
+  index: -1
+be
+  rotate: true
+  xy: 470, 2
+  size: 186, 84
+  orig: 300, 300
+  offset: 57, 41
+  index: -1
+hoasen
+  rotate: true
+  xy: 556, 3
+  size: 185, 137
+  orig: 300, 300
+  offset: 58, 88
+  index: -1
+khung
+  rotate: true
+  xy: 470, 263
+  size: 206, 228
+  orig: 300, 300
+  offset: 48, 34
+  index: -1

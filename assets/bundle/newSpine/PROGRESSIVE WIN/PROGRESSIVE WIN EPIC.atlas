@@ -1,0 +1,55 @@
+
+PROGRESSIVE WIN EPIC.png
+size: 1997, 1575
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+BIG
+  rotate: false
+  xy: 2, 15
+  size: 367, 163
+  orig: 1920, 1080
+  offset: 568, 598
+  index: -1
+CIRCLE LIGHT BIG
+  rotate: false
+  xy: 986, 902
+  size: 671, 671
+  orig: 677, 678
+  offset: 4, 3
+  index: -1
+CIRCLE LIGHT SMALL
+  rotate: false
+  xy: 986, 2
+  size: 496, 496
+  orig: 501, 501
+  offset: 4, 1
+  index: -1
+Ellipse 1
+  rotate: true
+  xy: 2, 180
+  size: 1393, 982
+  orig: 1920, 1080
+  offset: 264, 70
+  index: -1
+FRAME
+  rotate: false
+  xy: 986, 500
+  size: 1009, 400
+  orig: 1920, 1080
+  offset: 456, 344
+  index: -1
+Star
+  rotate: false
+  xy: 1484, 114
+  size: 384, 384
+  orig: 512, 512
+  offset: 64, 64
+  index: -1
+WIN
+  rotate: false
+  xy: 371, 18
+  size: 340, 160
+  orig: 1920, 1080
+  offset: 918, 601
+  index: -1

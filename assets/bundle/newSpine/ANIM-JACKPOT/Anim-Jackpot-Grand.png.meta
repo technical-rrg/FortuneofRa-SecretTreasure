@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9@6c48a",
+      "displayName": "Anim-Jackpot-Grand",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9@f9941",
+      "displayName": "Anim-Jackpot-Grand",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 2,
+        "trimY": 2,
+        "width": 2011,
+        "height": 1758,
+        "rawWidth": 2015,
+        "rawHeight": 1762,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -1005.5,
+            -879,
+            0,
+            1005.5,
+            -879,
+            0,
+            -1005.5,
+            879,
+            0,
+            1005.5,
+            879,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            2,
+            1760,
+            2013,
+            1760,
+            2,
+            2,
+            2013,
+            2
+          ],
+          "nuv": [
+            0.0009925558312655087,
+            0.0011350737797956867,
+            0.9990074441687344,
+            0.0011350737797956867,
+            0.0009925558312655087,
+            0.9988649262202043,
+            0.9990074441687344,
+            0.9988649262202043
+          ],
+          "minPos": [
+            -1005.5,
+            -879,
+            0
+          ],
+          "maxPos": [
+            1005.5,
+            879,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "22dc577b-cd73-4bc7-9b2e-c6b3320fa4f9@6c48a"
+  }
+}

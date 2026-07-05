@@ -2,7 +2,7 @@
  * FontManager - Quản lý font đa ngôn ngữ cho SuperNova.
  *
  * ★ MỤC ĐÍCH:
- *   Cung cấp font phù hợp cho từng ngôn ngữ. Game hỗ trợ 7 ngôn ngữ,
+ *   Cung cấp font phù hợp cho từng ngôn ngữ. Game hỗ trợ 10 ngôn ngữ,
  *   mỗi ngôn ngữ có thể dùng font riêng để hiển thị đúng ký tự.
  *
  * ★ CÁCH DÙNG:
@@ -22,9 +22,12 @@
  *   zh-tw → traditionalChineseFont (Noto Sans TC)
  *   ja    → japaneseFont (Noto Sans JP)
  *   th    → thaiFont (Noto Sans Thai / Sarabun)
+ *   sg    → singaporeFont (Latin-based, dùng chung font English)
+ *   ms    → malayFont (Latin-based, dùng chung font English)
+ *   vi    → vietnameseFont (Noto Sans / Latin + Vietnamese diacritics)
  *
  * ★ CACHE MODE TỐI ƯU:
- *   CHAR   — en, fil, ko (alphabet nhỏ / Hangul syllables giới hạn trong game)
+ *   CHAR   — en, fil, ko, sg, ms, vi (alphabet nhỏ / Hangul syllables giới hạn trong game)
  *   BITMAP — zh-cn, zh-tw, ja, th (nhiều unique glyphs / combining marks phức tạp)
  */
 
@@ -53,6 +56,9 @@ const CACHE_MODE_MAP: Record<LanguageCode, number> = {
     'zh-tw': CacheMode.BITMAP,
     'ja':    CacheMode.BITMAP,
     'th':    CacheMode.BITMAP,
+    'sg':    CacheMode.CHAR,
+    'ms':    CacheMode.CHAR,
+    'vi':    CacheMode.CHAR,
 };
 
 @ccclass('FontManager')
@@ -81,6 +87,15 @@ export class FontManager extends Component {
 
     @property({ type: TTFFont, tooltip: 'Font cho Thai (ภาษาไทย). Ví dụ: NotoSansThai-Bold' })
     thaiFont: TTFFont | null = null;
+
+    @property({ type: TTFFont, tooltip: 'Font cho Singapore English. Dùng chung font English nếu không có riêng.' })
+    singaporeFont: TTFFont | null = null;
+
+    @property({ type: TTFFont, tooltip: 'Font cho Malay (Bahasa Melayu). Ví dụ: NotoSans-Bold' })
+    malayFont: TTFFont | null = null;
+
+    @property({ type: TTFFont, tooltip: 'Font cho Vietnamese (Tiếng Việt). Ví dụ: NotoSans-Bold' })
+    vietnameseFont: TTFFont | null = null;
 
     // ─── LIFECYCLE ───
 
@@ -127,6 +142,9 @@ export class FontManager extends Component {
             case 'zh-tw': return this.traditionalChineseFont || this.defaultFont;
             case 'ja':    return this.japaneseFont || this.defaultFont;
             case 'th':    return this.thaiFont || this.defaultFont;
+            case 'sg':    return this.singaporeFont || this.defaultFont;
+            case 'ms':    return this.malayFont || this.defaultFont;
+            case 'vi':    return this.vietnameseFont || this.defaultFont;
             case 'en':
             case 'fil':
             default:      return this.defaultFont ?? null;
@@ -173,6 +191,9 @@ export class FontManager extends Component {
                 case 'zh-tw': this.traditionalChineseFont = font;   updated++; break;
                 case 'ja':    this.japaneseFont = font;             updated++; break;
                 case 'th':    this.thaiFont = font;                 updated++; break;
+                case 'sg':    this.singaporeFont = font;            updated++; break;
+                case 'ms':    this.malayFont = font;                updated++; break;
+                case 'vi':    this.vietnameseFont = font;           updated++; break;
             }
         }
 

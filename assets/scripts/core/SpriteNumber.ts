@@ -93,9 +93,9 @@ export class SpriteNumber extends Component {
     currencyPosition: CurrencyPosition = CurrencyPosition.START;
 
     @property({
-        tooltip: 'Bật để tự động đổi icon tiền tệ theo ngôn ngữ hiện tại.\n' +
-                 'currencySprites phải có đúng 7 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th.\n' +
-                 'Khi ngôn ngữ thay đổi, SpriteNumber tự dùng index ngôn ngữ làm currency index.',
+        tooltip: 'Bật để tự động đổi icon tiền tệ theo currency server trả về (ưu tiên) hoặc ngôn ngữ hiện tại.\n' +
+                 'currencySprites phải có đúng 10 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th, sg, ms, vi.\n' +
+                 'Khi ngôn ngữ/currency thay đổi, SpriteNumber tự dùng index tương ứng làm currency index.',
     })
     enableLangCurrency: boolean = false;
 
@@ -126,6 +126,22 @@ export class SpriteNumber extends Component {
         slide: true,
     })
     punctuationSpacingOffset: number = -3;
+
+    @property({
+        tooltip: 'Khoảng cách (px) giữa ký hiệu tiền tệ và chữ số.\n' +
+                 'Dương = tách xa, âm = sát lại. Mặc định 0 = dùng spacing chung.',
+        range: [-100, 100, 1],
+        slide: true,
+    })
+    currencySpacing: number = 0;
+
+    @property({
+        tooltip: 'Tỷ lệ khoảng cách giữa ký hiệu tiền tệ và chữ số, tính theo chiều rộng sprite của mệnh giá.\n' +
+                 'Ví dụ: 0.1 = 10% width của currency sprite. Mỗi mệnh giá sẽ có khoảng cách khác nhau theo đúng size.',
+        range: [0, 1, 0.01],
+        slide: true,
+    })
+    currencySpacingRatio: number = 0;
 
     @property({
         tooltip: 'Chiều rộng tối đa (px) cho toàn bộ chuỗi số.\n' +
@@ -220,7 +236,33 @@ export class SpriteNumber extends Component {
     private _hasSeenNonZeroDecimal: boolean = false;
 
     /** Thứ tự ngôn ngữ khớp với SUPPORTED_LANGUAGES trong LocalizationManager. */
-    private static readonly LANG_ORDER: LanguageCode[] = ['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th'];
+    private static readonly LANG_ORDER: LanguageCode[] = ['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi'];
+
+    /**
+     * Map currency code (ISO 4217) → index trong currencySprites (khớp LANG_ORDER).
+     * Dùng khi enableLangCurrency=true và server trả về currency code rõ ràng.
+     * Ưu tiên hơn ngôn ngữ UI đang chọn.
+     */
+    private static readonly CURRENCY_CODE_TO_SPRITE_INDEX: Record<string, number> = {
+        // index khớp LANG_ORDER: en=0, ko=1, zh-cn=2, zh-tw=3, fil=4, ja=5, th=6, sg=7, ms=8, vi=9
+        'USD': 0,  // $   → en sprite
+        'KRW': 1,  // ₩   → ko sprite
+        'CNY': 2,  // ¥   → zh-cn sprite
+        'TWD': 3,  // NT$ → zh-tw sprite
+        'PHP': 4,  // ₱   → fil sprite
+        'JPY': 5,  // ¥   → ja sprite
+        'THB': 6,  // ฿   → th sprite
+        'SGD': 7,  // S$  → sg sprite
+        'MYR': 8,  // RM  → ms sprite
+        'VND': 9,  // ₫   → vi sprite
+        'EUR': 0,  // €   → en sprite (fallback)
+        'GBP': 0,  // £   → en sprite (fallback)
+        'AUD': 0,  // A$  → en sprite (fallback)
+        'CAD': 0,  // C$  → en sprite (fallback)
+        'HKD': 0,  // HK$ → en sprite (fallback)
+        'IDR': 0,  // Rp  → en sprite (fallback)
+        'INR': 0,  // ₹   → en sprite (fallback)
+    };
 
     /** Params của lần setData() cuối cùng — dùng để re-render khi đổi ngôn ngữ. */
     private _lastValue: number = 0;
@@ -419,13 +461,21 @@ export class SpriteNumber extends Component {
         }
 
         // Khi enableLangCurrency=true và caller muốn hiển thị tiền tệ (>= 0),
-        // dùng index ngôn ngữ hiện tại làm currency index thay vì index truyền vào.
-        // currencySprites phải có 7 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th.
+        // ƯU TIÊN: dùng currency code từ server (nếu có) để chọn sprite đúng.
+        // FALLBACK: dùng ngôn ngữ UI hiện tại.
         if (this.enableLangCurrency && currencyIndex >= 0) {
-            const lang    = LocalizationManager.instance.currentLanguage;
-            const langIdx = SpriteNumber.LANG_ORDER.indexOf(lang);
-            if (langIdx >= 0 && langIdx < this.currencySprites.length) {
-                currencyIndex = langIdx;
+            const code = LocalizationManager.instance.currencyCode;
+            if (code && SpriteNumber.CURRENCY_CODE_TO_SPRITE_INDEX[code] !== undefined) {
+                const codeIdx = SpriteNumber.CURRENCY_CODE_TO_SPRITE_INDEX[code];
+                if (codeIdx < this.currencySprites.length) {
+                    currencyIndex = codeIdx;
+                }
+            } else {
+                const lang    = LocalizationManager.instance.currentLanguage;
+                const langIdx = SpriteNumber.LANG_ORDER.indexOf(lang);
+                if (langIdx >= 0 && langIdx < this.currencySprites.length) {
+                    currencyIndex = langIdx;
+                }
             }
         }
 
@@ -525,11 +575,15 @@ export class SpriteNumber extends Component {
                 const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
                 const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
                 const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
+                const isCurr      = frame === currencyFrame;
+                const isNextCurr  = frames[i + 1] === currencyFrame;
                 totalWidth += isNextKMBT
                     ? this.kmbtSpacing
                     : (isPunct || isNextPunct)
                         ? this.spacing + this.punctuationSpacingOffset
-                        : this.spacing;
+                        : (isCurr || isNextCurr)
+                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
+                            : this.spacing;
             }
         }
 
@@ -565,11 +619,15 @@ export class SpriteNumber extends Component {
                 const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
                 const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
                 const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
+                const isCurr      = frame === currencyFrame;
+                const isNextCurr  = frames[i + 1] === currencyFrame;
                 const gap = isNextKMBT
                     ? this.kmbtSpacing
                     : (isPunct || isNextPunct)
                         ? this.spacing + this.punctuationSpacingOffset
-                        : this.spacing;
+                        : (isCurr || isNextCurr)
+                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
+                            : this.spacing;
                 cursorX += allocatedW + gap;
             }
 
@@ -765,11 +823,15 @@ export class SpriteNumber extends Component {
                 const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
                 const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
                 const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
+                const isCurr      = frame === currencyFrame;
+                const isNextCurr  = frames[i + 1] === currencyFrame;
                 totalWidth += isNextKMBT
                     ? this.kmbtSpacing
                     : (isPunct || isNextPunct)
                         ? this.spacing + this.punctuationSpacingOffset
-                        : this.spacing;
+                        : (isCurr || isNextCurr)
+                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
+                            : this.spacing;
             }
         }
         return { totalWidth, maxHeight };

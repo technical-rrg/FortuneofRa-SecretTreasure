@@ -44,6 +44,21 @@
       },
       {
         "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇸🇬  Singapore — English (SG)  (sg)",
+        "message": "set-lang-sg"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇲🇾  Malay — Bahasa Melayu  (ms)",
+        "message": "set-lang-ms"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇻🇳  Vietnamese — Tiếng Việt  (vi)",
+        "message": "set-lang-vi"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
         "label": "⬛  Auto (clear override)",
         "message": "set-lang-auto"
       }
@@ -56,6 +71,9 @@
       "set-lang-fil":   { "methods": ["setLangFil"] },
       "set-lang-ja":    { "methods": ["setLangJa"] },
       "set-lang-th":    { "methods": ["setLangTh"] },
+      "set-lang-sg":    { "methods": ["setLangSg"] },
+      "set-lang-ms":    { "methods": ["setLangMs"] },
+      "set-lang-vi":    { "methods": ["setLangVi"] },
       "set-lang-auto":  { "methods": ["setLangAuto"] }
     }
   }

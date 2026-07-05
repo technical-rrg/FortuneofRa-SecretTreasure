@@ -44,6 +44,9 @@ const LANG_FONT_MAP = {
     'zh-tw': { src: 'NotoSansTC-ExtraBold.ttf',                  ttf: 'zh-tw-subset.ttf',      woff2: 'font_zh-tw.woff2' },
     ja:      { src: 'noto-sans-jp-bold.ttf',                     ttf: 'ja-subset.ttf',         woff2: 'font_ja.woff2'    },
     th:      { src: 'NotoSansThai_Condensed-ExtraBold.ttf',      ttf: 'th-subset.ttf',         woff2: 'font_th.woff2'    },
+    sg:      { src: 'English.ttf',                               ttf: 'sg-subset.ttf',         woff2: 'font_sg.woff2'    },
+    ms:      { src: 'English.ttf',                               ttf: 'ms-subset.ttf',         woff2: 'font_ms.woff2'    },
+    vi:      { src: 'NotoSans-Bold.ttf',                         ttf: 'vi-subset.ttf',         woff2: 'font_vi.woff2'    },
 };
 
 // ─── HELPERS ───────────────────────────────────────────────────────────────────

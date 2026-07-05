@@ -559,6 +559,11 @@ export class GameManager extends Component {
         // Bước 1: init strips, psToClientMap, emit ENTER_SUCCESS cho SlotMachineController
         this._initMockMode();
 
+        // Bước 1a: gọi mock login và lưu session để kích hoạt currency override
+        const session = await NetworkManager.instance.login();
+        GameData.instance.setServerSession(session);
+        WalletManager.instance.balance = session.cash;
+
         // Bước 2: gọi MockNetworkAdapter.enterGame() để lấy lastSpinResponse
         // (sẽ chứa dữ liệu từ MOCK_RESUME_SCENARIO nếu khác 'none')
         const enterResp = await NetworkManager.instance.enterGame();

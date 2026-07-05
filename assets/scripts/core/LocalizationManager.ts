@@ -19,6 +19,9 @@
  *   fil   — Filipino (Tagalog)
  *   ja    — Japanese (日本語)
  *   th    — Thai (ภาษาไทย)
+ *   sg    — Singapore English
+ *   ms    — Malay (Bahasa Melayu)
+ *   vi    — Vietnamese (Tiếng Việt)
  *
  * ★ 2 CHẾ ĐỘ HOẠT ĐỘNG:
  *   LOCAL:  Dùng file .ts build sẵn trong game (mặc định, offline-safe).
@@ -49,11 +52,38 @@ import { LOCALE_ZH_TW } from '../data/locales/zh-tw';
 import { LOCALE_FIL } from '../data/locales/fil';
 import { LOCALE_JA } from '../data/locales/ja';
 import { LOCALE_TH } from '../data/locales/th';
+import { LOCALE_SG } from '../data/locales/sg';
+import { LOCALE_MS } from '../data/locales/ms';
+import { LOCALE_VI } from '../data/locales/vi';
 import { Log } from './Logger';
 
 // ─── Types ───
 
-export type LanguageCode = 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th';
+export type LanguageCode = 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th' | 'sg' | 'ms' | 'vi';
+
+/**
+ * Map từ currency code (ISO 4217) → ký hiệu tiền tệ hiển thị.
+ * Được dùng khi server trả về Currency trong AckLogin để override locale.
+ */
+export const CURRENCY_SYMBOL_MAP: Record<string, string> = {
+    'USD': '$',
+    'KRW': '₩',
+    'JPY': '¥',
+    'CNY': '¥',
+    'TWD': 'NT$',
+    'THB': '฿',
+    'PHP': '₱',
+    'EUR': '€',
+    'GBP': '£',
+    'VND': '₫',
+    'SGD': 'S$',
+    'MYR': 'RM',
+    'IDR': 'Rp',
+    'HKD': 'HK$',
+    'AUD': 'A$',
+    'CAD': 'C$',
+    'INR': '₹',
+};
 
 // Re-export for backward compatibility
 export type { LocaleData };
@@ -68,6 +98,9 @@ const LOCALE_MODULES: Record<LanguageCode, LocaleData> = {
     'fil':   LOCALE_FIL,
     'ja':    LOCALE_JA,
     'th':    LOCALE_TH,
+    'sg':    LOCALE_SG,
+    'ms':    LOCALE_MS,
+    'vi':    LOCALE_VI,
 };
 
 /**
@@ -81,6 +114,9 @@ export const SUPPORTED_LANGUAGES: { code: LanguageCode; name: string; nativeName
     { code: 'fil',   name: 'Filipino',             nativeName: 'Filipino' },
     { code: 'ja',    name: 'Japanese',             nativeName: '日本語' },
     { code: 'th',    name: 'Thai',                 nativeName: 'ภาษาไทย' },
+    { code: 'sg',    name: 'Singapore',            nativeName: 'English (SG)' },
+    { code: 'ms',    name: 'Malay',                nativeName: 'Bahasa Melayu' },
+    { code: 'vi',    name: 'Vietnamese',           nativeName: 'Tiếng Việt' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -105,6 +141,14 @@ export class LocalizationManager {
     private _onlineData: Record<string, LocaleData> = {};
     /** Đã load online data thành công chưa */
     private _onlineLoaded: boolean = false;
+    /**
+     * Ký hiệu tiền tệ override từ server (AckLogin Currency).
+     * Khi được set, getText('CLIENT_CURRENENCY_SYMBOL') trả về giá trị này
+     * bất kể ngôn ngữ UI đang chọn là gì.
+     */
+    private _currencyOverride: string | null = null;
+    /** Currency code gốc từ server (ISO 4217), ví dụ "KRW", "USD". */
+    private _currencyCode: string | null = null;
 
     static get instance(): LocalizationManager {
         if (!this._instance) {
@@ -124,20 +168,45 @@ export class LocalizationManager {
     }
 
     /**
+     * Set ký hiệu tiền tệ override từ currency code server trả về (ISO 4217).
+     * Sau khi set, getText('CLIENT_CURRENENCY_SYMBOL') sẽ luôn trả về symbol này
+     * bất kể ngôn ngữ UI đang chọn.
+     *
+     * @param currencyCode  ISO 4217 code, ví dụ "USD", "KRW", "JPY", ...
+     *                      Nếu không tìm thấy trong map → giữ nguyên locale symbol.
+     */
+    setCurrencyOverride(currencyCode: string): void {
+        const symbol = CURRENCY_SYMBOL_MAP[currencyCode.toUpperCase()];
+        if (symbol) {
+            this._currencyCode     = currencyCode.toUpperCase();
+            this._currencyOverride = symbol;
+            Log.d(`[i18n] Currency override: ${currencyCode} → "${symbol}"`);
+        } else {
+            Log.w(`[i18n] Unknown currency code "${currencyCode}", keeping locale symbol`);
+        }
+    }
+
+    /**
+     * Trả về currency code từ server (ISO 4217) nếu đã được override,
+     * hoặc null nếu chưa set (đang dùng locale symbol).
+     * SpriteNumber dùng field này để chọn đúng currency sprite theo currency thật.
+     */
+    get currencyCode(): string | null {
+        return this._currencyCode;
+    }
+
+    /**
      * Trả về số ký tự logic của ký hiệu tiền tệ cho ngôn ngữ hiện tại (hoặc ngôn ngữ chỉ định).
+     * Nếu có currency override từ server, dùng symbol đó để tính.
      *
      * Dùng để canh size khung node chứa số tiền:
      *   - 'zh-tw' → 3  (vì ký hiệu là "NT$" — 3 ký tự)
      *   - tất cả còn lại → 1  (ký hiệu là "$", "₩", "¥", "฿", "₱" — 1 ký tự)
      *
-     * Ví dụ:
-     *   // Tính chiều rộng tối đa cần thiết cho label số tiền:
-     *   const charCount = LocalizationManager.instance.getCurrencyCharCount();
-     *   const extraWidth = (charCount - 1) * digitWidth;  // padding thêm so với mặc định 1 ký tự
-     *
      * @param lang  (Tuỳ chọn) Ngôn ngữ cần kiểm tra. Mặc định là ngôn ngữ hiện tại.
      */
     getCurrencyCharCount(lang?: LanguageCode): number {
+        if (this._currencyOverride !== null) return this._currencyOverride.length;
         const code = lang ?? this._currentLang;
         if (code === 'zh-tw') return 3;  // NT$ — 3 ký tự
         return 1;
@@ -214,6 +283,10 @@ export class LocalizationManager {
      * @returns       Translated string (fallback English nếu thiếu)
      */
     getText(key: string, params?: Record<string, string | number>): string {
+        // Currency override từ server luôn ưu tiên hơn locale
+        if (key === 'CLIENT_CURRENENCY_SYMBOL' && this._currencyOverride !== null) {
+            return this._currencyOverride;
+        }
         let text = this._currentData[key] ?? this._fallbackData[key] ?? `[${key}]`;
         if (params) {
             for (const k in params) {
@@ -354,6 +427,9 @@ export class LocalizationManager {
         if (lower.startsWith('ja')) return 'ja';
         if (lower.startsWith('th')) return 'th';
         if (lower.startsWith('fil')) return 'fil';
+        if (lower === 'sg' || lower.startsWith('sg')) return 'sg';
+        if (lower === 'ms' || lower.startsWith('ms')) return 'ms';
+        if (lower === 'vi' || lower.startsWith('vi')) return 'vi';
         if (lower.startsWith('en')) return 'en';
         return 'en';
     }

@@ -4,6 +4,7 @@
  */
 
 import { Log } from '../core/Logger';
+import { LocalizationManager } from '../core/LocalizationManager';
 import {
     PlayerData,
     SlotConfig,
@@ -478,6 +479,10 @@ export class GameData {
         this.isLoggedIn = true;
         // Balance từ server
         this.player.balance = session.cash;
+        // Override ký hiệu tiền tệ theo currency server trả về (bất kể ngôn ngữ UI)
+        if (session.currency) {
+            LocalizationManager.instance.setCurrencyOverride(session.currency);
+        }
     }
 
     /** Cập nhật SEQ từ server response (dùng cho SeqRequest APIs) */

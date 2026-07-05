@@ -4298,12 +4298,26 @@
       {
         "__uuid__": "498b697f-de63-486b-8819-368454354dc7@9f35f",
         "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "871136c1-67fa-4517-91ad-a158dfd2e398@f9941",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "73114840-f62d-417b-ae86-3a84e88c9d0d@f9941",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "f545d52a-4ac4-4d20-86aa-30bc191d1277@f9941",
+        "__expectedType__": "cc.SpriteFrame"
       }
     ],
+    "kmbtSprites": [],
     "currencyPosition": 0,
     "enableLangCurrency": true,
     "enableCountSound": true,
     "spacing": 0,
+    "kmbtSpacing": 0,
     "punctuationSpacingOffset": -30,
     "maxWidth": 750,
     "shrinkToFit": true,

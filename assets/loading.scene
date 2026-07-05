@@ -187,7 +187,7 @@
     "_priority": 0,
     "_fov": 45,
     "_fovAxis": 0,
-    "_orthoHeight": 540,
+    "_orthoHeight": 742.3350253807107,
     "_near": 0,
     "_far": 2000,
     "_color": {
@@ -1410,6 +1410,18 @@
     },
     "thaiFont": {
       "__uuid__": "cf30e92a-af9c-44c6-ab97-418b53265f91",
+      "__expectedType__": "cc.TTFFont"
+    },
+    "singaporeFont": {
+      "__uuid__": "b1a20ebc-eeb9-498d-bc9c-d45ba8e6b019",
+      "__expectedType__": "cc.TTFFont"
+    },
+    "malayFont": {
+      "__uuid__": "5e23092d-dcf5-4765-9991-77553e638523",
+      "__expectedType__": "cc.TTFFont"
+    },
+    "vietnameseFont": {
+      "__uuid__": "a39f077b-1758-4fd0-8041-c9891c71e6d8",
       "__expectedType__": "cc.TTFFont"
     },
     "_id": "95w+oi8tJPYIFSbMpenLvH"

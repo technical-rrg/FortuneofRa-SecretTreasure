@@ -153,7 +153,7 @@ exports.methods = {
 function runGenerateCdnManifest(root) {
     const crypto = require('crypto');
 
-    const FONT_LANGS  = ['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th'];
+    const FONT_LANGS  = ['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi'];
     const LOCALE_FILE = path.join(root, 'assets', 'scripts', 'data', 'locales', 'locale-online.json');
     const FONT_DIR    = path.join(root, 'assets', 'Font');
     const MANIFEST_OUT = path.join(root, 'cdn-manifest.json');
@@ -288,13 +288,16 @@ function exportCdnFiles(root, result) {
 
 /** Column index trong Excel → language code */
 const COL_MAP = {
-    2: 'en',
-    3: 'ko',
-    4: 'zh-cn',
-    5: 'zh-tw',
-    6: 'fil',
-    7: 'ja',
-    8: 'th',
+    2:  'en',
+    3:  'ko',
+    4:  'zh-cn',
+    5:  'zh-tw',
+    6:  'fil',
+    7:  'ja',
+    8:  'th',
+    9:  'sg',
+    10: 'ms',
+    11: 'vi',
 };
 
 /** Tên constant TypeScript export */
@@ -306,6 +309,9 @@ const CONST_MAP = {
     'fil':   'LOCALE_FIL',
     'ja':    'LOCALE_JA',
     'th':    'LOCALE_TH',
+    'sg':    'LOCALE_SG',
+    'ms':    'LOCALE_MS',
+    'vi':    'LOCALE_VI',
 };
 
 /** Tên ngôn ngữ đầy đủ cho comment */
@@ -317,6 +323,9 @@ const LANG_NAMES = {
     'fil':   'Filipino (fil)',
     'ja':    'Japanese (ja) — 日本語',
     'th':    'Thai (th) — ภาษาไทย',
+    'sg':    'Singapore English (sg)',
+    'ms':    'Malay (ms) — Bahasa Melayu',
+    'vi':    'Vietnamese (vi) — Tiếng Việt',
 };
 
 /** Game-internal keys (không có trong Excel) — merged vào từng ngôn ngữ */

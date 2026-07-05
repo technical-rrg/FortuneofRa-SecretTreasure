@@ -11,7 +11,7 @@
  *   node tools/convert-localization-xlsx.js "SuperNova_LocalizationStringTable_20260409.xlsx"
  *
  * ★ OUTPUT:
- *   - Ghi đè assets/scripts/data/locales/{en,ko,zh-cn,zh-tw,fil,ja,th}.ts
+ *   - Ghi đè assets/scripts/data/locales/{en,ko,zh-cn,zh-tw,fil,ja,th,sg,ms,vi}.ts
  *   - Tạo assets/scripts/data/locales/locale-online.json (dùng cho online mode)
  *
  * ★ FORMAT XLSX:
@@ -39,6 +39,9 @@ const COL_MAP = {
     6: 'fil',
     7: 'ja',
     8: 'th',
+    9: 'sg',
+    10: 'ms',
+    11: 'vi',
 };
 
 /** Constant names cho export (LOCALE_EN, LOCALE_KO, ...) */
@@ -50,6 +53,9 @@ const CONST_MAP = {
     'fil': 'LOCALE_FIL',
     'ja': 'LOCALE_JA',
     'th': 'LOCALE_TH',
+    'sg': 'LOCALE_SG',
+    'ms': 'LOCALE_MS',
+    'vi': 'LOCALE_VI',
 };
 
 /** Language display names */
@@ -61,6 +67,9 @@ const LANG_NAMES = {
     'fil': 'Filipino (fil)',
     'ja': 'Japanese (ja) — 日本語',
     'th': 'Thai (th) — ภาษาไทย',
+    'sg': 'Singapore English (sg)',
+    'ms': 'Malay (ms) — Bahasa Melayu',
+    'vi': 'Vietnamese (vi) — Tiếng Việt',
 };
 
 /** Keys cũ từ game hiện tại — GIỮA LẠI, merge với keys mới từ Excel */

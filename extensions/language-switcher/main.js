@@ -18,13 +18,16 @@ const fs   = require('fs');
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const LANGUAGES = [
-    { code: 'en',    label: 'English',                  native: 'English',    flag: '🇺🇸' },
-    { code: 'ko',    label: 'Korean',                   native: '한국어',       flag: '🇰🇷' },
-    { code: 'zh-cn', label: 'Simplified Chinese',       native: '简体中文',     flag: '🇨🇳' },
-    { code: 'zh-tw', label: 'Traditional Chinese',      native: '繁體中文',     flag: '🇹🇼' },
-    { code: 'fil',   label: 'Filipino',                 native: 'Filipino',   flag: '🇵🇭' },
-    { code: 'ja',    label: 'Japanese',                 native: '日本語',       flag: '🇯🇵' },
-    { code: 'th',    label: 'Thai',                     native: 'ภาษาไทย',    flag: '🇹🇭' },
+    { code: 'en',    label: 'English',                  native: 'English',        flag: '🇺🇸' },
+    { code: 'ko',    label: 'Korean',                   native: '한국어',           flag: '🇰🇷' },
+    { code: 'zh-cn', label: 'Simplified Chinese',       native: '简体中文',         flag: '🇨🇳' },
+    { code: 'zh-tw', label: 'Traditional Chinese',      native: '繁體中文',         flag: '🇹🇼' },
+    { code: 'fil',   label: 'Filipino',                 native: 'Filipino',       flag: '🇵🇭' },
+    { code: 'ja',    label: 'Japanese',                 native: '日本語',           flag: '🇯🇵' },
+    { code: 'th',    label: 'Thai',                     native: 'ภาษาไทย',        flag: '🇹🇭' },
+    { code: 'sg',    label: 'Singapore',                native: 'English (SG)',   flag: '🇸🇬' },
+    { code: 'ms',    label: 'Malay',                    native: 'Bahasa Melayu',  flag: '🇲🇾' },
+    { code: 'vi',    label: 'Vietnamese',               native: 'Tiếng Việt',      flag: '🇻🇳' },
 ];
 
 // ─── Extension lifecycle ──────────────────────────────────────────────────────
@@ -48,6 +51,9 @@ exports.methods = {
     setLangFil()   { _setLang('fil'); },
     setLangJa()    { _setLang('ja'); },
     setLangTh()    { _setLang('th'); },
+    setLangSg()    { _setLang('sg'); },
+    setLangMs()    { _setLang('ms'); },
+    setLangVi()    { _setLang('vi'); },
     setLangAuto()  { _setLang(null); },
 };
 

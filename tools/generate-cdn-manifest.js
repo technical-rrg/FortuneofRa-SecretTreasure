@@ -4,7 +4,7 @@
  *
  * Tự động tạo cdn-manifest.json dựa trên:
  *   - assets/scripts/data/locales/locale-online.json
- *   - assets/Font/{en,ko,zh-cn,zh-tw,fil,ja,th}-subset.ttf
+ *   - assets/Font/{en,ko,zh-cn,zh-tw,fil,ja,th,sg,ms,vi}-subset.ttf
  *
  * ★ CÁCH DÙNG:
  *   node tools/generate-cdn-manifest.js
@@ -42,7 +42,7 @@ const TRACKED_FILES = [
         filePath: path.join(ROOT, 'assets', 'scripts', 'data', 'locales', 'locale-online.json'),
         label:    'locale-online.json',
     },
-    ...['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th'].map(lang => ({
+    ...['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi'].map(lang => ({
         key:      `font_${lang}`,
         filePath: path.join(ROOT, 'assets', 'Font', `${lang}-subset.ttf`),
         label:    `${lang}-subset.ttf`,

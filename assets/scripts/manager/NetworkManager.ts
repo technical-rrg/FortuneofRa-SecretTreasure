@@ -353,6 +353,19 @@ class MockNetworkAdapter implements INetworkAdapter {
 
     async login(_params?: any): Promise<ServerSession> {
         await this._delay(300);
+
+        // Mock: ưu tiên TestLoginConfig.Currency nếu dev set rõ ràng.
+        // Fallback theo URL gl để test đúng ký hiệu tiền tệ cho từng ngôn ngữ; cuối cùng là USD.
+        const gl = (typeof window !== 'undefined' && window.location)
+            ? new window.URLSearchParams(window.location.search).get('gl') ?? ''
+            : '';
+        const mockCurrencyByLang: Record<string, string> = {
+            'en': 'USD', 'ko': 'KRW', 'zh-cn': 'CNY', 'zh-tw': 'TWD',
+            'fil': 'PHP', 'ja': 'JPY', 'th': 'THB', 'sg': 'SGD',
+            'ms': 'MYR', 'vi': 'VND',
+        };
+        const mockCurrency = TestLoginConfig.Currency ?? mockCurrencyByLang[gl.toLowerCase()] ?? 'USD';
+
         return {
             nick: 'MockPlayer',
             serverTime: new Date().toISOString(),
@@ -364,7 +377,7 @@ class MockNetworkAdapter implements INetworkAdapter {
             uid: 'mock-uid',
             cash: GameData.instance.player.balance,
             aky: '',
-            currency: 'USD',
+            currency: mockCurrency,
             country: 'US',
             isNewAccount: false,
             useBroadcast: false,
@@ -3069,18 +3082,33 @@ class RealNetworkAdapter implements INetworkAdapter {
 
     /**
      * Map ngôn ngữ game hiện tại → Country Code (LID / LangID) theo bảng API doc.
-     * Country Code Table: 0=en, 1=ja, 2=ko, 3=th, 12=zh-cn, 14=zh-tw, 17=fil
+     * Country Code Table:
+     *   0=en, 1=ja, 2=ko, 3=th, 4=es, 5=de, 6=fr, 7=id, 8=it, 9=pt,
+     *   10=tr, 11=vi, 12=zh-cn, 13=zh-cn, 14=zh-tw, 15=zh-tw, 16=km,
+     *   17=fil, 18=ms, 19=es, 20=hi
      */
     private _getLangId(): number {
         const lang = LocalizationManager.instance.currentLanguage;
         const MAP: Record<string, number> = {
-            'en':    0,
-            'ja':    1,
-            'ko':    2,
-            'th':    3,
-            'zh-cn': 12,
-            'zh-tw': 14,
-            'fil':   17,
+            'en':    0,   // English
+            'sg':    0,   // Singapore English
+            'ja':    1,   // Japanese
+            'ko':    2,   // Korean
+            'th':    3,   // Thai
+            'es':    4,   // Spanish / Spanish Latin
+            'de':    5,   // German
+            'fr':    6,   // French
+            'id':    7,   // Indonesian
+            'it':    8,   // Italian
+            'pt':    9,   // Portuguese
+            'tr':    10,  // Turkish
+            'vi':    11,  // Vietnamese
+            'zh-cn': 12,  // Chinese Simplified
+            'zh-tw': 14,  // Chinese Traditional
+            'km':    16,  // Cambodia
+            'fil':   17,  // Tagalog-Philippines
+            'ms':    18,  // Melayu
+            'hi':    20,  // Hindi-India
         };
         return MAP[lang] ?? 0;
     }

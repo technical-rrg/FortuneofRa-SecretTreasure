@@ -16,7 +16,10 @@
  *       "zh-tw": { "v": "20260417001", "size": 423000 },
  *       "fil":   { "v": "20260417001", "size": 45000 },
  *       "ja":    { "v": "20260417001", "size": 512000 },
- *       "th":    { "v": "20260417001", "size": 98000 }
+ *       "th":    { "v": "20260417001", "size": 98000 },
+ *       "sg":    { "v": "20260417001", "size": 45000 },
+ *       "ms":    { "v": "20260417001", "size": 45000 },
+ *       "vi":    { "v": "20260417001", "size": 67000 }
  *     }
  *   }
  *
@@ -29,7 +32,7 @@
  *   const locale = await cdn.loadLocale();                             // 2. Load locale
  *   if (locale) LocalizationManager.instance.loadOnlineLocalesFromData(locale);
  *
- *   const fonts = await cdn.loadAllFonts(['en','ko','zh-cn','zh-tw','fil','ja','th']);
+ *   const fonts = await cdn.loadAllFonts(['en','ko','zh-cn','zh-tw','fil','ja','th','sg','ms','vi']);
  *   FontManager.instance?.applyRemoteFonts(fonts);                     // 3. Apply fonts
  *
  * ★ CẤU TRÚC CDN:
@@ -42,6 +45,9 @@
  *   <cdnBase>/fonts/fil-subset.ttf
  *   <cdnBase>/fonts/ja-subset.ttf
  *   <cdnBase>/fonts/th-subset.ttf
+ *   <cdnBase>/fonts/sg-subset.ttf
+ *   <cdnBase>/fonts/ms-subset.ttf
+ *   <cdnBase>/fonts/vi-subset.ttf
  *
  * ★ RESET CACHE (debug):
  *   CdnAssetManager.instance.clearCache();

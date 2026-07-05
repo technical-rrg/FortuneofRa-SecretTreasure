@@ -44,7 +44,7 @@ export const ServerConfig = {
      *  Để null → bỏ qua CDN, dùng local bundled assets.
      *  Để test: set CDN_BASE = null, xoá localStorage 'sn_cdn_*' để clear cache.
      */
-    CDN_BASE: 'https://downloads.newworld.id/slotlanguage/shangrila' as string | null,
+    CDN_BASE: 'https://downloads.realreelsgaming.com/slotlanguage/shangrila' as string | null,
 
     /**
      * Bật/tắt tải locale từ CDN.
@@ -218,6 +218,9 @@ export const DEBUG_RANDS: readonly number[] | null =  null;//DEBUG_RANDS_PRESET.
  *  'fil'     — Filipino
  *  'ja'      — Japanese (日本語)
  *  'th'      — Thai (ภาษาไทย)
+ *  'sg'      — Singapore English
+ *  'ms'      — Malay (Bahasa Melayu)
+ *  'vi'      — Vietnamese (Tiếng Việt)
  */
 
 export const DEV_FORCE_LANG: string | null = null;  // null = auto-detect từ URL `gl` parameter
@@ -260,7 +263,7 @@ export const TestLoginConfig = {
     PlatformId: 'testuser01',
     DeviceToken: 'a2b07025fdc0416c8ef8cb68ea39c1ef',
     IsPractice: false,
-    Currency: 'INR',
+    Currency: 'USD',
     PartnerId: null as number | null,
 };
 

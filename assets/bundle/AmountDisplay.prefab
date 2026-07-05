@@ -151,7 +151,7 @@
     },
     "currencySprites": [
       {
-        "__uuid__": "f1d9a72e-f101-4427-ac64-6127a6fad8d9@5cb41",
+        "__uuid__": "12a04fde-094a-43c6-ac8f-0516548126b1@f9941",
         "__expectedType__": "cc.SpriteFrame"
       },
       {
@@ -176,6 +176,18 @@
       },
       {
         "__uuid__": "f1d9a72e-f101-4427-ac64-6127a6fad8d9@dd493",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "871136c1-67fa-4517-91ad-a158dfd2e398@f9941",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "73114840-f62d-417b-ae86-3a84e88c9d0d@f9941",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "f545d52a-4ac4-4d20-86aa-30bc191d1277@f9941",
         "__expectedType__": "cc.SpriteFrame"
       }
     ],
@@ -203,6 +215,8 @@
     "spacing": -50,
     "kmbtSpacing": 10,
     "punctuationSpacingOffset": -30,
+    "currencySpacing": -20,
+    "currencySpacingRatio": 0,
     "maxWidth": 600,
     "shrinkToFit": false,
     "joltEnabled": true,

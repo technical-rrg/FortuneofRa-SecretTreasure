@@ -496,15 +496,15 @@ export class MockDataProvider {
 
         switch (scenario) {
             case TestScenario.NORMAL_WIN: {
-                // Phoenix 3-reel win: tìm rand thực trên strip → grid nhất quán với visual
-                // Reels 0,1,2: mid row = Phoenix; Reels 3,4: không có Phoenix → streak dừng ở 3
+                // Cleopatra 3-reel win: tìm rand thực trên strip → grid nhất quán với visual
+                // Reels 0,1,2: mid row = Cleopatra; Reels 3,4: không có Cleopatra → streak dừng ở 3
                 const strips = data.getReelStrips(false);
                 const rands = [
-                    findMidRand(strips[0], SymbolId.MAJOR_PHOENIX),
-                    findMidRand(strips[1], SymbolId.MAJOR_PHOENIX),
-                    findMidRand(strips[2], SymbolId.MAJOR_PHOENIX),
-                    findNoSymbolRand(strips[3] ?? [], SymbolId.MAJOR_PHOENIX),
-                    findNoSymbolRand(strips[4] ?? [], SymbolId.MAJOR_PHOENIX),
+                    findMidRand(strips[0], SymbolId.MAJOR_CLEOPATRA),
+                    findMidRand(strips[1], SymbolId.MAJOR_CLEOPATRA),
+                    findMidRand(strips[2], SymbolId.MAJOR_CLEOPATRA),
+                    findNoSymbolRand(strips[3] ?? [], SymbolId.MAJOR_CLEOPATRA),
+                    findNoSymbolRand(strips[4] ?? [], SymbolId.MAJOR_CLEOPATRA),
                 ];
                 const grid = data.getBaseGrid(rands, false);
                 const wins = WaysPayCalculator.calculate(grid, totalBet);
@@ -518,9 +518,9 @@ export class MockDataProvider {
             }
 
             case TestScenario.BIG_WIN: {
-                // Phoenix full 5-reel win: tất cả reel đều có Phoenix ở mid row
+                // Cleopatra full 5-reel win: tất cả reel đều có Cleopatra ở mid row
                 const strips = data.getReelStrips(false);
-                const rands = strips.map(strip => findMidRand(strip, SymbolId.MAJOR_PHOENIX));
+                const rands = strips.map(strip => findMidRand(strip, SymbolId.MAJOR_CLEOPATRA));
                 const grid = data.getBaseGrid(rands, false);
                 const wins = WaysPayCalculator.calculate(grid, totalBet);
                 return enrich({

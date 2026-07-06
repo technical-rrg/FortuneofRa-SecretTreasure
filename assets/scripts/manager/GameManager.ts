@@ -1203,9 +1203,9 @@ export class GameManager extends Component {
         // Build grid string cho log (dùng lại ở các path bên dưới)
         const S: Record<number,string> = {
             [SymbolId.MINOR_Q]:'Q', [SymbolId.MINOR_K]:'K', [SymbolId.MINOR_A]:'A',
-            [SymbolId.MAJOR_COIN]:'Coin', [SymbolId.MAJOR_INGOT]:'Ingot',
-            [SymbolId.MAJOR_SHIP]:'Ship', [SymbolId.MAJOR_TURTLE]:'Turtle',
-            [SymbolId.MAJOR_PHOENIX]:'Phx', [SymbolId.WILD]:'Wild',
+            [SymbolId.MAJOR_HORUS]:'Horus', [SymbolId.MAJOR_ANUBIS]:'Anubis',
+            [SymbolId.MAJOR_SOBEK]:'Sobek', [SymbolId.MAJOR_RAMSES]:'Ramses',
+            [SymbolId.MAJOR_CLEOPATRA]:'Cleo', [SymbolId.WILD]:'Wild',
             [SymbolId.STICKY_RED]:'Red', [SymbolId.STICKY_YELLOW]:'Yel',
             [SymbolId.STICKY_GREEN]:'Grn', [SymbolId.PLUS_ONE_SPIN]:'+1',
         };
@@ -3563,7 +3563,7 @@ export class GameManager extends Component {
             for (const symbolId of strip) {
                 if (!isTopUpSpecial(symbolId)) return symbolId;
             }
-            return SymbolId.MAJOR_PHOENIX;
+            return SymbolId.MAJOR_CLEOPATRA;
         };
 
         const serverGrid: number[][] = [];

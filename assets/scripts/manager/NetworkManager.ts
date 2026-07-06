@@ -2582,16 +2582,19 @@ class RealNetworkAdapter implements INetworkAdapter {
         // Gold of Fortune server schema — map tất cả PS symbol IDs → client SymbolId
         // Dùng nhiều tên khác nhau vì server PS có thể dùng format khác nhau
         const psSymbolFields: Array<[string[], number]> = [
-            // Minors — SuperNova style named fields (Gold of Fortune không có, sẽ map qua Trail)
-            [['MinorQSymbolID', 'MinorQ', 'SymbolQ'],            SymbolId.MINOR_Q],
-            [['MinorKSymbolID', 'MinorK', 'SymbolK'],            SymbolId.MINOR_K],
-            [['MinorASymbolID', 'MinorA', 'SymbolA'],            SymbolId.MINOR_A],
-            // Majors
-            [['MajorCoinSymbolID', 'MajorCoin', 'CoinSymbolID', 'Coin'],    SymbolId.MAJOR_COIN],
-            [['MajorIngotSymbolID', 'MajorIngot', 'IngotSymbolID', 'Ingot'], SymbolId.MAJOR_INGOT],
-            [['MajorShipSymbolID', 'MajorShip', 'ShipSymbolID', 'Ship'],    SymbolId.MAJOR_SHIP],
-            [['MajorTurtleSymbolID', 'MajorTurtle', 'TurtleSymbolID', 'Turtle'], SymbolId.MAJOR_TURTLE],
-            [['MajorPhoenixSymbolID', 'MajorPhoenix', 'PhoenixSymbolID', 'Phoenix'], SymbolId.MAJOR_PHOENIX],
+            // Minors — Secret Treasure (PS 1–6 = 9, 10, J, Q, K, A)
+            [['Minor9SymbolID', 'MinorNine', 'Symbol9'],           SymbolId.MINOR_9],
+            [['Minor10SymbolID', 'MinorTen', 'Symbol10'],          SymbolId.MINOR_10],
+            [['MinorJSymbolID', 'MinorJack', 'SymbolJ'],           SymbolId.MINOR_J],
+            [['MinorQSymbolID', 'MinorQ', 'SymbolQ'],              SymbolId.MINOR_Q],
+            [['MinorKSymbolID', 'MinorK', 'SymbolK'],              SymbolId.MINOR_K],
+            [['MinorASymbolID', 'MinorA', 'SymbolA'],              SymbolId.MINOR_A],
+            // Majors — Secret Treasure (PS 11–15)
+            [['MajorHorusSymbolID', 'MajorHorus', 'HorusSymbolID', 'Horus', 'RaSymbolID', 'Ra', 'MajorCoinSymbolID', 'MajorCoin', 'CoinSymbolID', 'Coin'], SymbolId.MAJOR_HORUS],
+            [['MajorAnubisSymbolID', 'MajorAnubis', 'AnubisSymbolID', 'Anubis', 'MajorIngotSymbolID', 'MajorIngot', 'IngotSymbolID', 'Ingot'], SymbolId.MAJOR_ANUBIS],
+            [['MajorSobekSymbolID', 'MajorSobek', 'SobekSymbolID', 'Sobek', 'MajorShipSymbolID', 'MajorShip', 'ShipSymbolID', 'Ship'], SymbolId.MAJOR_SOBEK],
+            [['MajorRamsesSymbolID', 'MajorRamses', 'RamsesSymbolID', 'Ramses', 'MajorTurtleSymbolID', 'MajorTurtle', 'TurtleSymbolID', 'Turtle'], SymbolId.MAJOR_RAMSES],
+            [['MajorCleopatraSymbolID', 'MajorCleopatra', 'CleopatraSymbolID', 'Cleopatra', 'MajorPhoenixSymbolID', 'MajorPhoenix', 'PhoenixSymbolID', 'Phoenix'], SymbolId.MAJOR_CLEOPATRA],
             // Specials (Gold of Fortune — API doc V1.0.3)
             [['WildTrailSymbolID', 'WildSymbolID'],               SymbolId.WILD],
             [['StickyRedSymbolID', 'StickyRed'],                  SymbolId.STICKY_RED],
@@ -2604,7 +2607,7 @@ class RealNetworkAdapter implements INetworkAdapter {
             [['MajorJackpotID'], SymbolId.JP_MAJOR],
             [['GrandJackpotID'], SymbolId.JP_GRAND],
             // NOTE: Trail01-06symbolID KHÔNG map tĩnh ở đây.
-            // Sẽ được map động bằng cách sort theo SymbolRates (payout thấp → cao = MINOR_Q → MAJOR_SHIP)
+            // Sẽ được map động bằng cách sort theo SymbolRates (payout thấp → cao = MINOR_9 → MAJOR_SOBEK)
             // theo API doc V1.0.3 section 5.1.
         ];
 
@@ -2658,19 +2661,20 @@ class RealNetworkAdapter implements INetworkAdapter {
             Log.e(`[PS:TrailMap] All Trail IDs → STICKY_RED: ${_trailIds.map(id=>`${id}(credit_rate=${_symbolRatesMap[id]??'?'})`).join(' | ')}`);
         }
 
-        // ═══ Normal symbols (Way Pay) — hardcoded từ game design document ═══
-        // 1=Q, 2=K, 3=A, 11=Ancient Coin, 12=Ingot, 13=Ship, 14=Turtle, 15=Phoenix
+        // ═══ Normal symbols (Way Pay) — Secret Treasure PS IDs ═══
+        // 1=9, 2=10, 3=J, 4=Q, 5=K, 6=A, 11=Horus, 12=Anubis, 13=Sobek, 14=Ramses, 15=Cleopatra
         {
             const _normalSymbols: Record<number, number> = {
-                1:  SymbolId.MINOR_Q,      2:  SymbolId.MINOR_K,      3:  SymbolId.MINOR_A,
-                11: SymbolId.MAJOR_COIN,   12: SymbolId.MAJOR_INGOT,  13: SymbolId.MAJOR_SHIP,
-                14: SymbolId.MAJOR_TURTLE, 15: SymbolId.MAJOR_PHOENIX,
+                1:  SymbolId.MINOR_9,      2:  SymbolId.MINOR_10,     3:  SymbolId.MINOR_J,
+                4:  SymbolId.MINOR_Q,      5:  SymbolId.MINOR_K,      6:  SymbolId.MINOR_A,
+                11: SymbolId.MAJOR_HORUS,     12: SymbolId.MAJOR_ANUBIS,  13: SymbolId.MAJOR_SOBEK,
+                14: SymbolId.MAJOR_RAMSES,   15: SymbolId.MAJOR_CLEOPATRA,
             };
             for (const [psId, clientId] of Object.entries(_normalSymbols)) {
                 const id = parseInt(psId, 10);
                 if (!(id in dynMap)) dynMap[id] = clientId as number;
             }
-            Log.e('[PS:NormalMap] 1→Q 2→K 3→A 11→COIN 12→INGOT 13→SHIP 14→TURTLE 15→PHOENIX');
+            Log.e('[PS:NormalMap] 1→9 2→10 3→J 4→Q 5→K 6→A 11→COIN 12→INGOT 13→SHIP 14→TURTLE 15→PHOENIX');
         }
 
         // ═══ Pick Game symbols — hardcoded từ game design document ═══
@@ -2697,9 +2701,10 @@ class RealNetworkAdapter implements INetworkAdapter {
             }
             const sortedIds = [...allPsIds].sort((a, b) => a - b);
             const clientSymbolOrder = [
+                SymbolId.MINOR_9, SymbolId.MINOR_10, SymbolId.MINOR_J,
                 SymbolId.MINOR_Q, SymbolId.MINOR_K, SymbolId.MINOR_A,
-                SymbolId.MAJOR_COIN, SymbolId.MAJOR_INGOT, SymbolId.MAJOR_SHIP,
-                SymbolId.MAJOR_TURTLE, SymbolId.MAJOR_PHOENIX, SymbolId.WILD,
+                SymbolId.MAJOR_HORUS, SymbolId.MAJOR_ANUBIS, SymbolId.MAJOR_SOBEK,
+                SymbolId.MAJOR_RAMSES, SymbolId.MAJOR_CLEOPATRA, SymbolId.WILD,
                 SymbolId.STICKY_RED, SymbolId.STICKY_YELLOW, SymbolId.STICKY_GREEN,
                 SymbolId.PLUS_ONE_SPIN,
             ];

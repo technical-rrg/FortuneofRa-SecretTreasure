@@ -1,19 +1,17 @@
 /**
- * SymbolManager — ★ Gold of Fortune mapping (3×5, Ways Pay).
+ * SymbolManager — ★ Secret Treasure mapping (5×3, Ways Pay).
  *
  * Hỗ trợ 2 hệ thống ID:
- *   - Client SymbolId (0–17): dùng bởi SymbolView, GameData mock strips
- *   - PS Symbol ID:           dùng bởi server API (legacy, sẽ dần loại bỏ)
+ *   - Client SymbolId (0–20): dùng bởi SymbolView, GameData mock strips
+ *   - PS Symbol ID:           dùng bởi server API
  *
  * Quy ước đặt tên file hình (đặt trong `assets/bundle/textures/symbol/`):
- *   minor_q, minor_k, minor_a                      (id 0/1/2)
- *   major_coin, major_ingot, major_ship, major_turtle, major_phoenix  (id 3..7)
- *   wild_trail                                     (id 8)
- *   sticky_red, sticky_yellow, sticky_green        (id 9/10/11)
- *   plus_one_spin                                  (id 12)
- *   jp_idle, jp_mini, jp_minor, jp_major, jp_grand (id 13..17, chỉ dùng cho Pick Game)
- *
- * Legacy aliases (id 90..98) map về safe default để code cũ không crash.
+ *   minor_9, minor_10, minor_j, minor_q, minor_k, minor_a   (id 0..5)
+ *   major_horus, major_anubis, major_sobek, major_ramses, major_cleopatra  (id 6..10)
+ *   wild_trail                                                (id 11)
+ *   sticky_red, sticky_yellow, sticky_green                   (id 12/13/14)
+ *   plus_one_spin                                             (id 15)
+ *   jp_idle, jp_mini, jp_minor, jp_major, jp_grand           (id 16..20, Pick Game)
  */
 
 import { SpriteFrame, resources } from 'cc';
@@ -27,15 +25,18 @@ import { GameData } from '../data/GameData';
 
 export const CLIENT_SPRITE_MAP: Record<number, string> = {
     // ─── Minor (low pay) ───
+    [SymbolId.MINOR_9]:        'minor_9',
+    [SymbolId.MINOR_10]:       'minor_10',
+    [SymbolId.MINOR_J]:        'minor_j',
     [SymbolId.MINOR_Q]:        'minor_q',
     [SymbolId.MINOR_K]:        'minor_k',
     [SymbolId.MINOR_A]:        'minor_a',
     // ─── Major (high pay) ───
-    [SymbolId.MAJOR_COIN]:     'major_coin',
-    [SymbolId.MAJOR_INGOT]:    'major_ingot',
-    [SymbolId.MAJOR_SHIP]:     'major_ship',
-    [SymbolId.MAJOR_TURTLE]:   'major_turtle',
-    [SymbolId.MAJOR_PHOENIX]:  'major_phoenix',
+    [SymbolId.MAJOR_HORUS]:     'major_horus',
+    [SymbolId.MAJOR_ANUBIS]:    'major_anubis',
+    [SymbolId.MAJOR_SOBEK]:     'major_sobek',
+    [SymbolId.MAJOR_RAMSES]:    'major_ramses',
+    [SymbolId.MAJOR_CLEOPATRA]: 'major_cleopatra',
     // ─── Wild Trail (reel 1/2/3) ───
     [SymbolId.WILD]:           'wild_trail',
     // ─── Sticky symbols (Feature) ───
@@ -132,9 +133,9 @@ export class SymbolManager {
         return null;
     }
 
-    /** Preload tất cả symbol xuất hiện trên reel (0..12 — bỏ JP icon vì chỉ dùng Pick Game). */
+    /** Preload tất cả symbol xuất hiện trên reel (0..15 — bỏ JP icon vì chỉ dùng Pick Game). */
     async preloadReelSymbols(): Promise<void> {
-        const ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        const ids = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
         const promises = ids.map((id) => this.getSpriteFrame(id));
         await Promise.all(promises);
     }

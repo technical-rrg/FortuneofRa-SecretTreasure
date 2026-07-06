@@ -21,8 +21,8 @@ export const ServerConfig = {
     /** Base URL của Slot Game Server */
     SERVER_URL: 'https://dev-slot.newworld.id',
 
-    /** Slot Game ID cho Gold of Fortunes (truy vấn Game Code Table) */
-    SLOT_ID: 17,
+    /** Slot Game ID cho Secret Treasure (truy vấn Game Code Table) */
+    SLOT_ID: 18,
 
     /** Game client version */
     GAME_VERSION: '1.0.0',
@@ -122,8 +122,8 @@ export const ServerConfig = {
  *
  *  'random'            — Tạo ngẫu nhiên (mặc định)
  *  'no_win'            — Spin không trúng
- *  'normal_win'        — Phoenix 3-of-kind
- *  'big_win'           — Phoenix 5×3 (243 ways combo)
+ *  'normal_win'        — Cleopatra 3-of-kind
+ *  'big_win'           — Cleopatra 5×3 (243 ways combo)
  *  'long_spin'         — 3 Red sticky reel 0..2 → Long Spin
  *  'feature_respin'    — 6 Red sticky → Feature Select → Re-Spin
  *  'feature_freespin'  — 6+ Red sticky → Feature Select → Free Spin

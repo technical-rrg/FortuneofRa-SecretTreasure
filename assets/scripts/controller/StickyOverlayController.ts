@@ -172,7 +172,7 @@ export class StickyOverlayController extends Component {
 
         // ═══ TOPUP OVERLAY DEBUG ═══
         Log.e(`[SOC-DEBUG] _refreshAll(fadeOnlyNew=${fadeOnlyNew}) — stickyCells.size=${cells.size} coinSlots.length=${this.coinSlots.length} node.active=${this.node.active}`);
-        Log.e(`[SOC-DEBUG] stickyCells: ${cells.size === 0 ? '(empty)' : Array.from(cells.entries()).map(([k, c]) => `${k}=${c.symbolId === 14 ? 'YELLOW' : c.symbolId === 15 ? 'GREEN' : c.symbolId === 13 ? 'RED' : c.symbolId}($${c.credit})`).join(', ')}`);
+        Log.e(`[SOC-DEBUG] stickyCells: ${cells.size === 0 ? '(empty)' : Array.from(cells.entries()).map(([k, c]) => `${k}=${c.symbolId === SymbolId.STICKY_YELLOW ? 'YELLOW' : c.symbolId === SymbolId.STICKY_GREEN ? 'GREEN' : c.symbolId === SymbolId.STICKY_RED ? 'RED' : c.symbolId}($${c.credit})`).join(', ')}`);
         // ═══ END DEBUG ═══
 
         for (let reel = 0; reel < 5; reel++) {

@@ -1,6 +1,6 @@
 /**
  * GameData - Singleton chứa toàn bộ data runtime của game.
- * ★ Gold of Fortune (3×5 Ways Pay).
+ * ★ Secret Treasure (5×3 Ways Pay).
  */
 
 import { Log } from '../core/Logger';
@@ -25,35 +25,33 @@ import {
 //   - +1 Spin chỉ xuất hiện trên Re-Spin strip.
 //
 // Tỉ lệ symbol (Normal Spin):
-//   Minor (Q/K/A) chiếm ~40%, Major chiếm ~45%, Wild ~5% (reel 1/2/3 only),
+//   Minor (9/10/J/Q/K/A) chiếm ~40%, Major chiếm ~45%, Wild ~5% (reel 1/2/3 only),
 //   Sticky Red ~7%, còn lại blank/no-special.
 //
+const N9 = SymbolId.MINOR_9;
+const N10 = SymbolId.MINOR_10;
+const NJ = SymbolId.MINOR_J;
 const Q = SymbolId.MINOR_Q;
 const K = SymbolId.MINOR_K;
 const A = SymbolId.MINOR_A;
-const C = SymbolId.MAJOR_COIN;
-const I = SymbolId.MAJOR_INGOT;
-const S = SymbolId.MAJOR_SHIP;
-const T = SymbolId.MAJOR_TURTLE;
-const P = SymbolId.MAJOR_PHOENIX;
+const H = SymbolId.MAJOR_HORUS;
+const An = SymbolId.MAJOR_ANUBIS;
+const Sb = SymbolId.MAJOR_SOBEK;
+const Rm = SymbolId.MAJOR_RAMSES;
+const Cl = SymbolId.MAJOR_CLEOPATRA;
 const W = SymbolId.WILD;
 const R = SymbolId.STICKY_RED;
 const Y = SymbolId.STICKY_YELLOW;
 const G = SymbolId.STICKY_GREEN;
 const X = SymbolId.PLUS_ONE_SPIN;
 
-/** Normal Spin: 5 reels × 30 ô. Reel 0 và 4 không có Wild. Red xuất hiện rải rác (2–3 per reel). */
+/** Normal Spin: 5 reels × 30 ô. Reel 0 và 4 không có Wild. */
 const DEFAULT_REEL_STRIPS: number[][] = [
-    // Reel 0 (no Wild, Red pair ở index 4-5, thêm 11, 23)
-    [Q, K, A, C, R, R, Q, T, S, K, A, R, C, P, Q, I, T, K, A, S, Q, C, P, R, K, I, A, T, S, Q],
-    // Reel 1 (Wild Trail: 1 Wild ở index 5, Red pair ở index 7-8, thêm 14, 27)
-    [A, P, I, C, K, W, T, R, R, C, A, K, P, C, R, Q, T, S, K, A, P, C, K, I, K, Q, T, R, S, A],
-    // Reel 2 (Wild Trail: 1 Wild ở index 8, Red pair ở index 3-4, thêm 14, 20)
-    [P, T, C, R, R, S, I, K, W, P, C, K, K, A, R, S, I, P, K, C, R, K, A, T, C, S, P, I, K, Q],
-    // Reel 3 (Wild Trail: 1 Wild ở index 9, Red pair ở index 3-4, thêm 15, 25)
-    [T, A, P, R, R, K, I, K, C, W, P, K, C, A, T, R, S, P, K, C, A, K, Q, T, C, R, P, S, K, A],
-    // Reel 4 (no Wild, Red pair ở index 6-7, thêm 3, 19)
-    [K, P, A, R, C, I, R, R, P, K, A, Q, T, S, I, P, K, K, A, R, T, S, C, P, I, K, A, T, S, P],
+    [N9, N10, NJ, Q, K, A, H, R, R, Q, Rm, Sb, K, A, R, H, Cl, Q, An, Rm, K, A, Sb, Q, H, Cl, R, K, An, A],
+    [A, Cl, An, H, K, W, Rm, R, R, H, A, K, Cl, R, Q, Rm, Sb, N10, K, A, Cl, H, R, An, K, Q, Rm, NJ, Sb, A],
+    [Cl, Rm, H, R, R, Sb, An, K, W, Cl, H, K, K, A, R, Sb, An, Cl, K, H, R, K, A, Rm, H, Sb, Cl, An, K, Q],
+    [Rm, A, Cl, R, R, K, An, K, H, W, Cl, K, H, A, Rm, R, Sb, Cl, K, H, A, K, Q, Rm, H, R, Cl, Sb, K, A],
+    [K, Cl, A, Rm, H, An, Sb, R, Cl, K, A, Q, Rm, Sb, An, Cl, R, K, A, Q, Rm, Sb, H, Cl, An, K, A, Rm, Sb, Cl],
 ];
 
 /**
@@ -62,15 +60,15 @@ const DEFAULT_REEL_STRIPS: number[][] = [
  */
 const DEFAULT_FREE_SPIN_REEL_STRIPS: number[][] = [
     // Reel 0 (giống Normal)
-    [Q, K, A, C, I, P, Q, T, S, K, A, R, C, P, Q, I, T, K, A, S, Q, C, P, R, K, I, A, T, S, Q],
+    [Q, K, A, H, An, Cl, Q, Rm, Sb, K, A, R, H, Cl, Q, An, Rm, K, A, Sb, Q, H, Cl, R, K, An, A, Rm, Sb, Q],
     // Reel 1 (Wild → Yellow)
-    [A, P, I, Y, K, Q, T, R, S, C, A, K, P, Y, I, Q, T, S, K, A, P, C, R, I, K, Q, T, Y, S, A],
+    [A, Cl, An, Y, K, Q, Rm, R, Sb, H, A, K, Cl, Y, An, Q, Rm, Sb, K, A, Cl, H, R, An, K, Q, Rm, Y, Sb, A],
     // Reel 2 (Wild → Yellow)
-    [P, T, Y, A, K, S, I, R, Q, P, C, Y, K, A, T, S, I, P, K, Y, Q, R, A, T, C, S, P, I, K, Q],
+    [Cl, Rm, Y, A, K, Sb, An, R, Q, Cl, H, Y, K, A, Rm, Sb, An, Cl, K, Y, Q, R, A, Rm, H, Sb, Cl, An, K, Q],
     // Reel 3 (Wild → Yellow)
-    [T, A, P, Y, S, K, I, R, C, Q, P, K, Y, A, T, I, S, P, K, Y, A, R, Q, T, C, I, P, S, K, A],
+    [Rm, A, Cl, Y, Sb, K, An, R, H, Q, Cl, K, Y, A, Rm, An, Sb, Cl, K, Y, A, R, Q, Rm, H, An, Cl, Sb, K, A],
     // Reel 4
-    [K, P, A, T, C, I, S, R, P, K, A, Q, T, S, I, P, R, K, A, Q, T, S, C, P, I, K, A, T, S, P],
+    [K, Cl, A, Rm, H, An, Sb, R, Cl, K, A, Q, Rm, Sb, An, Cl, R, K, A, Q, Rm, Sb, H, Cl, An, K, A, Rm, Sb, Cl],
 ];
 
 /**
@@ -94,16 +92,19 @@ const DEFAULT_RESPIN_REEL_STRIPS: number[][] = [
 //   payout = multiplier × totalBet × ways
 //
 const DEFAULT_WAYS_PAYTABLE: Record<number, [number, number, number]> = {
-    // Minors
+    // Minors (Secret Treasure: 9, 10, J, Q, K, A)
+    [SymbolId.MINOR_9]:       [0.1, 0.2, 0.5],
+    [SymbolId.MINOR_10]:      [0.15, 0.3, 0.7],
+    [SymbolId.MINOR_J]:       [0.18, 0.4, 0.9],
     [SymbolId.MINOR_Q]:       [0.2, 0.5, 1.5],
     [SymbolId.MINOR_K]:       [0.3, 0.7, 2.0],
     [SymbolId.MINOR_A]:       [0.4, 1.0, 2.5],
     // Majors
-    [SymbolId.MAJOR_COIN]:    [0.8, 2.0, 5.0],
-    [SymbolId.MAJOR_INGOT]:   [1.0, 2.5, 6.0],
-    [SymbolId.MAJOR_SHIP]:    [1.5, 4.0, 10.0],
-    [SymbolId.MAJOR_TURTLE]:  [2.0, 5.0, 15.0],
-    [SymbolId.MAJOR_PHOENIX]: [3.0, 8.0, 25.0],
+    [SymbolId.MAJOR_HORUS]:     [0.8, 2.0, 5.0],
+    [SymbolId.MAJOR_ANUBIS]:    [1.0, 2.5, 6.0],
+    [SymbolId.MAJOR_SOBEK]:     [1.5, 4.0, 10.0],
+    [SymbolId.MAJOR_RAMSES]:    [2.0, 5.0, 15.0],
+    [SymbolId.MAJOR_CLEOPATRA]: [3.0, 8.0, 25.0],
 };
 
 const DEFAULT_JACKPOT_MULTIPLIERS = {

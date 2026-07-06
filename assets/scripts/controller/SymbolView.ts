@@ -7,12 +7,12 @@
  * SlotMachineController.start() tự phân phối xuống tất cả SymbolView.
  *
  * ─── TÊN FILE ẢNH (đặt trong assets/bundle/textures/symbol/) ───
- *   minor_q, minor_k, minor_a                          (id 0/1/2)
- *   major_coin, major_ingot, major_ship, major_turtle, major_phoenix (id 3..7)
- *   wild_trail                                         (id 8)
- *   sticky_red, sticky_yellow, sticky_green            (id 9/10/11)
- *   plus_one_spin                                      (id 12)
- *   jp_idle, jp_mini, jp_minor, jp_major, jp_grand     (id 13..17 — Pick Game)
+ *   minor_9, minor_10, minor_j, minor_q, minor_k, minor_a          (id 0..5)
+ *   major_horus, major_anubis, major_sobek, major_ramses, major_cleopatra (id 6..10)
+ *   wild_trail                                                       (id 11)
+ *   sticky_red, sticky_yellow, sticky_green                         (id 12/13/14)
+ *   plus_one_spin                                                    (id 15)
+ *   jp_idle, jp_mini, jp_minor, jp_major, jp_grand                  (id 16..20 — Pick Game)
  */
 
 import { _decorator, Component, Sprite, SpriteFrame, Label, LabelOutline, Color, Node, Tween, tween, Vec3, UIOpacity } from 'cc';
@@ -26,19 +26,22 @@ import { SoundManager } from '../manager/SoundManager';
 const { ccclass, property } = _decorator;
 
 const SYMBOL_FRAME_KEYS: Record<number, string> = {
-    [SymbolId.MINOR_Q]: '0_minor_q',
-    [SymbolId.MINOR_K]: '1_minor_k',
-    [SymbolId.MINOR_A]: '2_minor_a',
-    [SymbolId.MAJOR_COIN]: '3_major_coin',
-    [SymbolId.MAJOR_INGOT]: '4_major_ingot',
-    [SymbolId.MAJOR_SHIP]: '5_major_ship',
-    [SymbolId.MAJOR_TURTLE]: '6_major_turtle',
-    [SymbolId.MAJOR_PHOENIX]: '7_major_phoenix',
-    [SymbolId.WILD]: '8_wild_trail',
-    [SymbolId.STICKY_RED]: '9_sticky_red',
-    [SymbolId.STICKY_YELLOW]: '10_sticky_yellow',
-    [SymbolId.STICKY_GREEN]: '11_sticky_green',
-    [SymbolId.PLUS_ONE_SPIN]: '12_plus_one_spin',
+    [SymbolId.MINOR_9]: '0_minor_9',
+    [SymbolId.MINOR_10]: '1_minor_10',
+    [SymbolId.MINOR_J]: '2_minor_j',
+    [SymbolId.MINOR_Q]: '3_minor_q',
+    [SymbolId.MINOR_K]: '4_minor_k',
+    [SymbolId.MINOR_A]: '5_minor_a',
+    [SymbolId.MAJOR_HORUS]: '6_major_horus',
+    [SymbolId.MAJOR_ANUBIS]: '7_major_anubis',
+    [SymbolId.MAJOR_SOBEK]: '8_major_sobek',
+    [SymbolId.MAJOR_RAMSES]: '9_major_ramses',
+    [SymbolId.MAJOR_CLEOPATRA]: '10_major_cleopatra',
+    [SymbolId.WILD]: '11_wild_trail',
+    [SymbolId.STICKY_RED]: '12_sticky_red',
+    [SymbolId.STICKY_YELLOW]: '13_sticky_yellow',
+    [SymbolId.STICKY_GREEN]: '14_sticky_green',
+    [SymbolId.PLUS_ONE_SPIN]: '15_plus_one_spin',
 };
 
 @ccclass('SymbolView')

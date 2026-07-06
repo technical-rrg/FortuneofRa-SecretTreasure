@@ -9,8 +9,8 @@
  *  5. Trúng nếu quét được ≥ 3 cột liên tiếp.
  *
  * Wild substitution:
- *  - Base Game : Wild = WILD (id=8), chỉ xuất hiện ở Reel 1,2,3.
- *  - Free Spin : Wild = STICKY_YELLOW (id=10), chỉ xuất hiện ở Reel 1,2,3.
+ *  - Base Game : Wild = WILD (id=11), chỉ xuất hiện ở Reel 1,2,3.
+ *  - Free Spin : Wild = STICKY_YELLOW (id=13), chỉ xuất hiện ở Reel 1,2,3.
  *  - Wild KHÔNG thay thế Feature symbols (Sticky Red/Green, +1 Spin, JP icons).
  *  - Wild đứng một mình KHÔNG tự thắng (không phải Target Symbol).
  *

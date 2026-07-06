@@ -54,45 +54,46 @@ export enum SlotStageType {
 }
 
 /**
- * ★ Gold of Fortune symbol set (0–17).
+ * ★ Secret Treasure symbol set (0–20).
  *
- * Minors  (0–2):   chữ Q, K, A — payout thấp
- * Majors  (3–7):   Coin, Ingot, Ship, Turtle, Phoenix — payout cao
- * Special (8–12):  Wild Trail, Sticky Red/Yellow/Green, +1 Re-Spin
- * Jackpot (13–17): chỉ dùng trong Pick Game, không xuất hiện trên reel strip
- *
- * Legacy aliases (90–98) giữ để code cũ vẫn compile — KHÔNG dùng trong code mới.
+ * Minors  (0–5):   9, 10, J, Q, K, A — payout thấp
+ * Majors  (6–10):  Horus (Ra), Anubis, Sobek, Ramses, Cleopatra — payout cao
+ * Special (11–15): Wild Trail, Sticky Red/Yellow/Green, +1 Re-Spin
+ * Jackpot (16–20): chỉ dùng trong Pick Game, không xuất hiện trên reel strip
  */
 export enum SymbolId {
-    // ── Minor symbols ──
-    MINOR_Q = 0,
-    MINOR_K = 1,
-    MINOR_A = 2,
-    // ── Major symbols ──
-    MAJOR_COIN = 3,
-    MAJOR_INGOT = 4,
-    MAJOR_SHIP = 5,
-    MAJOR_TURTLE = 6,
-    MAJOR_PHOENIX = 7,
+    // ── Minor symbols (Secret Treasure: 6 minors) ──
+    MINOR_9 = 0,
+    MINOR_10 = 1,
+    MINOR_J = 2,
+    MINOR_Q = 3,
+    MINOR_K = 4,
+    MINOR_A = 5,
+    // ── Major symbols (PS 11→15, payout thấp → cao) ──
+    MAJOR_HORUS = 6,      // Horus (Ra)
+    MAJOR_ANUBIS = 7,
+    MAJOR_SOBEK = 8,
+    MAJOR_RAMSES = 9,
+    MAJOR_CLEOPATRA = 10,
     // ── Special symbols ──
-    WILD = 8,           // Wild Trail — chỉ xuất hiện trên reel 1/2/3 (index 1,2,3)
-    STICKY_RED = 9,     // Red sticky — xuất hiện Normal/Re-Spin/Free Spin, mang credit
-    STICKY_YELLOW = 10, // Yellow sticky — Re-Spin (= sum Red trên reel) / Free Spin Wild
-    STICKY_GREEN = 11,  // Green sticky — Re-Spin (= sum Red+Yellow+Green trước đó)
-    PLUS_ONE_SPIN = 12, // +1 Re-Spin
+    WILD = 11,           // Wild Trail — chỉ xuất hiện trên reel 1/2/3 (index 1,2,3)
+    STICKY_RED = 12,     // Red sticky — xuất hiện Normal/Re-Spin/Free Spin, mang credit
+    STICKY_YELLOW = 13,  // Yellow sticky — Re-Spin / Free Spin Wild
+    STICKY_GREEN = 14,   // Green sticky — Re-Spin VIP
+    PLUS_ONE_SPIN = 15,  // +1 Re-Spin
     // ── Jackpot (chỉ trong Pick Game) ──
-    JP_IDLE = 13,
-    JP_MINI = 14,
-    JP_MINOR = 15,
-    JP_MAJOR = 16,
-    JP_GRAND = 17,
+    JP_IDLE = 16,
+    JP_MINI = 17,
+    JP_MINOR = 18,
+    JP_MAJOR = 19,
+    JP_GRAND = 20,
 
 }
 
-/** Helper: kiểm tra symbol là Major (3–7) */
-export function isMajor(s: number): boolean { return s >= 3 && s <= 7; }
-/** Helper: kiểm tra symbol là Minor (0–2) */
-export function isMinor(s: number): boolean { return s >= 0 && s <= 2; }
+/** Helper: kiểm tra symbol là Major (6–10) */
+export function isMajor(s: number): boolean { return s >= SymbolId.MAJOR_HORUS && s <= SymbolId.MAJOR_CLEOPATRA; }
+/** Helper: kiểm tra symbol là Minor (0–5) */
+export function isMinor(s: number): boolean { return s >= SymbolId.MINOR_9 && s <= SymbolId.MINOR_A; }
 /** Helper: kiểm tra symbol là Sticky (Red/Yellow/Green) */
 export function isSticky(s: number): boolean { return s === SymbolId.STICKY_RED || s === SymbolId.STICKY_YELLOW || s === SymbolId.STICKY_GREEN; }
 /** Helper: Wild có thay thế được cho symbol s không?
@@ -101,29 +102,32 @@ export function isSticky(s: number): boolean { return s === SymbolId.STICKY_RED 
 export function wildSubstitutes(s: number): boolean { return isMinor(s) || isMajor(s); }
 
 // ═══════════════════════════════════════════════════════════
-//  PS ↔ CLIENT SYMBOL ID MAPPING (stub — điền khi có server Gold of Fortune thật)
+//  PS ↔ CLIENT SYMBOL ID MAPPING — Secret Treasure (SlotId 18)
 // ═══════════════════════════════════════════════════════════
 
 /**
- * PS ID → Client SymbolId — confirmed từ game design document Gold of Fortune.
+ * PS ID → Client SymbolId — Secret Treasure (SlotId 18).
  *
- * Normal symbols (Way Pay): 1=Q, 2=K, 3=A, 11=Coin, 12=Ingot, 13=Ship, 14=Turtle, 15=Phoenix
- * Wild: 21 (Bat + Peach, Base Game only)
- * Red Coins Trail: 41–46 (Tất cả hiển thị STICKY_RED + render credit text lên trên)
+ * Normal symbols (Way Pay): 1=9, 2=10, 3=J, 4=Q, 5=K, 6=A, 11=Horus, 12=Anubis, 13=Sobek, 14=Ramses, 15=Cleopatra
+ * Wild: 21 (Base Game only)
+ * Red Coins Trail: 41–46 (STICKY_RED + credit text)
  * Yellow Coin (Free Spin): 47 | Yellow Coin (Top Up): 48
  * Green Coin: 49 | +1 Spin: 50
  * Pick Game: 81=Idle, 82=Grand, 83=Major, 84=Minor, 85=Mini
  */
 export const PS_TO_CLIENT: Record<number, number> = {
     // ─── Normal symbols (Way Pay wins) ───
-    1:  SymbolId.MINOR_Q,        // Q
-    2:  SymbolId.MINOR_K,        // K
-    3:  SymbolId.MINOR_A,        // A
-    11: SymbolId.MAJOR_COIN,     // Ancient Coin
-    12: SymbolId.MAJOR_INGOT,    // Gold Ingot
-    13: SymbolId.MAJOR_SHIP,     // Golden Ship
-    14: SymbolId.MAJOR_TURTLE,   // Golden Turtle
-    15: SymbolId.MAJOR_PHOENIX,  // Phoenix (highest payout)
+    1:  SymbolId.MINOR_9,
+    2:  SymbolId.MINOR_10,
+    3:  SymbolId.MINOR_J,
+    4:  SymbolId.MINOR_Q,
+    5:  SymbolId.MINOR_K,
+    6:  SymbolId.MINOR_A,
+    11: SymbolId.MAJOR_HORUS,      // Horus (Ra)
+    12: SymbolId.MAJOR_ANUBIS,
+    13: SymbolId.MAJOR_SOBEK,
+    14: SymbolId.MAJOR_RAMSES,
+    15: SymbolId.MAJOR_CLEOPATRA, // highest payout
     // ─── Wild ───
     21: SymbolId.WILD,           // Wild Trail (Bat + Peach, Base Game only)
     // ─── Red Coins Trail (41–46) — tất cả hiển thị cùng 1 hình STICKY_RED ───
@@ -151,14 +155,17 @@ export const PS_TO_CLIENT: Record<number, number> = {
 
 /** Client SymbolId → PS ID (normal symbols only — Trail/special là 1-to-many). */
 export const CLIENT_TO_PS: Record<number, number> = {
-    [SymbolId.MINOR_Q]:      1,
-    [SymbolId.MINOR_K]:      2,
-    [SymbolId.MINOR_A]:      3,
-    [SymbolId.MAJOR_COIN]:   11,
-    [SymbolId.MAJOR_INGOT]:  12,
-    [SymbolId.MAJOR_SHIP]:   13,
-    [SymbolId.MAJOR_TURTLE]: 14,
-    [SymbolId.MAJOR_PHOENIX]:15,
+    [SymbolId.MINOR_9]:      1,
+    [SymbolId.MINOR_10]:     2,
+    [SymbolId.MINOR_J]:      3,
+    [SymbolId.MINOR_Q]:      4,
+    [SymbolId.MINOR_K]:      5,
+    [SymbolId.MINOR_A]:      6,
+    [SymbolId.MAJOR_HORUS]:     11,
+    [SymbolId.MAJOR_ANUBIS]:    12,
+    [SymbolId.MAJOR_SOBEK]:     13,
+    [SymbolId.MAJOR_RAMSES]:    14,
+    [SymbolId.MAJOR_CLEOPATRA]: 15,
     [SymbolId.WILD]:         21,
     [SymbolId.STICKY_RED]:   41,  // representative Trail01
     [SymbolId.STICKY_YELLOW]:47,  // representative Yellow
@@ -177,7 +184,7 @@ export function psToClientSymbol(psId: number): number {
 
 export function convertPSStrips(psStrips: number[][]): number[][] {
     return psStrips.map((strip) =>
-        strip.map((psId) => PS_TO_CLIENT[psId] ?? SymbolId.MINOR_Q)
+        strip.map((psId) => PS_TO_CLIENT[psId] ?? SymbolId.MINOR_9)
     );
 }
 

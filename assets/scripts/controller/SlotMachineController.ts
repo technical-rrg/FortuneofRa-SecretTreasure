@@ -140,7 +140,7 @@ export class SlotMachineController extends Component {
 
     @property({
         type: [SpriteFrame],
-        tooltip: 'SpriteFrame cho từng Symbol — kéo 1 lần, áp dụng cho mọi SymbolView.\n[0]=minor_q [1]=minor_k [2]=minor_a [3]=major_coin [4]=major_ingot [5]=major_ship [6]=major_turtle [7]=major_phoenix [8]=wild_trail [9]=sticky_red [10]=sticky_yellow [11]=sticky_green [12]=plus_one_spin',
+        tooltip: 'SpriteFrame cho từng Symbol — kéo 1 lần, áp dụng cho mọi SymbolView.\n[0]=minor_9 [1]=minor_10 [2]=minor_j [3]=minor_q [4]=minor_k [5]=minor_a [6]=major_horus [7]=major_anubis [8]=major_sobek [9]=major_ramses [10]=major_cleopatra [11]=wild_trail [12]=sticky_red [13]=sticky_yellow [14]=sticky_green [15]=plus_one_spin',
     })
     symbolFrames: SpriteFrame[] = [];
 
@@ -892,7 +892,7 @@ export class SlotMachineController extends Component {
             const W = 22;
             const pad = (s: string | number) => String(s).padEnd(W);
 
-            // PS ID + tên symbol đã map, ví dụ: "4 (MAJOR_SHIP)"
+            // PS ID + tên symbol đã map, ví dụ: "13 (MAJOR_SOBEK)"
             const fmtServer = (psId: number, clientId: number): string => {
                 const name = clientId < 0 ? '---' : (SymbolId[clientId] ?? `?${clientId}`);
                 return pad(`${psId} (${name})`);

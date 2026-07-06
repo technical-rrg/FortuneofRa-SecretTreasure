@@ -40,8 +40,9 @@ const REEL_COUNT = 5;
 const TOPUP_CELL_COUNT = 15;
 
 // ── PS Symbol IDs (theo PS_TO_CLIENT trong SlotTypes.ts) ─────────────────────
-const PS_MINOR = [1, 2, 3] as const;                       // Q, K, A
-const PS_MAJOR_PHOENIX = 15;                                // payout cao nhất
+const PS_MINOR = [1, 2, 3, 4, 5, 6] as const;               // 9, 10, J, Q, K, A
+const PS_MAJOR_CLEOPATRA = 15;                              // payout cao nhất
+const PS_MAJOR_HORUS = 11;                                // payout thấp nhất
 const PS_WILD = 21;                                         // Wild Trail (chỉ reel 1/2/3)
 const PS_RED_COINS = [41, 42, 43, 44, 45, 46] as const;     // Red Coin Trail
 const PS_YELLOW_FREE = 47;                                  // Yellow Coin — Free Spin Wild
@@ -83,10 +84,10 @@ export class SlotDebugPanel extends Component {
     /** Force Pick Game — gửi [-1,-1,-1,-1,-1] trong normal spin. */
     @property(Button) btnForcePickGame: Button = null!;
 
-    /** Big Win — Phoenix (PS=15) trên cả 5 reels. */
+    /** Big Win — Cleopatra (PS=15) trên cả 5 reels. */
     @property(Button) btnPhoenix5: Button = null!;
 
-    /** Coin Win — MAJOR_COIN (PS=11) trên cả 5 reels. */
+    /** Horus Win — MAJOR_HORUS (PS=11) trên cả 5 reels. */
     @property(Button) btnCoin5: Button = null!;
 
     /** Wild Trail trên reels 1/2/3 (PS=21) → tích lũy Pot / trigger Pick Game. */
@@ -215,13 +216,13 @@ export class SlotDebugPanel extends Component {
     }
 
     private _onPhoenix5(): void {
-        const arr = this._findIndicesForEachReel((sym) => sym === PS_MAJOR_PHOENIX);
-        this._firePresetWithFallback(arr, 'Phoenix × 5 (Big Win)');
+        const arr = this._findIndicesForEachReel((sym) => sym === PS_MAJOR_CLEOPATRA);
+        this._firePresetWithFallback(arr, 'Cleopatra × 5 (Big Win)');
     }
 
     private _onCoin5(): void {
-        const arr = this._findIndicesForEachReel((sym) => sym === 11); // PS_MAJOR_COIN
-        this._firePresetWithFallback(arr, 'Coin × 5 (MAJOR_COIN Win)');
+        const arr = this._findIndicesForEachReel((sym) => sym === PS_MAJOR_HORUS);
+        this._firePresetWithFallback(arr, 'Horus × 5 (MAJOR_HORUS Win)');
     }
 
     private _onWild3Reels(): void {
@@ -486,7 +487,7 @@ export class SlotDebugPanel extends Component {
         const strips = this._getStrips();
         const arr: number[] = new Array(REEL_COUNT).fill(0);
 
-        // Target: PS_MAJOR_COIN (11) — symbol phổ biến, dễ tìm
+        // Target: PS_MAJOR_HORUS (11) — symbol phổ biến, dễ tìm
         const TARGET = 11;
         const WILD = PS_WILD;
 
@@ -562,8 +563,8 @@ export class SlotDebugPanel extends Component {
     }
 
     private _onNoWin(): void {
-        // Mix Q, K, A, Coin, Ingot trên 5 reels → ít khả năng tạo way pay.
-        const targets = [1, 2, 3, 11, 12]; // Q, K, A, Coin, Ingot
+        // Mix minor + low major trên 5 reels → ít khả năng tạo way pay.
+        const targets = [1, 2, 3, 4, 5, 11, 12]; // 9, 10, J, Q, K, Horus, Anubis
         const arr: number[] = new Array(REEL_COUNT).fill(0);
         const strips = this._getStrips();
         for (let r = 0; r < REEL_COUNT; r++) {
@@ -768,8 +769,9 @@ export class SlotDebugPanel extends Component {
     /** Map client SymbolId → PS ID đại diện (chỉ dùng làm fallback khi chưa có rawPsStrips). */
     private _clientStripsToPs(clientStrips: number[][]): number[][] {
         const map: Record<number, number> = {
-            0: 1, 1: 2, 2: 3, 3: 11, 4: 12, 5: 13, 6: 14, 7: 15,
-            8: 21, 9: 41, 10: 47, 11: 49, 12: 50,
+            0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6,
+            6: 11, 7: 12, 8: 13, 9: 14, 10: 15,
+            11: 21, 12: 41, 13: 47, 14: 49, 15: 50,
         };
         return clientStrips.map((strip) => strip.map((cs) => map[cs] ?? 99));
     }

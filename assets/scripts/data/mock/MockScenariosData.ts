@@ -6,9 +6,9 @@
  *
  * Scenario mapping:
  *   SCENARIO_NO_WIN          → NO_WIN
- *   SCENARIO_NORMAL_WIN      → NORMAL_WIN  (Phoenix 3-of-kind)
+ *   SCENARIO_NORMAL_WIN      → NORMAL_WIN  (Cleopatra 3-of-kind)
  *   SCENARIO_MULTI_LINE      → NORMAL_WIN  (alias)
- *   SCENARIO_BIG_WIN         → BIG_WIN     (Phoenix 5×3)
+ *   SCENARIO_BIG_WIN         → BIG_WIN     (Cleopatra 5×3)
  *   SCENARIO_LONG_SPIN       → LONG_SPIN_TRIGGER (3 Red reel 0..2)
  *   SCENARIO_JACKPOT         → GRAND_JACKPOT (Pick Game Grand)
  *   FULL_FREE_SEQUENCE       → FreeSpin flow placeholder (dùng generateSpinResponse)

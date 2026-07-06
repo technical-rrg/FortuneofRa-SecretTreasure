@@ -57,6 +57,9 @@ const { ccclass, property } = _decorator;
 /** DEBUG flag - tắt trong production để tối ưu performance */
 const DEBUG = false;
 
+/** Tạm tắt spine win highlight — dùng sprite bounce cho tới khi có asset spine symbol mới */
+const USE_SPINE_WIN_HIGHLIGHT = false;
+
 /** Dữ liệu theo dõi 1 spine node đang active (pool hoặc clone) */
 interface ActiveSpineEntry {
     spineNode:    Node;
@@ -69,6 +72,7 @@ interface ActiveSpineEntry {
     _onSymChanged: (() => void) | null; // bound listener để off() sau
     loop:         boolean;            // spine animation có loop hay không
     gen:          number;
+    spriteBounce?: boolean;           // true = highlight bằng sprite bounce, không dùng spine
 }
 
 interface CellPos { col: number; row: number; }
@@ -188,6 +192,8 @@ export class SymbolHighlighter extends Component {
     private _spinCount: number = 0;
     /** Nodes đang được green tint (#77FF42) trong FreeSpin — cần restore về white sau highlight */
     private _greenTintedNodes: Node[] = [];
+    /** Vị trí gốc của symbol node trước khi bounce highlight (restore khi cleanup) */
+    private _bounceOrigPos: Map<Node, Vec3> = new Map();
     /** CreditLabel đã reparent tạm sang paylineManagerNode: lưu parent, sibling & active gốc để restore */
     private _creditLabelRestoreData: Map<Node, { origParent: Node | null; origSibling: number; origActive: boolean }> = new Map();
     /** FreeMode STICKY_YELLOW: clone node đang hiển thị trên paylineManagerNode (symbolNode gốc -> clone) */
@@ -270,8 +276,8 @@ export class SymbolHighlighter extends Component {
         // Convert raw PS IDs → client SymbolIds; fallback to raw value when map empty (mock mode)
         const clientSyms = this._normalizeSymbols(syms);
         const isWild = clientSyms.includes(SymbolId.WILD);
-        const isPhoenix = clientSyms.includes(SymbolId.MAJOR_PHOENIX);
-        if (isPhoenix) {
+        const isCleopatra = clientSyms.includes(SymbolId.MAJOR_CLEOPATRA);
+        if (isCleopatra) {
             snd.playGirlSymbolAnim();
         }
         if (isWild) {
@@ -369,7 +375,7 @@ export class SymbolHighlighter extends Component {
         }
 
         // ══ DEBUG LOG ══
-        const _SYM = (id: number) => `${id}(${['Q','K','A','Coin','Ingot','Ship','Turtle','Phoenix','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
+        const _SYM = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
         const _vGrid = this.reels.map((reel, col) => {
             const ids = [reel.symbolNodes[2], reel.symbolNodes[3], reel.symbolNodes[4]]
                 .map(n => n?.getComponent(SymbolView)?.symbolId ?? -1);
@@ -385,7 +391,7 @@ export class SymbolHighlighter extends Component {
         // ══════════════
 
         // ══ WILD MISMATCH DEBUG LOG ══
-        const SYM_W = (id: number) => `${id}(${['Q','K','A','Coin','Ingot','Ship','Turtle','Phoenix','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
+        const SYM_W = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
         for (const way of ways) {
             const wayCells = way.cells.map(({ reel, row }) => ({ col: reel, row: 2 - row }));
             const cellDetails = wayCells.map(({ col, row }) => {
@@ -408,7 +414,7 @@ export class SymbolHighlighter extends Component {
         // Nếu chỉ có 1 way win duy nhất → loop spine animation thay vì play once
         this._activateSpinesForCells(allCells, duration ?? this.showAllHighlightDuration, ways.length === 1);
 
-        // Play sound if Phoenix/Wild in any way
+        // Play sound if Cleopatra/Wild in any way
         const waySyms = ways.map(w => w.symbolId);
         if (waySyms.length > 0) this._playSymbolMatchSound(waySyms);
 
@@ -435,7 +441,7 @@ export class SymbolHighlighter extends Component {
 
         // ══ DEBUG LOG: Calculator data vs Visual display ══
         // In ra symbol ID mà calculator tính (way.cells) và symbol ID thực tế trên screen
-        const SYM = (id: number) => `${id}(${['Q','K','A','Coin','Ingot','Ship','Turtle','Phoenix','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id] ?? '?'})`;
+        const SYM = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id] ?? '?'})`;
         const visualGrid = this.reels.map((reel, col) => {
             const nodes = [reel.symbolNodes[2], reel.symbolNodes[3], reel.symbolNodes[4]];
             const ids   = nodes.map(n => n?.getComponent(SymbolView)?.symbolId ?? -1);
@@ -550,6 +556,11 @@ export class SymbolHighlighter extends Component {
                 entry.symbolNode.off('symbol-changed', entry._onSymChanged);
                 entry._onSymChanged = null;
             }
+            if (entry.spriteBounce) {
+                this._stopSpriteBounce(entry);
+                if (entry.view) entry.view.setSpriteVisible(true);
+                continue;
+            }
             if (entry.skel && entry.spineNode.active) entry.skel.setCompleteListener(null);
             // Destroy clone STICKY_YELLOW (freemode) thay vì restore reparent
             const clone = this._yellowClones.get(entry.symbolNode);
@@ -597,6 +608,7 @@ export class SymbolHighlighter extends Component {
 
     /**
      * Với mỗi winning cell:
+     *   - Nếu USE_SPINE_WIN_HIGHLIGHT=false → giữ sprite, nhún nhẹ (bounce) thay spine.
      *   - Nếu node đã có spine active (từ lần highlight trước) → bỏ qua, giữ frame hiện tại.
      *   - Nếu chưa có → reparent spine (pool hoặc clone nếu pool đã deploy chỗ khác).
      *   - Animation xong: move sang _pendingListeners, spine GIỮ frame cuối trên node.
@@ -614,7 +626,6 @@ export class SymbolHighlighter extends Component {
 
             const view  = symbolNode.getComponent(SymbolView);
             const symId = view?.symbolId ?? -1;
-            const nodeName = symbolNode.name;
 
             const existing = this._findEntryOnNode(symbolNode);
 
@@ -624,6 +635,11 @@ export class SymbolHighlighter extends Component {
                     this._deactivateEntry(existing);
                 }
                 this._applyGreenTint(symbolNode);
+                continue;
+            }
+
+            if (!USE_SPINE_WIN_HIGHLIGHT) {
+                this._activateSpriteBounceForCell(symbolNode, view, symId, highlightDuration, loopSpine, existing);
                 continue;
             }
 
@@ -815,6 +831,124 @@ export class SymbolHighlighter extends Component {
         }
     }
 
+    /** Sprite bounce thay spine khi USE_SPINE_WIN_HIGHLIGHT=false. */
+    private _activateSpriteBounceForCell(
+        symbolNode: Node,
+        view: SymbolView | null,
+        symId: number,
+        highlightDuration: number,
+        loopSpine: boolean,
+        existing: ActiveSpineEntry | null,
+    ): void {
+        const shouldLoop = symId === SymbolId.WILD || loopSpine || symId === SymbolId.STICKY_YELLOW;
+
+        if (existing) {
+            if (!existing.spriteBounce) {
+                this._deactivateEntry(existing);
+                existing = null;
+            } else {
+                existing.loop = shouldLoop;
+                existing.gen = this._spineGen;
+                this._startSpriteBounce(existing, highlightDuration);
+                const pendIdx = this._pendingListeners.indexOf(existing);
+                if (pendIdx >= 0) {
+                    this._pendingListeners.splice(pendIdx, 1);
+                    this._activeSpines.push(existing);
+                }
+                return;
+            }
+        }
+
+        if (symId < 0) return;
+        view?.setSpriteVisible(true);
+
+        const entry: ActiveSpineEntry = {
+            spineNode:  symbolNode,
+            skel:       null,
+            view,
+            isClone:    false,
+            poolIdx:    -1,
+            symId,
+            symbolNode,
+            _onSymChanged: null,
+            loop:       shouldLoop,
+            gen:        this._spineGen,
+            spriteBounce: true,
+        };
+        this._activeSpines.push(entry);
+        this._startSpriteBounce(entry, highlightDuration);
+
+        const onSymChanged = () => this._onEntrySymbolChanged(entry);
+        entry._onSymChanged = onSymChanged;
+        symbolNode.on('symbol-changed', onSymChanged);
+    }
+
+    private _startSpriteBounce(entry: ActiveSpineEntry, highlightDuration: number): void {
+        const node = entry.symbolNode;
+        if (!node?.isValid) return;
+
+        Tween.stopAllByTarget(node);
+        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(node);
+        node.setScale(baseScale, baseScale, 1);
+
+        if (!this._bounceOrigPos.has(node)) {
+            this._bounceOrigPos.set(node, node.position.clone());
+        }
+        const origPos = this._bounceOrigPos.get(node)!;
+        node.setPosition(origPos);
+
+        const dur = Math.max(0.18, Math.min(0.32, highlightDuration * 0.12));
+        const liftY = 10;
+        const bounceOnce = tween(node)
+            .to(dur, {
+                position: new Vec3(origPos.x, origPos.y + liftY, origPos.z),
+                scale: new Vec3(baseScale * 1.05, baseScale * 1.05, 1),
+            }, { easing: 'sineOut' })
+            .to(dur, {
+                position: origPos,
+                scale: new Vec3(baseScale, baseScale, 1),
+            }, { easing: 'sineIn' });
+
+        if (entry.loop) {
+            bounceOnce.union().repeatForever().start();
+            return;
+        }
+
+        const completeGen = entry.gen;
+        bounceOnce.call(() => this._onSpriteBounceComplete(entry, completeGen)).start();
+    }
+
+    private _stopSpriteBounce(entry: ActiveSpineEntry): void {
+        const node = entry.symbolNode;
+        if (!node?.isValid) return;
+        Tween.stopAllByTarget(node);
+        const origPos = this._bounceOrigPos.get(node);
+        if (origPos) {
+            node.setPosition(origPos);
+            this._bounceOrigPos.delete(node);
+        }
+        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(node);
+        node.setScale(baseScale, baseScale, 1);
+    }
+
+    private _onSpriteBounceComplete(entry: ActiveSpineEntry, gen: number): void {
+        if (gen !== this._spineGen) return;
+
+        const idx = this._activeSpines.indexOf(entry);
+        if (idx < 0) return;
+
+        this._activeSpines.splice(idx, 1);
+        if (entry._onSymChanged && !this._pendingListeners.includes(entry)) {
+            this._pendingListeners.push(entry);
+        }
+
+        const nonWildActive = this._activeSpines.filter(e => e.symId !== SymbolId.WILD);
+        if (this._watchingHighlightDone && nonWildActive.length === 0) {
+            this._watchingHighlightDone = false;
+            EventBus.instance.emit(GameEvents.WIN_HIGHLIGHT_ANIM_DONE);
+        }
+    }
+
     /** Tìm entry đang giữ spine trên symbolNode (active hoặc pending). */
     private _findEntryOnNode(symbolNode: Node): ActiveSpineEntry | null {
         return this._activeSpines.find(e => e.symbolNode === symbolNode)
@@ -918,6 +1052,15 @@ export class SymbolHighlighter extends Component {
         // Restore sprite
         if (entry.view) entry.view.setSpriteVisible(true);
 
+        if (entry.spriteBounce) {
+            this._stopSpriteBounce(entry);
+            let idx = this._activeSpines.indexOf(entry);
+            if (idx >= 0) this._activeSpines.splice(idx, 1);
+            idx = this._pendingListeners.indexOf(entry);
+            if (idx >= 0) this._pendingListeners.splice(idx, 1);
+            return;
+        }
+
         // Spine đã được reparent về origParent trong _onReelsStartSpin,
         // chỉ cleanup nếu chưa được xử lý (trường hợp hiếm)
         if (entry.spineNode.active) {
@@ -990,6 +1133,15 @@ export class SymbolHighlighter extends Component {
         if (entry._onSymChanged) {
             entry.symbolNode.off('symbol-changed', entry._onSymChanged);
             entry._onSymChanged = null;
+        }
+        if (entry.spriteBounce) {
+            this._stopSpriteBounce(entry);
+            if (entry.view) entry.view.setSpriteVisible(true);
+            let idx = this._activeSpines.indexOf(entry);
+            if (idx >= 0) this._activeSpines.splice(idx, 1);
+            idx = this._pendingListeners.indexOf(entry);
+            if (idx >= 0) this._pendingListeners.splice(idx, 1);
+            return;
         }
         if (entry.skel && entry.spineNode.active) entry.skel.setCompleteListener(null);
         // Destroy clone STICKY_YELLOW (freemode) thay vì restore reparent

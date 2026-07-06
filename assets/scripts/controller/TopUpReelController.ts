@@ -482,7 +482,7 @@ export class TopUpReelController extends Component {
 
     private _sanitizeTopUpSymbol(symId: number, allowPlusOneVisual: boolean): number {
         if (symId !== SymbolId.PLUS_ONE_SPIN || allowPlusOneVisual) return symId;
-        return this._fallbackNonBonusSymbol() ?? SymbolId.MAJOR_PHOENIX;
+        return this._fallbackNonBonusSymbol() ?? SymbolId.MAJOR_CLEOPATRA;
     }
 
     private _fallbackNonBonusSymbol(): number | undefined {

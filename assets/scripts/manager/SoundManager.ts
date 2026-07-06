@@ -161,8 +161,7 @@ export class SoundManager extends Component {
 
         bus.on(GameEvents.FEATURE_SELECT_OPEN,  this._onFeatureSelectOpen,  this);
         bus.on(GameEvents.FEATURE_SELECT_CLOSE,  this._onFeatureSelectClose, this);
-        bus.on(GameEvents.FEATURE_SELECT_RESPIN, this._onFeatureChosen, this);
-        bus.on(GameEvents.FEATURE_SELECT_FREESPIN, this._onFeatureChosen, this);
+        bus.on(GameEvents.FEATURE_SELECT_CHOICE, this._onFeatureChosen, this);
         bus.on(GameEvents.FREE_SPIN_START, this._onFeatureStart, this);
         bus.on(GameEvents.FREE_SPIN_GOLD_START, this._onFeatureStart, this);
         bus.on(GameEvents.TOPUP_START, this._onFeatureStart, this);

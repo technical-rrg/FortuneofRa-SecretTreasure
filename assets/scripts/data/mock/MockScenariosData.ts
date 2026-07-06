@@ -44,6 +44,12 @@ export const FULL_FREE_JACKPOT_SEQUENCE: SpinResponse[] = [
     MockDataProvider.buildScenario(TestScenario.FEATURE_TRIGGER_FREESPIN),
 ];
 
+/** ★ Force Feature Entry: spin 1 gauge → spin 2 feature (2 Red + 4 orb fill). */
+export const FORCE_FEATURE_ENTRY_SEQUENCE: SpinResponse[] = [
+    MockDataProvider.buildScenario(TestScenario.FEATURE_GAUGE_WARMUP),
+    MockDataProvider.buildScenario(TestScenario.FORCE_FEATURE_ENTRY),
+];
+
 /** Pot Win → Grand Jackpot flow */
 export const FULL_FREE_RETRIGGER_SEQUENCE: SpinResponse[] = [
     MockDataProvider.buildScenario(TestScenario.NORMAL_WIN),

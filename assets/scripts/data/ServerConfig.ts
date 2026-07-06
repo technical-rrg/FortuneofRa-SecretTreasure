@@ -139,13 +139,17 @@ export type MockScenario =
     | 'long_spin'
     | 'feature_respin'
     | 'feature_freespin'
+    | 'force_feature_entry' // ★ TEST: spin1 gauge (3 Red) → spin2 Force Feature Entry (2 Red + 4 orb fill)
     | 'pot_win'
     | 'grand_jackpot'
     | 'sequence'
     | 'wild_trail';   // ★ TEST: mỗi spin 1 wild, tích lũy dần (nextStage=SPIN, không force POT_WIN ngay)
 
 // ★ Đổi sang 'wild_trail' để test tích lũy Pot | 'random' để test ngẫu nhiên | 'pot_win' để test POT_WIN trigger ngay
-export const MOCK_SPIN_SCENARIO: MockScenario = 'feature_respin';
+export const MOCK_SPIN_SCENARIO: MockScenario = 'force_feature_entry';
+
+/** Mock: giữ gauge sáng N giây trước reset khi Force Feature Entry (chỉ USE_REAL_API=false). 0 = reset ngay. */
+export const MOCK_GAUGE_HOLD_SEC_BEFORE_FORCE_ENTRY: number = 2;
 
 // ═══════════════════════════════════════════════════════════
 //  ★★★  DEBUG RANDS: Force server result (dùng DebugArray)  ★★★
@@ -256,7 +260,9 @@ export type MockResumeScenario =
     | 'topup_need_claim'
     | 'pick_game';
 
-export const MOCK_RESUME_SCENARIO: MockResumeScenario = 'pick_game';
+// ★ 'none' = vào game bình thường (dùng MOCK_SPIN_SCENARIO cho spin test)
+// ★ 'pick_game' = giả lập tắt game giữa Pick Game → mở lại Pick Game ngay khi Enter
+export const MOCK_RESUME_SCENARIO: MockResumeScenario = 'none';
 
 // ─── Test Login config (chỉ dùng khi dev) ───
 export const TestLoginConfig = {

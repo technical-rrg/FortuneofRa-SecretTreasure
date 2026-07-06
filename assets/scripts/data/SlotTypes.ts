@@ -53,6 +53,232 @@ export enum SlotStageType {
     BUY_RESPIN_END = 231,
 }
 
+/** Secret Treasure — ReelIndex gửi trong SelectFeature cho 5 tier Free Spin (2=Highest … 6=Lowest). */
+export const FREE_SPIN_TIER_REEL_INDICES = [2, 3, 4, 5, 6] as const;
+export type FreeSpinTierReelIndex = typeof FREE_SPIN_TIER_REEL_INDICES[number];
+
+export enum FeatureSelectChoiceId {
+    TOPUP = 'topup',
+    FS_HIGHEST = 'fs_highest',
+    FS_HIGH = 'fs_high',
+    FS_MIDDLE = 'fs_middle',
+    FS_LOW = 'fs_low',
+    FS_LOWEST = 'fs_lowest',
+}
+
+/** Metadata 1 tier Free Spin — map PS field + SelectFeature ReelIndex. */
+export interface FreeSpinTierDef {
+    id: FeatureSelectChoiceId;
+    reelIndex: FreeSpinTierReelIndex;
+    psKeys: string[];
+    labelKey: string;
+    shortLabel: string;
+}
+
+/** 5 tier Free Spin Secret Treasure (ReelIndex 2→6). */
+export const SECRET_TREASURE_FREE_SPIN_TIERS: FreeSpinTierDef[] = [
+    { id: FeatureSelectChoiceId.FS_HIGHEST, reelIndex: 2, psKeys: ['HighestFreeSpinReel', 'HighestFreeSpin'], labelKey: 'feature_select_fs_highest', shortLabel: 'Highest' },
+    { id: FeatureSelectChoiceId.FS_HIGH,    reelIndex: 3, psKeys: ['HighFreeSpinReel', 'HighFreeSpin'],       labelKey: 'feature_select_fs_high',    shortLabel: 'High' },
+    { id: FeatureSelectChoiceId.FS_MIDDLE,  reelIndex: 4, psKeys: ['MiddleFreeSpinReel', 'MiddleFreeSpin'],   labelKey: 'feature_select_fs_middle',  shortLabel: 'Middle' },
+    { id: FeatureSelectChoiceId.FS_LOW,     reelIndex: 5, psKeys: ['LowFreeSpinReel', 'LowFreeSpin'],         labelKey: 'feature_select_fs_low',     shortLabel: 'Low' },
+    { id: FeatureSelectChoiceId.FS_LOWEST,  reelIndex: 6, psKeys: ['LowestFreeSpinReel', 'LowestFreeSpin'],   labelKey: 'feature_select_fs_lowest',  shortLabel: 'Lowest' },
+];
+
+/** Lựa chọn hiển thị trên Feature Selection popup (TopUp + 5 tier FS). */
+export interface FeatureSelectOption {
+    id: FeatureSelectChoiceId;
+    nextStage: SlotStageType;
+    /** SelectFeature: 0=TopUp, 2–6=Free Spin tier. Spin response: 0=Normal, 1=FreeSpin, 2=TopUp game. */
+    reelIndex: number;
+    labelKey: string;
+    enabled: boolean;
+    spinCountHint?: number;
+}
+
+/** 6 lựa chọn mặc định — server có thể disable từng option qua payload sau. */
+export function buildDefaultFeatureSelectOptions(): FeatureSelectOption[] {
+    const topUp: FeatureSelectOption = {
+        id: FeatureSelectChoiceId.TOPUP,
+        nextStage: SlotStageType.TOPUP_SPIN_START,
+        reelIndex: 0,
+        labelKey: 'feature_select_topup',
+        enabled: true,
+    };
+    const tiers: FeatureSelectOption[] = SECRET_TREASURE_FREE_SPIN_TIERS.map(t => ({
+        id: t.id,
+        nextStage: SlotStageType.FREE_SPIN_START,
+        reelIndex: t.reelIndex,
+        labelKey: t.labelKey,
+        enabled: true,
+    }));
+    return [topUp, ...tiers];
+}
+
+export function getFreeSpinTierDef(reelIndex: number): FreeSpinTierDef | undefined {
+    return SECRET_TREASURE_FREE_SPIN_TIERS.find(t => t.reelIndex === reelIndex);
+}
+
+export function isFreeSpinTierReelIndex(reelIndex: number): reelIndex is FreeSpinTierReelIndex {
+    return reelIndex >= 2 && reelIndex <= 6;
+}
+
+// ═══════════════════════════════════════════════════════════
+//  ★ FEATURE ENTRY LOGIC ADDED (Concept & System Design v260610)
+//  "New Function → Feature entry logic added"
+//
+//  Có 2 hệ thống độc lập phía client:
+//   (A) Reel UI Gauge — 10 hình chữ tượng hình 2 cột trái/phải, sáng dần
+//       theo số Sticky tích lũy (gauge). Xem FEATURE_GAUGE_* bên dưới.
+//   (B) Force Feature Entry — khi Sticky < 6 mà server cho vào Feature theo
+//       xác suất, hệ thống tự "đổ" đủ 6 Sticky (Pot charge → orb → convert),
+//       kèm hiệu ứng nữ thần dẫn dắt trước khi mở Feature Selection.
+// ═══════════════════════════════════════════════════════════
+
+/**
+ * Ngưỡng "Sticky accumulated qty" cho 10 lighting stage (doc trang 18).
+ * Khi tổng Sticky tích lũy đạt ngưỡng thứ i (1-based) → đèn stage i bật.
+ * stage 1..10 → [10, 20, 40, 60, 80, 100, 120, 140, 160, 200].
+ */
+export const FEATURE_GAUGE_STICKY_THRESHOLDS: readonly number[] =
+    [10, 20, 40, 60, 80, 100, 120, 140, 160, 200];
+
+/**
+ * "Sticky earned qty" — số Sticky cần kiếm thêm để bước từ stage (i-1) → i.
+ * Chỉ mang tính tham chiếu (bằng hiệu các ngưỡng ở trên).
+ * stage 1..10 → [10, 10, 20, 20, 20, 20, 20, 20, 20, 40].
+ */
+export const FEATURE_GAUGE_STICKY_EARNED_PER_STAGE: readonly number[] =
+    [10, 10, 20, 20, 20, 20, 20, 20, 20, 40];
+
+/**
+ * Lighting Condition_1 — ma trận xác suất chuyển stage (doc trang 17).
+ * MATRIX[current-1][next-1] = % (tổng mỗi hàng = 100).
+ * "current" giữ nguyên hoặc được nâng lên theo xác suất; không bao giờ giảm
+ * (mọi ô dưới đường chéo = 0). Dùng khi server KHÔNG chủ động gửi lightingStage.
+ */
+export const FEATURE_LIGHTING_CONDITION_1_MATRIX: readonly (readonly number[])[] = [
+    [72, 12, 6, 4, 3, 1.445, 0.85, 0.55, 0.15, 0.005],
+    [0, 69, 11, 7, 5.5, 3.49, 2.6, 1.1, 0.3, 0.01],
+    [0, 0, 65, 12.5, 8, 6.12, 5.23, 2.3, 0.6, 0.25],
+    [0, 0, 0, 64, 14.8, 8.21, 6.64, 4.65, 1.2, 0.5],
+    [0, 0, 0, 0, 59, 15.58, 12.17, 9.25, 3, 1],
+    [0, 0, 0, 0, 0, 61, 18, 12, 6, 3],
+    [0, 0, 0, 0, 0, 0, 59, 25, 10, 5],
+    [0, 0, 0, 0, 0, 0, 0, 65, 25, 10],
+    [0, 0, 0, 0, 0, 0, 0, 0, 60, 40],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 100],
+];
+
+/** Tổng số lighting stage của gauge (5 trái + 5 phải). */
+export const FEATURE_GAUGE_MAX_STAGE = 10;
+
+/** Server gauge stage (PotVisualLevel) — parsheet MaxLevel=6. Client map 1–6 → 10 UI đèn. */
+export const FEATURE_GAUGE_POT_LEVEL_MAX = 6;
+
+/**
+ * Map PotVisualLevel (1–6) từ server sang 10 bước đèn UI.
+ * Level 1 = chưa sáng ô nào; level 2–6 chia đều 10 ô (2→2, 3→4, 4→6, 5→8, 6→10).
+ */
+export function gaugeStageFromPotVisualLevel(potVisualLevel: number): number {
+    if (potVisualLevel <= 1) return 0;
+    const activeLevels = FEATURE_GAUGE_POT_LEVEL_MAX - 1; // level 2..6
+    return Math.min(
+        FEATURE_GAUGE_MAX_STAGE,
+        Math.round((potVisualLevel - 1) * FEATURE_GAUGE_MAX_STAGE / activeLevels),
+    );
+}
+
+/**
+ * Flat index 0..9 trong mảng 10 đèn (stage 1-based → index 0-based).
+ * Thứ tự doc: bottom-left(1) → bottom-right(2) → 2nd-left(3) → … → top-right(10).
+ */
+export function gaugeStageToFlatIndex(stage: number): number {
+    return stage - 1;
+}
+
+/**
+ * Vị trí bật đèn theo lighting stage (doc trang 14/18):
+ * bottom-left(1) → bottom-right(2) → 2nd-left(3) → 2nd-right(4) → … → top-left(9) → top-right(10).
+ * pillar: 0 = cột trái, 1 = cột phải. index: 0 = dưới cùng … 4 = trên cùng.
+ */
+export function gaugeStageToPillar(stage: number): { pillar: 0 | 1; index: number } | null {
+    if (stage < 1 || stage > FEATURE_GAUGE_MAX_STAGE) return null;
+    return { pillar: ((stage - 1) % 2) as 0 | 1, index: Math.floor((stage - 1) / 2) };
+}
+
+/** Suy ra lighting stage (0..10) từ tổng Sticky tích lũy dựa trên ngưỡng. */
+export function gaugeStageFromAccumulated(accumulated: number): number {
+    let stage = 0;
+    for (let i = 0; i < FEATURE_GAUGE_STICKY_THRESHOLDS.length; i++) {
+        if (accumulated >= FEATURE_GAUGE_STICKY_THRESHOLDS[i]) stage = i + 1;
+        else break;
+    }
+    return stage;
+}
+
+/**
+ * Lighting Condition_1: từ stage hiện tại roll stage kế tiếp theo ma trận xác suất.
+ * @param currentStage 1..10
+ * @param rng hàm random [0,1) — mặc định Math.random (client fallback).
+ */
+export function rollLightingCondition1(currentStage: number, rng: () => number = Math.random): number {
+    const clamped = Math.max(1, Math.min(FEATURE_GAUGE_MAX_STAGE, currentStage));
+    const row = FEATURE_LIGHTING_CONDITION_1_MATRIX[clamped - 1];
+    const r = rng() * 100;
+    let acc = 0;
+    for (let next = 0; next < row.length; next++) {
+        acc += row[next];
+        if (r < acc) return next + 1;
+    }
+    return clamped;
+}
+
+/**
+ * Xác suất vào Feature khi Sticky < 6 (doc trang 20). Trả về fraction [0,1].
+ *   0 ≤ count < 3 → 0.0001%  |  3 ≤ count < 5 → 0.001%  |  count = 5 → 0.01%
+ */
+export function forceFeatureEntryProbability(stickyCount: number): number {
+    if (stickyCount >= 5) return 0.0001;
+    if (stickyCount >= 3) return 0.00001;
+    return 0.000001;
+}
+
+/**
+ * Giá trị credit gán cho Sticky được "đổ" thêm và xác suất tương ứng (doc trang 21).
+ * value[i] có xác suất weight[i]%.
+ */
+export const FEATURE_STICKY_FILL_VALUES: readonly number[] = [0.1, 0.2, 0.5, 0.8, 1.0, 5.0];
+export const FEATURE_STICKY_FILL_WEIGHTS: readonly number[] =
+    [51.414, 25.707, 10.2828, 6.4268, 5.1414, 1.0283];
+
+/** Chọn ngẫu nhiên 1 giá trị credit cho Sticky đổ thêm theo bảng xác suất. */
+export function pickForcedStickyValue(rng: () => number = Math.random): number {
+    const total = FEATURE_STICKY_FILL_WEIGHTS.reduce((s, w) => s + w, 0);
+    const r = rng() * total;
+    let acc = 0;
+    for (let i = 0; i < FEATURE_STICKY_FILL_VALUES.length; i++) {
+        acc += FEATURE_STICKY_FILL_WEIGHTS[i];
+        if (r < acc) return FEATURE_STICKY_FILL_VALUES[i];
+    }
+    return FEATURE_STICKY_FILL_VALUES[0];
+}
+
+/** Số Sticky cần thiết để vào Feature (đủ 6 đồng). */
+export const FEATURE_ENTRY_REQUIRED_STICKY = 6;
+
+/**
+ * Payload mô tả một lần Force Feature Entry (Sticky < 6 → đổ đủ 6).
+ * Dùng cho StickyFillEffect (Pot charge → orb → convert).
+ */
+export interface ForceFeatureEntryData {
+    /** Các Sticky đã xuất hiện tự nhiên trên reel (giữ nguyên, không đổ lại). */
+    existingCells: StickyCell[];
+    /** Các Sticky do hệ thống đổ thêm để đủ 6 (target cho orb bay xuống). */
+    fillCells: StickyCell[];
+    /** Số Sticky tự nhiên trước khi đổ (0..5) — quyết định nhánh xác suất. */
+    naturalCount: number;
+}
+
 /**
  * ★ Secret Treasure symbol set (0–20).
  *
@@ -298,6 +524,8 @@ export interface TopupReelSlot {
 export interface SelectFeatureResponse {
     nextStage: number;
     remainFeatureSpinCount: number;
+    /** ReelIndex đã chọn (0=TopUp, 2–6=Free Spin tier). */
+    reelIndex?: number;
 }
 
 /** Spin response — mở rộng đầy đủ cho Gold of Fortune. */
@@ -338,6 +566,25 @@ export interface SpinResponse {
     remainRespinCount?: number;
     /** Topup game link reel state: 15 grid cells + 1 Grand slot. */
     topupReel?: TopupReelSlot[];
+
+    // ★ FEATURE ENTRY LOGIC ADDED ───────────────────────────────
+    /**
+     * true khi vào Feature Select do "Force Feature Enter" (Sticky tự nhiên < 6,
+     * server đổ đủ 6 theo xác suất). Client phát hiệu ứng nữ thần + đổ Sticky.
+     */
+    isForcedFeatureEntry?: boolean;
+    /** Dữ liệu đổ Sticky (existing + fill) khi isForcedFeatureEntry = true. */
+    forceFeatureEntry?: ForceFeatureEntryData;
+    /** Số Sticky xuất hiện tự nhiên trên reel spin này (dùng cho gauge + force check). */
+    naturalStickyCount?: number;
+    /** Số Sticky "earned" cộng vào gauge trong spin này (Lighting Condition_2). */
+    stickyEarnedThisSpin?: number;
+    /** Lighting stage 0..10 (map từ PotVisualLevel hoặc legacy LightingStage). */
+    lightingStage?: number;
+    /** Tổng tích lũy gauge — server field PotCount (= StickyAccumulated). */
+    stickyAccumulated?: number;
+    /** Server field PotCount (alias stickyAccumulated). */
+    potCount?: number;
 }
 
 export interface PlayerData {
@@ -350,8 +597,10 @@ export interface PlayerData {
 export interface SlotConfig {
     /** 5 reel strips Normal Spin. Mỗi strip = mảng SymbolId. */
     reelStrips: number[][];
-    /** 5 reel strips Free Spin (yellow wild trên reel 1/2/3 ⇒ strip khác). */
+    /** Legacy single Free Spin strip (Gold Of Fortunes fallback). */
     freeSpinReelStrips: number[][];
+    /** Secret Treasure: 5 tier Free Spin strips keyed by SelectFeature ReelIndex (2–6). */
+    freeSpinTierStrips: Record<number, number[][]>;
     /** 5 reel strips Re-Spin (chỉ ô trống được quay; strip nhiều +1 spin / Yellow / Green). */
     respinReelStrips: number[][];
     /** Hỗ trợ legacy: nếu user bật BuyBonus cũ ⇒ dùng tạm strips này. */
@@ -471,6 +720,8 @@ export interface ServerSpinResponse {
         CollectSymbols?: any[];
         WildTrailCount?: number;
         WildCount?: number;
+        /** Gauge accumulated count (= StickyAccumulated). */
+        PotCount?: number;
         PotVisualLevel?: number;
         TriggerPotWin?: boolean;
         IsPotWin?: boolean;
@@ -481,6 +732,14 @@ export interface ServerSpinResponse {
         TopupReel?: any[];
         NormalSpinLinkReel?: any[];
         NoramlSpinLinkReel?: any[];
+        // ★ Feature Entry Logic Added — optional server fields (nếu server hỗ trợ)
+        IsForceFeatureEnter?: boolean;
+        ForceFeatureEnter?: boolean;
+        IsForcedFeatureEntry?: boolean;
+        LightingStage?: number;
+        StickyAccumulated?: number;
+        StickyEarned?: number;
+        StickyEarnedCount?: number;
     };
     SpinID: number;                    // Int64
     Before: Record<string, number>;    // Jackpot values trước spin

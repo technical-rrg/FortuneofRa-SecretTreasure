@@ -7,14 +7,15 @@ import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Color, game, 
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
-import { SlotStageType, SpinResponse, MatchedLinePay, JackpotType, SymbolId, GameState, FeatureItem, PickGameState, StickyCell, TopupReelSlot, TopupReelType } from '../data/SlotTypes';
+import { SlotStageType, SpinResponse, MatchedLinePay, JackpotType, SymbolId, GameState, FeatureItem, PickGameState, StickyCell, TopupReelSlot, TopupReelType, FeatureSelectChoiceId, isFreeSpinTierReelIndex, gaugeStageFromAccumulated, gaugeStageFromPotVisualLevel } from '../data/SlotTypes';
+import { FeatureSelectChoicePayload } from '../controller/FeatureSelectionPopup';
 import { NetworkManager } from './NetworkManager';
 import { WalletManager } from './WalletManager';
 import { BetManager } from './BetManager';
 import { SoundManager } from './SoundManager';
 import { DebugManager } from './DebugManager';
 import { PROGRESSIVE_WIN_THRESHOLDS, ProgressiveWinTier } from '../controller/ProgressiveWinPopup';
-import { USE_REAL_API } from '../data/ServerConfig';
+import { USE_REAL_API, MOCK_GAUGE_HOLD_SEC_BEFORE_FORCE_ENTRY } from '../data/ServerConfig';
 import { MockDataProvider } from '../data/MockDataProvider';
 import { LocalizationManager } from '../core/LocalizationManager';
 import { AutoSpinManager, SpeedMode } from './AutoSpinManager';
@@ -180,6 +181,8 @@ export class GameManager extends Component {
     private _awaitingFeatureSelectCreditDone: boolean = false;
     /** Đã emit CREDIT_FLY_IN_START trong lượt feature select hiện tại — tránh double-emit */
     private _featureSelectCreditFlyDone: boolean = false;
+    /** ★ Feature Entry Logic Added — đã chạy chuỗi Force Feature Entry cho spin hiện tại. */
+    private _forceFeatureEntryPlayed: boolean = false;
     /** Đã xử lý REELS_STOPPED trong spin hiện tại — ngăn duplicate processing */
     private _reelsStoppedProcessed: boolean = false;
     /** Có một SPIN_REQUEST bị reject vì reel còn settling — retry khi reel idle. */
@@ -324,7 +327,8 @@ export class GameManager extends Component {
             net.startHeartBeat();
             net.startJackpotPolling();
 
-            // ─── Step 4: Sync potLevel từ Enter LastSpinResponse ───
+            // ─── Step 4: Sync pot + gauge từ Enter LastSpinResponse ───
+            this._syncEnterGaugeState(enterResp.lastSpinResponse);
             const enterPotVisualLevel = (enterResp.lastSpinResponse as any)?.PotVisualLevel ?? (enterResp.lastSpinResponse as any)?.potVisualLevel;
             if (enterPotVisualLevel != null) {
                 data.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
@@ -381,7 +385,8 @@ export class GameManager extends Component {
         const data = GameData.instance;
         const net = NetworkManager.instance;
 
-        // Sync potLevel từ Enter response nếu có
+        // Sync pot + gauge từ Enter response nếu có
+        this._syncEnterGaugeState(data.rawEnterLastSpinResponse);
         const enterPotVisualLevel = (data.rawEnterLastSpinResponse as any)?.PotVisualLevel ?? (data.rawEnterLastSpinResponse as any)?.potVisualLevel;
         if (enterPotVisualLevel != null) {
             data.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
@@ -500,8 +505,7 @@ export class GameManager extends Component {
         bus.on(GameEvents.BUY_BONUS_CONFIRM,               this._onBuyBonusConfirm,        this);
         bus.on(GameEvents.BUY_BONUS_ACTIVATE,              this._onBuyBonusActivate,       this);
         bus.on(GameEvents.BUY_BONUS_DEACTIVATE,            this._onBuyBonusDeactivate,     this);
-        bus.on(GameEvents.FEATURE_SELECT_RESPIN,           this._onFeatureSelectTopUp,     this);
-        bus.on(GameEvents.FEATURE_SELECT_FREESPIN,         this._onFeatureSelectFreeSpin,  this);
+        bus.on(GameEvents.FEATURE_SELECT_CHOICE,           this._onFeatureSelectChoice,  this);
         bus.on(GameEvents.GAME_READY,                      this._onGameReady,              this);
         bus.on(GameEvents.CREDIT_FLY_IN_DONE,              this._onCreditFlyInDone,        this);
         bus.on(GameEvents.FREE_SPIN_GOLD_FLY_DONE,         this._onGoldFlyDone,            this);
@@ -569,7 +573,8 @@ export class GameManager extends Component {
         const enterResp = await NetworkManager.instance.enterGame();
         // Log removed for performance
 
-        // Bước 3: sync potLevel từ mock Enter response
+        // Bước 3: sync pot + gauge từ mock Enter response
+        this._syncEnterGaugeState(enterResp.lastSpinResponse);
         const enterPotVisualLevel = (enterResp.lastSpinResponse as any)?.PotVisualLevel ?? (enterResp.lastSpinResponse as any)?.potVisualLevel;
         if (enterPotVisualLevel != null) {
             GameData.instance.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
@@ -725,6 +730,7 @@ export class GameManager extends Component {
         this._pendingFeatureSelectAfterHighlight = false;
         this._awaitingFeatureSelectCreditDone = false;
         this._featureSelectCreditFlyDone = false;
+        this._forceFeatureEntryPlayed = false;
         this.unschedule(this._featureSelectWinPresentationFallback);
     }
 
@@ -743,6 +749,40 @@ export class GameManager extends Component {
         const isFeatureSelect = nextStage === SlotStageType.FEATURE_SELECT || nextStage === SlotStageType.FEATURE_SELECT_START;
         if (!featureResp || !isFeatureSelect) {
             Log.e(`[GOLD-FLY][FEATURE_SELECT] SKIP credit fly — nextStage=${nextStage} | reason=${reason}`);
+            return;
+        }
+
+        // ★ FEATURE ENTRY LOGIC ADDED — Force Feature Entry (Sticky < 6):
+        //   chạy hiệu ứng nữ thần + đổ Sticky TRƯỚC credit-fly. Sau khi xong (DONE)
+        //   gọi lại chính hàm này để tiếp tục EACH WIN accumulation + Feature Select popup.
+        if (featureResp.isForcedFeatureEntry && !this._forceFeatureEntryPlayed) {
+            this._forceFeatureEntryPlayed = true;
+            Log.e('[FEATURE-ENTRY] Force Feature Entry → guide + sticky fill trước credit-fly');
+
+            const beginForceEntry = (): void => {
+                // Gauge reset do server xử lý sau Pick Game — client không reset local tại đây.
+                EventBus.instance.once(GameEvents.FORCE_FEATURE_ENTRY_DONE, () => {
+                    const force = featureResp.forceFeatureEntry;
+                    if (force?.fillCells?.length) {
+                        const data = GameData.instance;
+                        for (const cell of force.fillCells) {
+                            data.stickyCells.set(`${cell.reel}-${cell.row}`, cell);
+                        }
+                        featureResp.stickyCells = [...(force.existingCells ?? []), ...force.fillCells];
+                        Log.e(`[FEATURE-ENTRY] merged ${force.fillCells.length} fill cells → stickyCells=${featureResp.stickyCells.length}`);
+                    }
+                    this._startFeatureSelectCreditFly('force-feature-entry-done');
+                }, this);
+                EventBus.instance.emit(GameEvents.FORCE_FEATURE_ENTRY_START, featureResp.forceFeatureEntry);
+            };
+
+            const holdSec = !USE_REAL_API ? MOCK_GAUGE_HOLD_SEC_BEFORE_FORCE_ENTRY : 0;
+            if (holdSec > 0) {
+                Log.e(`[FEATURE-ENTRY] mock: giữ gauge sáng ${holdSec}s trước reset + guide`);
+                this.scheduleOnce(beginForceEntry, holdSec);
+            } else {
+                beginForceEntry();
+            }
             return;
         }
 
@@ -871,6 +911,7 @@ export class GameManager extends Component {
         this._pendingFeatureSelectAfterHighlight = false;
         this._awaitingFeatureSelectCreditDone = false;
         this._featureSelectCreditFlyDone = false;
+        this._forceFeatureEntryPlayed = false;
         this._reelsStoppedProcessed = false;
         this._pendingSpinRequestAfterSettled = false;
         this._wildTrailReelsProcessed.clear();
@@ -955,8 +996,15 @@ export class GameManager extends Component {
             // sẽ tự so sánh cells mới vs cũ để detect newCells cho absorb effect.
             // Nếu pre-store, mọi cell đều bị coi là "đã tồn tại" → newCells luôn rỗng → không có effect.
             if (!isTopUp && response.stickyCells && response.stickyCells.length > 0) {
-                for (const cell of response.stickyCells) {
+                // Force Feature Entry: chỉ pre-store ô Red tự nhiên; fillCells merge sau STICKY_FILL_DONE
+                const cellsToStore = response.isForcedFeatureEntry && response.forceFeatureEntry
+                    ? response.forceFeatureEntry.existingCells
+                    : response.stickyCells;
+                for (const cell of cellsToStore) {
                     data.stickyCells.set(`${cell.reel}-${cell.row}`, cell);
+                }
+                if (response.isForcedFeatureEntry) {
+                    Log.e(`[FEATURE-ENTRY] pre-store ${cellsToStore.length} existing sticky (fill ${response.forceFeatureEntry?.fillCells?.length ?? 0} deferred)`);
                 }
             }
 
@@ -1198,6 +1246,11 @@ export class GameManager extends Component {
         if (this._isTopUp()) {
             this._handleTopUpReelsStopped(resp);
             return;
+        }
+
+        // ★ Gauge cập nhật ngay khi reel dừng (kể cả spin vào Feature Select), trước win presentation
+        if (!this._isFreeSpin() && (resp.reelIndex ?? 0) === 0) {
+            this._updateFeatureGauge(resp);
         }
 
         // Build grid string cho log (dùng lại ở các path bên dưới)
@@ -1812,8 +1865,9 @@ export class GameManager extends Component {
         this._updateBackgroundSprite();
         const data = GameData.instance;
         data.wildTrailCount = 0;
-        data.potLevel       = 0;
-        EventBus.instance.emit(GameEvents.POT_LEVEL_CHANGED, { level: 0, total: 0 });
+        data.potLevel       = 1;
+        data.featureGaugeAccumulated = 0;
+        EventBus.instance.emit(GameEvents.POT_LEVEL_CHANGED, { level: 1, total: 0 });
         // Restore game state bị block bởi _transitionStage(POT_WIN)
         this._gameState = GameState.IDLE;
         EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, true);
@@ -2221,13 +2275,77 @@ export class GameManager extends Component {
                     Log.e('[GOLD-FLY][FEATURE_SELECT] wait WIN_PRESENT_END before CREDIT_FLY_IN_START');
                     break;
                 }
+                // Force Feature Entry gate nằm trong _startFeatureSelectCreditFly()
+                // để mọi nhánh (no-win và WIN_PRESENT_END) đều chạy guide + sticky fill.
                 this._startFeatureSelectCreditFly('transitionStage-no-win');
                 break;
             }
 
             case SlotStageType.SPIN:
                 // Quay bình thường, chờ người chơi nhấn Spin
+                // Gauge đã cập nhật trong _onReelsStopped
                 break;
+        }
+    }
+
+    /**
+     * ★ FEATURE ENTRY — Reel UI Gauge.
+     * Server: PotVisualLevel (1–6) → map 10 đèn UI; PotCount = tích lũy; WildCount = earned/spin.
+     * Reset gauge sau Pick Game completion — client luôn dùng giá trị server, không tự reset.
+     */
+    private _updateFeatureGauge(resp: SpinResponse | null): void {
+        if (!resp) return;
+        const data = GameData.instance;
+        if (data.currentMode !== 'normal') return;
+        if ((resp.reelIndex ?? 0) !== 0) return;
+
+        const earned = resp.stickyEarnedThisSpin ?? resp.naturalStickyCount ?? 0;
+        let stage: number;
+        let accumulated: number;
+
+        if (resp.potVisualLevel != null) {
+            stage = gaugeStageFromPotVisualLevel(resp.potVisualLevel);
+            accumulated = resp.potCount ?? resp.stickyAccumulated ?? data.featureGaugeAccumulated;
+        } else if (resp.lightingStage != null) {
+            stage = resp.lightingStage;
+            accumulated = resp.potCount ?? resp.stickyAccumulated ?? data.featureGaugeAccumulated;
+        } else {
+            accumulated = data.featureGaugeAccumulated + earned;
+            stage = gaugeStageFromAccumulated(accumulated);
+        }
+
+        data.featureGaugeAccumulated = accumulated;
+
+        // Pot sắp đổi level → defer sáng gauge; PotController sync cùng lúc transition + sx_pot_effect
+        const newPotLevel = resp.potVisualLevel != null
+            ? Math.max(0, Math.min(6, resp.potVisualLevel as number))
+            : null;
+        const potWillChange = newPotLevel != null && newPotLevel !== data.potLevel;
+        if (potWillChange) {
+            Log.e(`[FeatureGauge] defer visual update — pot ${data.potLevel}→${newPotLevel}, stage=${stage}`);
+            return;
+        }
+
+        const changed = stage !== data.featureGaugeStage;
+        data.featureGaugeStage = stage;
+
+        if (!changed && earned === 0) return;
+        Log.e(`[FeatureGauge] earned=${earned} accumulated=${accumulated} stage=${stage} potVisualLevel=${resp.potVisualLevel ?? 'n/a'}`);
+        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
+            stage, accumulated, earned, animate: true,
+        });
+    }
+
+    /** Khôi phục gauge từ LastSpinResponse hoặc potLevel đã sync khi /Enter. */
+    private _syncEnterGaugeState(lastSpin: any): void {
+        const data = GameData.instance;
+        const potVisualLevel = lastSpin?.PotVisualLevel ?? lastSpin?.potVisualLevel ?? data.potLevel;
+        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount;
+        if (potVisualLevel != null && potVisualLevel > 0) {
+            data.featureGaugeStage = gaugeStageFromPotVisualLevel(potVisualLevel);
+        }
+        if (potCount != null) {
+            data.featureGaugeAccumulated = potCount;
         }
     }
 
@@ -2276,42 +2394,44 @@ export class GameManager extends Component {
         }
     }
 
-    private async _onFeatureSelectTopUp(payload?: { onAccepted?: (onClosed?: () => void) => void; onRejected?: () => void }): Promise<void> {
-        try {
-            Log.e('[GameManager] FEATURE_SELECT_RESPIN → SelectFeature NextStage=12(TOPUP_SPIN_START)');
-            const ack = await NetworkManager.instance.sendSelectFeature(SlotStageType.TOPUP_SPIN_START);
-            const count = ack.remainFeatureSpinCount > 0 ? ack.remainFeatureSpinCount : 6;
-            this._clearFeatureSelectTransientState();
-            payload?.onAccepted?.(() => this._showTopUpTransitionThenEnter(count));
-            if (!payload?.onAccepted) this._showTopUpTransitionThenEnter(count);
-        } catch (err) {
-            Log.e('[GameManager] SelectFeature TOPUP failed:', err);
-            payload?.onRejected?.();
-            // _checkResponseCode đã emit SHOW_SYSTEM_POPUP (alreadyHandled=true) — tránh emit 2 lần
-            if (!(err instanceof ServerApiError && err.alreadyHandled)) {
-                const popupCase = PopUpMessage.popupCaseFromError(err as Error);
-                EventBus.instance.emit(GameEvents.SHOW_SYSTEM_POPUP, { popupCase });
-            }
-        }
-    }
+    private async _onFeatureSelectChoice(payload?: FeatureSelectChoicePayload): Promise<void> {
+        if (!payload?.option) return;
+        const { option } = payload;
+        const reelIndex = option.reelIndex;
 
-    private async _onFeatureSelectFreeSpin(payload?: { onAccepted?: (onClosed?: () => void) => void; onRejected?: () => void }): Promise<void> {
         try {
-            Log.e('[GameManager] FEATURE_SELECT_FREESPIN → SelectFeature NextStage=3(FREE_SPIN_START)');
-            const ack = await NetworkManager.instance.sendSelectFeature(SlotStageType.FREE_SPIN_START);
+            if (option.id === FeatureSelectChoiceId.TOPUP) {
+                GameData.instance.selectedFreeSpinReelIndex = null;
+                Log.e('[GameManager] FEATURE_SELECT → TopUp NextStage=12(TOPUP_SPIN_START) ReelIndex=0');
+            } else {
+                GameData.instance.selectedFreeSpinReelIndex = reelIndex;
+                Log.e(`[GameManager] FEATURE_SELECT → FreeSpin tier=${option.id} NextStage=3(FREE_SPIN_START) ReelIndex=${reelIndex}`);
+            }
+
+            const ack = await NetworkManager.instance.sendSelectFeature(option.nextStage, reelIndex);
+            if (ack.reelIndex != null && isFreeSpinTierReelIndex(ack.reelIndex)) {
+                GameData.instance.selectedFreeSpinReelIndex = ack.reelIndex;
+            }
+
+            if (option.id === FeatureSelectChoiceId.TOPUP) {
+                const count = ack.remainFeatureSpinCount > 0 ? ack.remainFeatureSpinCount : 6;
+                this._clearFeatureSelectTransientState();
+                payload.onAccepted?.(() => this._showTopUpTransitionThenEnter(count));
+                if (!payload.onAccepted) this._showTopUpTransitionThenEnter(count);
+                return;
+            }
+
             const count = ack.remainFeatureSpinCount > 0 ? ack.remainFeatureSpinCount : 8;
-            // Đánh dấu chế độ FreeSpin Gold trước khi enter để các display biết
             GameData.instance.currentMode = 'freespin_gold';
             this._freeSpinGoldCoinTotal = 0;
             this._freeSpinGoldServerTotalWin = null;
             this._freeSpinGoldCountedKeys.clear();
             this._clearFeatureSelectTransientState();
-            payload?.onAccepted?.(() => this._showTopUpTransitionThenEnterFreespin(count));
-            if (!payload?.onAccepted) this._showTopUpTransitionThenEnterFreespin(count);
+            payload.onAccepted?.(() => this._showTopUpTransitionThenEnterFreespin(count));
+            if (!payload.onAccepted) this._showTopUpTransitionThenEnterFreespin(count);
         } catch (err) {
-            Log.e('[GameManager] SelectFeature FREESPIN failed:', err);
-            payload?.onRejected?.();
-            // _checkResponseCode đã emit SHOW_SYSTEM_POPUP (alreadyHandled=true) — tránh emit 2 lần
+            Log.e('[GameManager] SelectFeature failed:', err);
+            payload.onRejected?.();
             if (!(err instanceof ServerApiError && err.alreadyHandled)) {
                 const popupCase = PopUpMessage.popupCaseFromError(err as Error);
                 EventBus.instance.emit(GameEvents.SHOW_SYSTEM_POPUP, { popupCase });

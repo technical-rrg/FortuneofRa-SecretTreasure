@@ -24,6 +24,9 @@ import {
     ServerJackpotResponse,
     ServerPickResponse,
     SelectFeatureResponse,
+    ForceFeatureEntryData,
+    pickForcedStickyValue,
+    FEATURE_ENTRY_REQUIRED_STICKY,
 } from './SlotTypes';
 import { INetworkAdapter } from '../manager/NetworkManager';
 import { GameData } from './GameData';
@@ -595,6 +598,78 @@ export class MockDataProvider {
                 });
             }
 
+            case TestScenario.FEATURE_GAUGE_WARMUP: {
+                // Spin 1 test: có Red trên reel + gauge sáng, KHÔNG vào Feature.
+                const strips = data.getReelStrips(false);
+                const rands = [
+                    findMidRand(strips[0] ?? [], SymbolId.STICKY_RED),
+                    findMidRand(strips[1] ?? [], SymbolId.STICKY_RED),
+                    findMidRand(strips[2] ?? [], SymbolId.STICKY_RED),
+                    findNoSymbolRand(strips[3] ?? [], SymbolId.STICKY_RED),
+                    findNoSymbolRand(strips[4] ?? [], SymbolId.STICKY_RED),
+                ];
+                const grid = data.getBaseGrid(rands, false);
+                const stickies = MockDataProvider._buildRedStickies(grid, totalBet);
+                const earned = stickies.length;
+                return enrich({
+                    rands,
+                    waysPayWins: [], matchedLinePays: [],
+                    totalBet, totalWin: 0, updateCash: true,
+                    nextStage: SlotStageType.SPIN,
+                    redCount: earned,
+                    stickyCells: stickies,
+                    naturalStickyCount: earned,
+                    stickyEarnedThisSpin: 10,
+                    potVisualLevel: 2,
+                    potCount: 40,
+                    stickyAccumulated: 40,
+                });
+            }
+
+            case TestScenario.FORCE_FEATURE_ENTRY: {
+                // ★ Force Feature Entry demo: đúng 2 Red tự nhiên (reel 0+1 mid), 4 ô còn lại do StickyFillEffect đổ.
+                const strips = data.getReelStrips(false);
+                const naturalRands = [
+                    findMidRand(strips[0] ?? [], SymbolId.STICKY_RED),
+                    findMidRand(strips[1] ?? [], SymbolId.STICKY_RED),
+                    findNoSymbolRand(strips[2] ?? [], SymbolId.STICKY_RED),
+                    findNoSymbolRand(strips[3] ?? [], SymbolId.STICKY_RED),
+                    findNoSymbolRand(strips[4] ?? [], SymbolId.STICKY_RED),
+                ];
+                const naturalGrid = data.getBaseGrid(naturalRands, false);
+                const existingCells = MockDataProvider._buildRedStickies(naturalGrid, totalBet);
+                const naturalCount = existingCells.length;
+
+                const occupied = new Set(existingCells.map(c => `${c.reel}-${c.row}`));
+                const fillCells: StickyCell[] = [];
+                for (let r = 0; r < 5 && existingCells.length + fillCells.length < FEATURE_ENTRY_REQUIRED_STICKY; r++) {
+                    for (let row = 0; row < 3 && existingCells.length + fillCells.length < FEATURE_ENTRY_REQUIRED_STICKY; row++) {
+                        if (naturalGrid[r][row] === SymbolId.STICKY_RED) continue;
+                        const key = `${r}-${row}`;
+                        if (occupied.has(key)) continue;
+                        occupied.add(key);
+                        fillCells.push({
+                            reel: r, row, symbolId: SymbolId.STICKY_RED,
+                            credit: pickForcedStickyValue() * (totalBet || 1),
+                        });
+                    }
+                }
+
+                const force: ForceFeatureEntryData = { existingCells, fillCells, naturalCount };
+                return enrich({
+                    rands: naturalRands,
+                    waysPayWins: [], matchedLinePays: [],
+                    totalBet, totalWin: 0, updateCash: true,
+                    nextStage: SlotStageType.FEATURE_SELECT_START,
+                    redCount: naturalCount,
+                    stickyCells: existingCells,
+                    naturalStickyCount: naturalCount,
+                    stickyEarnedThisSpin: naturalCount,
+                    isForcedFeatureEntry: true,
+                    forceFeatureEntry: force,
+                });
+            }
+
             case TestScenario.POT_WIN: {
                 // Wild (con dơi, id=8) nằm ở reel 1/2/3 trong strip
                 // Tìm rands thực → visual hiện Wild → Wild Trail animation khớp
@@ -685,6 +760,10 @@ export enum TestScenario {
     LONG_SPIN_TRIGGER        = 'long_spin_trigger',
     FEATURE_TRIGGER_RESPIN   = 'feature_respin',
     FEATURE_TRIGGER_FREESPIN = 'feature_freespin',
+    /** Spin 1: Red + gauge sáng (không Feature). Spin 2: Force Feature Entry. */
+    FEATURE_GAUGE_WARMUP       = 'feature_gauge_warmup',
+    /** ★ Force Feature Entry: Sticky tự nhiên < 6 → hệ thống đổ đủ 6 (guide + sticky fill). */
+    FORCE_FEATURE_ENTRY      = 'force_feature_entry',
     POT_WIN                  = 'pot_win',
     GRAND_JACKPOT            = 'grand_jackpot',
 }
@@ -760,10 +839,12 @@ export class ForcedMockAdapter implements INetworkAdapter {
         return { balance: GameData.instance.player.balance, currency: 'USD' };
     }
     async sendCashRaceMyRankGetFirst(): Promise<any | null> { return null; }
-    async sendSelectFeature(nextStage: SlotStageType): Promise<SelectFeatureResponse> {
+    async sendSelectFeature(nextStage: SlotStageType, reelIndex: number = 0): Promise<SelectFeatureResponse> {
         await this._delay(50);
-        const remain = nextStage === SlotStageType.TOPUP_SPIN_START ? 6 : 8;
-        return { nextStage, remainFeatureSpinCount: remain };
+        const remain = nextStage === SlotStageType.TOPUP_SPIN_START
+            ? 6
+            : (reelIndex >= 2 && reelIndex <= 6 ? 20 - (reelIndex - 2) * 2 : 8);
+        return { nextStage, remainFeatureSpinCount: remain, reelIndex };
     }
 
     async sendPickRequest(_pickIndex: number): Promise<ServerPickResponse> {

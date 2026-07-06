@@ -1,66 +1,45 @@
 /**
  * FeatureSelectionPopup — Popup chọn bonus khi 6+ Red sticky xuất hiện.
  *
- * Feature F — Gold of Fortune:
- *   #25 Red counter detector   → GameManager detect 6 Red → emit FEATURE_SELECT_OPEN
- *   #26 Sum credit count-up    → Tổng credit Red count-up khi popup mở
- *   #27 Feature Selection UI   → TOP UP BONUS (Re-Spin) vs 8 FREE GAMES
- *   #28 EACH WINS KMBT format  → Từng sticky cell hiển thị credit theo K/M/B/T
+ * Secret Treasure: 6 lựa chọn = TopUp + 5 tier Free Spin (ReelIndex 0 / 2–6).
  *
  * ── SETUP TRONG EDITOR ──
- *   1. Tạo Node "FeatureSelectionPopup" (inactive ban đầu, nằm top layer).
- *   2. Gắn component này vào node đó.
- *   3. Kéo các node vào đúng slot bên dưới.
- *
- * ── NODE STRUCTURE ──
- *   FeatureSelectionPopup (Node)
- *   └── popupNode          ← Node bọc toàn bộ popup (active=false ban đầu)
- *       ├── overlayNode    ← Node nền mờ full-screen
- *       ├── titleLabel     ← Label tiêu đề ("CHOOSE YOUR BONUS")
- *       ├── redCountLabel  ← Label số Red ("6 RED SYMBOLS")
- *       ├── eachWinsLabel  ← Label tiêu đề cột ("EACH WINS")
- *       ├── creditItemRoot ← Node cha chứa các item credit (mỗi item = 1 Label)
- *       │   └── [children] ← Dynamic — script sẽ set .string cho từng Label con
- *       ├── sumCreditLabel ← Label tổng credit (count-up)
- *       ├── btnTopUp       ← Button "TOP UP BONUS"
- *       │   └── labelTopUp ← Label text của button
- *       ├── btnFreeGames   ← Button "8 FREE GAMES"
- *       │   └── labelFreeGames ← Label text của button
- *       └── [labelTopUpDesc] / [labelFreeGamesDesc] ← phụ đề (tùy chọn)
- *
- * ── FLOW ──
- *   FEATURE_SELECT_OPEN({ sumCredit, stickyCells }) →
- *     Popup hiện, đếm từng credit item (EACH WINS KMBT), count-up tổng credit.
- *   Tap TOP UP BONUS →
- *     emit FEATURE_SELECT_RESPIN → GameManager bắt đầu Re-Spin mode.
- *   Tap 8 FREE GAMES →
- *     emit FEATURE_SELECT_FREESPIN → GameManager bắt đầu Free Spin mode.
- *   Popup đóng → emit FEATURE_SELECT_CLOSE.
+ *   btnTopUp          → TopUp Bonus (ReelIndex 0, NextStage 12)
+ *   btnFreeSpinTiers  → 5 nút tier FS (Highest→Lowest, ReelIndex 2–6)
  */
 
 import {
-    _decorator, Component, Node, Button, BlockInputEvents,
+    _decorator, Component, Node, Button, BlockInputEvents, Label,
 } from 'cc';
 import { sp } from 'cc';
 import { EventBus }       from '../core/EventBus';
 import { GameEvents }     from '../core/GameEvents';
-import { StickyCell, SymbolId } from '../data/SlotTypes';
+import {
+    StickyCell, SymbolId, FeatureSelectOption,
+    buildDefaultFeatureSelectOptions, FeatureSelectChoiceId,
+    SECRET_TREASURE_FREE_SPIN_TIERS,
+} from '../data/SlotTypes';
 import { SpriteNumber }   from '../core/SpriteNumber';
 import { Log }            from '../core/Logger';
 import { SoundManager }   from '../manager/SoundManager';
+import { L }              from '../core/LocalizationManager';
 
 const { ccclass, property } = _decorator;
 
-/** Payload nhận được khi FEATURE_SELECT_OPEN fire. */
 export interface FeatureSelectPayload {
     sumCredit: number;
     stickyCells: StickyCell[];
+    options?: FeatureSelectOption[];
+}
+
+export interface FeatureSelectChoicePayload {
+    option: FeatureSelectOption;
+    onAccepted?: (onClosed?: () => void) => void;
+    onRejected?: () => void;
 }
 
 @ccclass('FeatureSelectionPopup')
 export class FeatureSelectionPopup extends Component {
-
-    // ── INSPECTOR ─────────────────────────────────────────────────────────────
 
     @property({ type: sp.Skeleton, tooltip: 'Spine animation cho popup feature selection.' })
     spine: sp.Skeleton | null = null;
@@ -71,38 +50,36 @@ export class FeatureSelectionPopup extends Component {
     @property({ type: Button, tooltip: 'Nút TOP UP BONUS (Re-Spin).' })
     btnTopUp: Button | null = null;
 
-    @property({ type: Button, tooltip: 'Nút 8 FREE GAMES.' })
-    btnFreeGames: Button | null = null;
+    /** 5 nút Free Spin tier — thứ tự: Highest, High, Middle, Low, Lowest (ReelIndex 2–6). */
+    @property({ type: [Button], tooltip: '5 nút Free Spin tier (Highest → Lowest).' })
+    btnFreeSpinTiers: Button[] = [];
 
-
-    // ── STATE ──────────────────────────────────────────────────────────────────
+    /** Label tùy chọn cho từng tier (cùng thứ tự với btnFreeSpinTiers). */
+    @property({ type: [Label], tooltip: 'Label text cho 5 tier Free Spin (optional).' })
+    labelFreeSpinTiers: Label[] = [];
 
     private _isOpen: boolean = false;
     private _payload: FeatureSelectPayload | null = null;
     private _choosing: boolean = false;
-
-    // ── LIFECYCLE ──────────────────────────────────────────────────────────────
+    private _options: FeatureSelectOption[] = buildDefaultFeatureSelectOptions();
+    /** Nút FS đã resolve (Inspector hoặc FreeGame1–5). */
+    private _freeSpinButtons: Button[] = [];
+    private _baseNode: Node | null = null;
+    /** Layer preview tĩnh — ẩn khi spine chạy để không chặn touch. */
+    private _demoNode: Node | null = null;
+    private _choiceFallbackEmit: (() => void) | null = null;
 
     onLoad(): void {
-        // Block input xuyên qua popup khi mở
         if (!this.node.getComponent(BlockInputEvents)) {
             this.node.addComponent(BlockInputEvents);
         }
 
+        this._baseNode = this.node.getChildByName('Base');
+        this._demoNode = this._baseNode?.getChildByName('Demo') ?? null;
+
         EventBus.instance.on(GameEvents.FEATURE_SELECT_OPEN, this._onOpen, this);
+        this._bindButtons();
 
-        if (this.btnTopUp) {
-            this.btnTopUp.node.on('click', this._onChooseTopUp, this);
-            this.btnTopUp.node.on(Node.EventType.MOUSE_ENTER, () => this._setOpacityFocus('top'), this);
-            this.btnTopUp.node.on(Node.EventType.MOUSE_LEAVE, () => this._setOpacityFocus('none'), this);
-        }
-        if (this.btnFreeGames) {
-            this.btnFreeGames.node.on('click', this._onChooseFreeGames, this);
-            this.btnFreeGames.node.on(Node.EventType.MOUSE_ENTER, () => this._setOpacityFocus('free'), this);
-            this.btnFreeGames.node.on(Node.EventType.MOUSE_LEAVE, () => this._setOpacityFocus('none'), this);
-        }
-
-        // Ẩn ban đầu
         this.node.active = false;
         if (this.spine) this.spine.node.active = false;
         if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = false;
@@ -112,83 +89,166 @@ export class FeatureSelectionPopup extends Component {
         EventBus.instance.offTarget(this);
     }
 
-    // ── EVENT HANDLER ──────────────────────────────────────────────────────────
-
     private _onOpen(payload: FeatureSelectPayload): void {
         if (this._isOpen) return;
         this._isOpen  = true;
         this._payload = payload;
+        this._options = payload.options?.length
+            ? payload.options
+            : buildDefaultFeatureSelectOptions();
 
-        // Tổng credit duy nhất = sum tất cả STICKY_RED trong payload.stickyCells
         const sumCredit = payload.stickyCells.reduce((sum, cell) =>
             cell.symbolId === SymbolId.STICKY_RED ? sum + (cell.credit ?? 0) : sum, 0);
-        Log.e(`[FeatureSelectPopup] open sumCredit=${sumCredit} cells=${payload.stickyCells.length}`);
+        Log.e(`[FeatureSelectPopup] open sumCredit=${sumCredit} cells=${payload.stickyCells.length} options=${this._options.length}`);
 
         if (this.sumCreditSpriteNumber) {
             this.sumCreditSpriteNumber.setData(sumCredit);
         }
 
+        this._bindButtons();
+        this._applyOptionLabels();
         this._show();
     }
 
-    // ── BUTTON HANDLERS ────────────────────────────────────────────────────────
+    /** Resolve 5 nút Free Spin — ưu tiên Inspector, fallback FreeGame1–5 trong Base. */
+    private _resolveFreeSpinButtons(): Button[] {
+        const fromInspector = this.btnFreeSpinTiers.filter(Boolean);
+        if (fromInspector.length >= SECRET_TREASURE_FREE_SPIN_TIERS.length) {
+            return fromInspector.slice(0, SECRET_TREASURE_FREE_SPIN_TIERS.length);
+        }
 
-    private _onChooseTopUp(): void {
+        const resolved: Button[] = [...fromInspector];
+        for (let i = 1; i <= SECRET_TREASURE_FREE_SPIN_TIERS.length; i++) {
+            const idx = i - 1;
+            if (resolved[idx]) continue;
+            const node = this._baseNode?.getChildByName(`FreeGame${i}`);
+            const btn = node?.getComponent(Button);
+            if (btn) resolved[idx] = btn;
+        }
+        return resolved;
+    }
+
+    private _bindButtons(): void {
+        this._freeSpinButtons = this._resolveFreeSpinButtons();
+        Log.d(`[FeatureSelectionPopup] bind buttons topUp=${!!this.btnTopUp} freeSpin=${this._freeSpinButtons.length}`);
+
+        if (this.btnTopUp) {
+            this.btnTopUp.node.off(Button.EventType.CLICK);
+            this.btnTopUp.node.on(Button.EventType.CLICK, () => this._onChooseOption(FeatureSelectChoiceId.TOPUP), this);
+        }
+
+        for (let i = 0; i < SECRET_TREASURE_FREE_SPIN_TIERS.length; i++) {
+            const tierDef = SECRET_TREASURE_FREE_SPIN_TIERS[i];
+            const btn = this._freeSpinButtons[i];
+            if (!btn) {
+                Log.e(`[FeatureSelectionPopup] Missing FreeSpin button index=${i} (${tierDef.shortLabel})`);
+                continue;
+            }
+            btn.node.off(Button.EventType.CLICK);
+            btn.node.on(Button.EventType.CLICK, () => this._onChooseOption(tierDef.id), this);
+        }
+    }
+
+    /** Đưa nút lên trên spine / Demo để nhận touch. */
+    private _raiseButtonsAboveContent(): void {
+        const base = this._baseNode;
+        if (!base) return;
+
+        const touchables: Node[] = [];
+        for (const btn of this._freeSpinButtons) {
+            if (btn?.node) touchables.push(btn.node);
+        }
+        if (this.btnTopUp?.node) touchables.push(this.btnTopUp.node);
+
+        let nextIndex = base.children.length;
+        for (const node of touchables) {
+            node.setSiblingIndex(nextIndex++);
+        }
+    }
+
+    private _applyOptionLabels(): void {
+        const topUpOpt = this._options.find(o => o.id === FeatureSelectChoiceId.TOPUP);
+        if (this.btnTopUp) {
+            this.btnTopUp.interactable = topUpOpt?.enabled ?? true;
+        }
+
+        for (let i = 0; i < SECRET_TREASURE_FREE_SPIN_TIERS.length; i++) {
+            const tierDef = SECRET_TREASURE_FREE_SPIN_TIERS[i];
+            const opt = this._options.find(o => o.id === tierDef.id);
+            const enabled = opt?.enabled ?? true;
+            const labelKey = opt?.labelKey ?? tierDef.labelKey;
+            const text = L(labelKey) || tierDef.shortLabel;
+
+            const btn = this._freeSpinButtons[i];
+            if (btn) {
+                btn.interactable = enabled;
+            }
+            if (this.labelFreeSpinTiers[i]) {
+                this.labelFreeSpinTiers[i].string = text;
+            }
+        }
+    }
+
+    private _onChooseOption(choiceId: FeatureSelectChoiceId): void {
         if (!this._isOpen || this._choosing) return;
+        const option = this._options.find(o => o.id === choiceId);
+        if (!option || !option.enabled) return;
+
         this._choosing = true;
-        Log.d('[FeatureSelectionPopup] Chọn TOP UP BONUS (Re-Spin)');
+        Log.d(`[FeatureSelectionPopup] Chọn ${choiceId} → NextStage=${option.nextStage} ReelIndex=${option.reelIndex}`);
         this._setButtonsInteractable(false);
         SoundManager.instance?.playSFX(SoundManager.instance?.sxFeatureSelect);
         SoundManager.instance?.playFeatureSelectMusic();
 
-        if (this.spine) {
-            this.spine.setCompleteListener(() => {
-                this.spine!.setCompleteListener(null);
-                EventBus.instance.emit(GameEvents.FEATURE_SELECT_RESPIN, {
-                    onAccepted: (onClosed?: () => void) => this._close(onClosed),
-                    onRejected: () => { this._choosing = false; this._setButtonsInteractable(true); },
-                });
-            });
-            this.spine.setAnimation(0, 'Choose-topupbonus', false);
-        } else {
-            EventBus.instance.emit(GameEvents.FEATURE_SELECT_RESPIN, {
+        let choiceEmitted = false;
+        const emitChoice = () => {
+            if (choiceEmitted) return;
+            choiceEmitted = true;
+            this._clearChoiceFallback();
+            EventBus.instance.emit(GameEvents.FEATURE_SELECT_CHOICE, {
+                option,
                 onAccepted: (onClosed?: () => void) => this._close(onClosed),
                 onRejected: () => { this._choosing = false; this._setButtonsInteractable(true); },
+            } satisfies FeatureSelectChoicePayload);
+        };
+
+        if (this.spine) {
+            const anim = choiceId === FeatureSelectChoiceId.TOPUP ? 'Choose-topupbonus' : 'Choose-freegames';
+            const fallbackSec = (choiceId === FeatureSelectChoiceId.TOPUP ? 2.5 : 4.5) / (this.spine.timeScale || 1);
+            this._clearChoiceFallback();
+            this._choiceFallbackEmit = () => {
+                Log.e(`[FeatureSelectionPopup] spine complete fallback → ${choiceId}`);
+                this.spine?.setCompleteListener(null);
+                emitChoice();
+            };
+            this.scheduleOnce(this._choiceFallbackEmit, fallbackSec);
+
+            this.spine.setCompleteListener(() => {
+                this.spine!.setCompleteListener(null);
+                emitChoice();
             });
+            this.spine.setAnimation(0, anim, false);
+        } else {
+            emitChoice();
         }
     }
 
-    private _onChooseFreeGames(): void {
-        if (!this._isOpen || this._choosing) return;
-        this._choosing = true;
-        Log.d('[FeatureSelectionPopup] Chọn 8 FREE GAMES');
-        this._setButtonsInteractable(false);
-        SoundManager.instance?.playSFX(SoundManager.instance?.sxFeatureSelect);
-        SoundManager.instance?.playFeatureSelectMusic();
-
-        if (this.spine) {
-            this.spine.setCompleteListener(() => {
-                this.spine!.setCompleteListener(null);
-                EventBus.instance.emit(GameEvents.FEATURE_SELECT_FREESPIN, {
-                    onAccepted: (onClosed?: () => void) => this._close(onClosed),
-                    onRejected: () => { this._choosing = false; this._setButtonsInteractable(true); },
-                });
-            });
-            this.spine.setAnimation(0, 'Choose-freegames', false);
-        } else {
-            EventBus.instance.emit(GameEvents.FEATURE_SELECT_FREESPIN, {
-                onAccepted: (onClosed?: () => void) => this._close(onClosed),
-                onRejected: () => { this._choosing = false; this._setButtonsInteractable(true); },
-            });
+    private _clearChoiceFallback(): void {
+        if (this._choiceFallbackEmit) {
+            this.unschedule(this._choiceFallbackEmit);
+            this._choiceFallbackEmit = null;
         }
     }
-
-    // ── SHOW / HIDE ────────────────────────────────────────────────────────────
 
     private _show(): void {
         this.node.active = true;
         this._setButtonsInteractable(false);
         if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = true;
+
+        if (this._demoNode) {
+            this._demoNode.active = !this.spine;
+        }
+        this._raiseButtonsAboveContent();
 
         if (this.spine) {
             this.spine.node.active = true;
@@ -208,9 +268,14 @@ export class FeatureSelectionPopup extends Component {
         this._isOpen = false;
         this._choosing = false;
         this._setButtonsInteractable(false);
+        this._clearChoiceFallback();
 
         if (this.spine) {
             this.spine.setCompleteListener(null);
+        }
+
+        if (this._demoNode) {
+            this._demoNode.active = true;
         }
 
         this.node.active = false;
@@ -223,11 +288,17 @@ export class FeatureSelectionPopup extends Component {
     }
 
     private _setButtonsInteractable(value: boolean): void {
-        if (this.btnTopUp)     this.btnTopUp.interactable     = value;
-        if (this.btnFreeGames) this.btnFreeGames.interactable = value;
-    }
-
-    private _setOpacityFocus(focused: 'top' | 'free' | 'none'): void {
-        // Deprecated: spine handles visual focus states
+        if (this.btnTopUp) {
+            const topUpOpt = this._options.find(o => o.id === FeatureSelectChoiceId.TOPUP);
+            this.btnTopUp.interactable = value && (topUpOpt?.enabled ?? true);
+        }
+        for (let i = 0; i < SECRET_TREASURE_FREE_SPIN_TIERS.length; i++) {
+            const tierDef = SECRET_TREASURE_FREE_SPIN_TIERS[i];
+            const opt = tierDef ? this._options.find(o => o.id === tierDef.id) : undefined;
+            const btn = this._freeSpinButtons[i];
+            if (btn) {
+                btn.interactable = value && (opt?.enabled ?? true);
+            }
+        }
     }
 }

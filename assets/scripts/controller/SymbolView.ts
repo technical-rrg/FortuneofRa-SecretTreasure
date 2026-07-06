@@ -71,7 +71,7 @@ export class SymbolView extends Component {
     /** Node để reparent symbol trong lúc land bounce (WaysPayDisplay node) — vẽ chồng lên tất cả. */
     static landBounceParent: Node | null = null;
     /** Track các symbol node đang trong land bounce để restore khi bị interrupt */
-    private static _pendingLandBounces: Map<Node, { origParent: Node | null; origSibling: number }> = new Map();
+    private static _pendingLandBounces: Map<Node, { origParent: Node | null; origLocalPos: Vec3 }> = new Map();
 
     // ─── INTERNAL ───
 
@@ -83,8 +83,11 @@ export class SymbolView extends Component {
     private _landBouncePlayed: boolean = false;
 
     /** Đăng ký symbol node đang bị reparent sang top layer (dùng bởi effect ngoài SymbolView) */
-    public static registerLandBounce(node: Node, origParent: Node | null, origSibling: number): void {
-        SymbolView._pendingLandBounces.set(node, { origParent, origSibling });
+    public static registerLandBounce(node: Node, origParent: Node | null, origLocalPos?: Vec3): void {
+        SymbolView._pendingLandBounces.set(node, {
+            origParent,
+            origLocalPos: origLocalPos?.clone() ?? node.position.clone(),
+        });
     }
     /** Hủy đăng ký khi symbol node đã tự restore về parent gốc */
     public static unregisterLandBounce(node: Node): void {
@@ -93,14 +96,32 @@ export class SymbolView extends Component {
     /** Force-restore tất cả symbol node đang trong land bounce về parent gốc */
     public static restoreAllLandBounces(): void {
         for (const [node, data] of SymbolView._pendingLandBounces) {
-            if (node?.isValid && data.origParent && data.origParent.isValid && node.parent !== data.origParent) {
+            if (node?.isValid && data.origParent && data.origParent.isValid) {
                 Tween.stopAllByTarget(node);
-                node.setParent(data.origParent, true);
-                node.setSiblingIndex(data.origSibling);
+                SymbolView.restoreToReelParent(node, data.origParent, data.origLocalPos);
                 node.setScale(node.getComponent(SymbolView)?.defaultScale ?? 1, node.getComponent(SymbolView)?.defaultScale ?? 1, 1);
             }
         }
         SymbolView._pendingLandBounces.clear();
+    }
+
+    /** Đặt node lên trên cùng trong parent — symbol bounce xong sau sẽ đè lên các symbol khác. */
+    public static placeOnTopInParent(node: Node, parent: Node): void {
+        if (!node?.isValid || !parent?.isValid || node.parent !== parent) return;
+        node.setSiblingIndex(parent.children.length - 1);
+    }
+
+    /**
+     * Restore symbol node về reel parent sau reparent zoom/bounce.
+     * Snap localX=0, giữ localY/Z trước khi tách khỏi parent.
+     */
+    public static restoreToReelParent(node: Node, parent: Node, origLocalPos: Vec3): void {
+        if (!node?.isValid || !parent?.isValid) return;
+        if (node.parent !== parent) {
+            node.setParent(parent, false);
+        }
+        node.setPosition(0, origLocalPos.y, origLocalPos.z);
+        SymbolView.placeOnTopInParent(node, parent);
     }
     private _pendingPlusOneEffect: boolean = false;
 
@@ -190,15 +211,13 @@ export class SymbolView extends Component {
 
         // Empty slot (-1): xóa sprite, ẩn ô đi
         if (symbolId < 0) {
-            this.currentSymbolName = 'Empty';
-            this.node.name = '[Empty]';
+            this._syncSymbolDebugName(symbolId);
             this._applySpriteFrame(null);
             this._updateDebugOverlay();
             return;
         }
 
-        this.currentSymbolName = SymbolId[symbolId] ?? `Symbol_${symbolId}`;
-        this.node.name = `[${this.currentSymbolName}]`;
+        this._syncSymbolDebugName(symbolId);
 
         const frame = this._resolveSymbolFrame(symbolId);
         if (!frame) {
@@ -304,7 +323,20 @@ export class SymbolView extends Component {
         labelNode.active = shouldActive;
     }
 
-    
+    /**
+     * Force Feature Entry — đổi symbol reel hiện tại thành Sticky đỏ + nhún land
+     * (giống khi reel dừng trúng Red Coin).
+     */
+    public applyStickyRedFill(credit: number): void {
+        this.setSymbol(SymbolId.STICKY_RED);
+        if (credit > 0) {
+            this.showCredit(credit);
+        }
+        this._landBouncePlayed = false;
+        this._pendingLandBounce = false;
+        this._playLandBounce();
+    }
+
     /**
      * Bounce nhẹ khi symbol coin vừa land trên reel.
      * Trong lúc bounce, reparent node sang WaysPayDisplay node
@@ -321,12 +353,15 @@ export class SymbolView extends Component {
         }
 
         const origParent  = this.node.parent;
-        const origSibling = this.node.getSiblingIndex();
+        const origLocalPos = this.node.position.clone();
         const topNode     = SymbolView.landBounceParent;
         const m = AutoSpinManager.instance.getTimingMultiplier();
 
         if (reparentToTop && topNode && topNode.isValid && origParent && origParent.isValid) {
-            SymbolView._pendingLandBounces.set(this.node, { origParent, origSibling });
+            SymbolView._pendingLandBounces.set(this.node, {
+                origParent,
+                origLocalPos: origLocalPos.clone(),
+            });
             this.node.setParent(topNode, true);
             this.node.setSiblingIndex(topNode.children.length);
         }
@@ -343,9 +378,8 @@ export class SymbolView extends Component {
             .call(() => {
                 SymbolView._pendingLandBounces.delete(this.node);
                 if (!this.node || !this.node.isValid) return;
-                if (reparentToTop && origParent && origParent.isValid && this.node.parent !== origParent) {
-                    this.node.setParent(origParent, true);
-                    this.node.setSiblingIndex(origSibling);
+                if (reparentToTop && origParent && origParent.isValid) {
+                    SymbolView.restoreToReelParent(this.node, origParent, origLocalPos);
                 }
             })
             .start();
@@ -393,6 +427,17 @@ export class SymbolView extends Component {
         labelNode.active = false;
     }
 
+    /** Cập nhật tên node/debug cho khớp symbolId hiện tại (kể cả lúc đang quay). */
+    private _syncSymbolDebugName(symbolId: number): void {
+        if (symbolId < 0) {
+            this.currentSymbolName = 'Empty';
+            this.node.name = '[Empty]';
+            return;
+        }
+        this.currentSymbolName = SymbolId[symbolId] ?? `Symbol_${symbolId}`;
+        this.node.name = `[${this.currentSymbolName}]`;
+    }
+
     // ─── EVENT HANDLERS (từ ReelController) ───
 
     private _onSymbolChanged(symbolId: number): void {
@@ -407,15 +452,21 @@ export class SymbolView extends Component {
             this.node.setScale(this.defaultScale, this.defaultScale, 1);
         }
 
-        // Khi đang spinning: cập nhật blur tương ứng với symbol mới
+        // Khi đang spinning: đổi sprite theo symbol mới (blurFrames ≡ symbolFrames trong project này)
         if (this._isSpinning) {
             if (symbolId < 0) {
+                this._currentSymbolId = symbolId;
+                this._syncSymbolDebugName(symbolId);
                 if (this._sprite) this._sprite.spriteFrame = null;
             } else {
                 this._currentSymbolId = symbolId;
-                const blurFrame = this.blurFrames[symbolId] ?? this.blurFrames[0] ?? null;
-                if (this._sprite && blurFrame) {
-                    this._sprite.spriteFrame = blurFrame;
+                this._syncSymbolDebugName(symbolId);
+                const frame = this._resolveSymbolFrame(symbolId)
+                    ?? this.blurFrames[symbolId]
+                    ?? this.symbolFrames[symbolId]
+                    ?? null;
+                if (this._sprite && frame) {
+                    this._sprite.spriteFrame = frame;
                 }
                 // ★ Bật credit label cho sticky coins ngay cả trong lúc quay
                 if (isSticky && this.reelIndex >= 0 && this.rowIndex >= 0) {
@@ -476,6 +527,7 @@ export class SymbolView extends Component {
 
         this._isSpinning = false;
         this._currentSymbolId = symbolId;
+        this._syncSymbolDebugName(symbolId);
         const frame = this._resolveSymbolFrame(symbolId);
         if (frame) this._applySpriteFrame(frame);
         this.prefillStickyCredit(symbolId, this.rowIndex);

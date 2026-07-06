@@ -50,6 +50,17 @@ const PS_YELLOW_TOPUP = 48;                                 // Yellow Coin — T
 const PS_GREEN = 49;                                        // Green Coin — TopUp VIP
 const PS_PLUS_ONE_SPIN = 50;                                // +1 Spin (TopUp)
 
+/** Phân tích Red Coin của 1 reel: map redCount → các stop index có thể tạo ra count đó. */
+interface RedReelCandidates {
+    reel: number;
+    /** Stop index tạo ra 0 Red Coin (dùng làm mặc định). */
+    zeroIdx: number;
+    /** redCount → array of stop indices. */
+    byCount: Map<number, number[]>;
+    /** Số Red Coin tối đa reel này có thể hiển thị (0..3). */
+    maxRed: number;
+}
+
 @ccclass('SlotDebugPanel')
 export class SlotDebugPanel extends Component {
 
@@ -93,8 +104,11 @@ export class SlotDebugPanel extends Component {
     /** Wild Trail trên reels 1/2/3 (PS=21) → tích lũy Pot / trigger Pick Game. */
     @property(Button) btnWild3Reels: Button = null!;
 
-    /** Red Coin (PS=41-46) trên cả 5 reels → trigger Feature Select (TopUp / FreeSpin). */
+    /** Red Coin (PS=41-46) trên cả 5 reels → LUÔN ≥6 red để trigger Feature Select (TopUp / FreeSpin). */
     @property(Button) btnRedCoins5: Button = null!;
+
+    /** Red Coin < 6 (1–5 red) — KHÔNG đủ trigger Feature Select; test gauge & Force Feature Entry. */
+    @property(Button) btnRedCoinsUnder6: Button = null!;
 
     /** Red Coin + Line Win — đủ 6 red để trigger Feature Select, kèm ít nhất 1 line win. */
     @property(Button) btnRedWithWin: Button = null!;
@@ -174,6 +188,7 @@ export class SlotDebugPanel extends Component {
             this._bind(this.btnCoin5,           this._onCoin5);
             this._bind(this.btnWild3Reels,      this._onWild3Reels);
             this._bind(this.btnRedCoins5,       this._onRedCoins5);
+            this._bind(this.btnRedCoinsUnder6,  this._onRedCoinsUnder6);
             this._bind(this.btnRedWithWin,       this._onRedWithWin);
             this._bind(this.btnMinorWin5,       this._onMinorWin5);
             this._bind(this.btnSingleWayWin,    this._onSingleWayWin);
@@ -232,30 +247,22 @@ export class SlotDebugPanel extends Component {
         this._firePreset(arr, 'Wild Trail × 3 (reel 1/2/3)');
     }
 
-    private _onRedCoins5(): void {
-        // Mục tiêu: hiện đúng 6 Red Coin trên màn hình để trigger Feature Select.
-        // Mỗi reel dừng sẽ hiện 3 ô (top = idx-1, mid = idx, bot = idx+1).
-        // Chiến lược: ngẫu nhiên phân bố 6 red trên các reels, không cố định 3+3.
-        const TARGET = 6;
+    /**
+     * Phân tích Red Coin của từng reel dựa trên PS strips hiện tại.
+     * Với mỗi reel: liệt kê stop index → số Red Coin hiển thị (0..3) trong cửa sổ 3 ô.
+     * Ràng buộc: reel 0 ô top (idx-1) phải là symbol thường (không phải Red Coin).
+     */
+    private _buildRedReelCandidates(): RedReelCandidates[] {
         const strips = this._getStrips();
         const normalPsSymbols = new Set<number>([1, 2, 3, 11, 12, 13, 14, 15]);
         const isRedCoin = (s: number) => (PS_RED_COINS as readonly number[]).includes(s);
         const isNormalSymbol = (s: number) => normalPsSymbols.has(s);
 
-        // Phân tích từng reel: tất cả candidates (index → redCount) và zeroIdx.
-        interface ReelCandidates {
-            reel: number;
-            zeroIdx: number;
-            byCount: Map<number, number[]>; // redCount -> array of indices
-            maxRed: number;
-        }
-        const reelCandidates: ReelCandidates[] = [];
-
+        const out: RedReelCandidates[] = [];
         for (let r = 0; r < REEL_COUNT; r++) {
             const strip = strips[r];
             const byCount = new Map<number, number[]>();
             let zeroIdx = -1, maxRed = 0;
-
             if (strip && strip.length > 0) {
                 const len = strip.length;
                 for (let i = 0; i < len; i++) {
@@ -263,77 +270,86 @@ export class SlotDebugPanel extends Component {
                     const mid = strip[i];
                     const bot = strip[(i + 1) % len];
                     const score = [top, mid, bot].filter(isRedCoin).length;
-                    // Red Coin cheat: col 0 row 0 is the top symbol of reel 0, and must be normal.
-                    if (r === 0 && !isNormalSymbol(top)) continue;
+                    if (r === 0 && !isNormalSymbol(top)) continue; // reel0 top phải là normal
                     if (!byCount.has(score)) byCount.set(score, []);
                     byCount.get(score)!.push(i);
                     if (score > maxRed) maxRed = score;
                     if (score === 0 && zeroIdx < 0) zeroIdx = i;
                 }
             }
-            reelCandidates.push({ reel: r, zeroIdx: zeroIdx >= 0 ? zeroIdx : 0, byCount, maxRed });
+            out.push({ reel: r, zeroIdx: zeroIdx >= 0 ? zeroIdx : 0, byCount, maxRed });
         }
+        return out;
+    }
 
-        // Mặc định tất cả reel dùng stop có 0 Red Coin.
-        const arr: number[] = new Array(REEL_COUNT).fill(0);
-        for (const rc of reelCandidates) arr[rc.reel] = rc.zeroIdx;
+    /** Chọn ngẫu nhiên 1 stop index của reel tạo ra đúng `count` Red Coin (null nếu không có). */
+    private _pickRedIndex(rc: RedReelCandidates, count: number): number | null {
+        const idxs = rc.byCount.get(count);
+        if (idxs && idxs.length > 0) return idxs[Math.floor(Math.random() * idxs.length)];
+        return null;
+    }
 
-        // Tạo các phân bố ngẫu nhiên có thể của TARGET red trên các reels
-        // (mỗi reel chỉ được chọn 1 lần, redCount từ 1 đến maxRed)
-        const distributions: number[][] = [];
+    /**
+     * ★ Red Coins ≥ 6 — LUÔN đủ ≥ 6 Red Coin để trigger Feature Select thật (đủ 6).
+     * Lấy maxRed từ các reel giàu Red Coin nhất (sort desc) cho tới khi tổng ≥ 6.
+     */
+    private _onRedCoins5(): void {
+        const TARGET = 6;
+        const cands = this._buildRedReelCandidates();
+        const arr: number[] = cands.map(rc => rc.zeroIdx);
+        const totalMax = cands.reduce((s, rc) => s + rc.maxRed, 0);
 
-        function buildDist(startReel: number, remaining: number, current: number[]) {
-            if (remaining === 0) {
-                distributions.push([...current, ...new Array(REEL_COUNT - current.length).fill(0)]);
-                return;
-            }
-            if (startReel >= REEL_COUNT) return;
-            // Thử không chọn reel này
-            if (reelCandidates[startReel].byCount.has(0)) {
-                buildDist(startReel + 1, remaining, [...current, 0]);
-            }
-            // Thử chọn reel này với redCount từ 1..min(remaining, maxRed)
-            const maxR = reelCandidates[startReel].maxRed;
-            for (let c = 1; c <= Math.min(remaining, maxR); c++) {
-                if (reelCandidates[startReel].byCount.has(c)) {
-                    buildDist(startReel + 1, remaining - c, [...current, c]);
-                }
-            }
-        }
-        buildDist(0, TARGET, []);
-
-        if (distributions.length === 0) {
-            Log.w(`[SlotDebugPanel] Không tìm được phân bố ${TARGET} red. Kiểm tra PS strips đã load chưa.`);
-            this._firePreset(arr, `Red Coins ~0 visible → Feature Select`);
-            return;
-        }
-
-        // Chọn ngẫu nhiên một phân bố
-        const dist = distributions[Math.floor(Math.random() * distributions.length)];
+        // Ưu tiên reel có nhiều Red nhất trước → dồn đủ ≥ 6 nhanh nhất.
+        const order = [...cands].sort((a, b) => b.maxRed - a.maxRed);
         let total = 0;
+        for (const rc of order) {
+            if (total >= TARGET) break;
+            if (rc.maxRed <= 0) continue;
+            const idx = this._pickRedIndex(rc, rc.maxRed);
+            if (idx != null) { arr[rc.reel] = idx; total += rc.maxRed; }
+        }
 
-        for (let r = 0; r < REEL_COUNT; r++) {
-            const count = dist[r];
-            if (count === 0) continue;
-            const rc = reelCandidates[r];
-            const indices = rc.byCount.get(count);
-            if (indices && indices.length > 0) {
-                // Random chọn 1 index trong các index có đúng `count` red
-                arr[r] = indices[Math.floor(Math.random() * indices.length)];
-                total += count;
-            } else {
-                // Fallback: dùng best (maxRed) nếu không có khớp chính xác
-                const bestIndices = rc.byCount.get(rc.maxRed);
-                arr[r] = bestIndices ? bestIndices[0] : rc.zeroIdx;
-                total += rc.maxRed;
+        if (total < TARGET) {
+            Log.w(`[SlotDebugPanel] Chỉ đạt ${total} Red (totalMax=${totalMax}) — strip không đủ Red Coin để đạt 6.`);
+        }
+        this._firePreset(arr, `Red Coins ${total} (≥6) → Feature Select (đủ 6)`);
+    }
+
+    /**
+     * ★ Red Coins < 6 — hiện 1..5 Red Coin (KHÔNG đủ 6).
+     * Dùng để test nhánh Force Feature Entry: server sẽ roll xác suất đổ thêm cho đủ 6.
+     * (Với mock, dùng MOCK_SPIN_SCENARIO='force_feature_entry' để buộc hiệu ứng chạy.)
+     */
+    private _onRedCoinsUnder6(): void {
+        const cands = this._buildRedReelCandidates();
+        const arr: number[] = cands.map(rc => rc.zeroIdx);
+        const totalMax = cands.reduce((s, rc) => s + rc.maxRed, 0);
+
+        // Mục tiêu ngẫu nhiên 3..5 Red (nhưng không vượt tổng khả dụng và luôn < 6).
+        let target = Math.min(5, totalMax, 3 + Math.floor(Math.random() * 3)); // 3..5
+        if (target < 1 && totalMax > 0) target = 1;
+
+        const order = [...cands].sort(() => Math.random() - 0.5); // xáo trộn reel
+        let remaining = target;
+        for (const rc of order) {
+            if (remaining <= 0) break;
+            const want = Math.min(remaining, rc.maxRed); // cap để KHÔNG vượt target (<6)
+            for (let c = want; c >= 1; c--) {
+                const idx = this._pickRedIndex(rc, c);
+                if (idx != null) { arr[rc.reel] = idx; remaining -= c; break; }
             }
         }
 
-        const label = `Red Coins ~${total} visible (random spread) → Feature Select`;
-        if (total !== TARGET) {
-            Log.w(`[SlotDebugPanel] Red Coin preset: chỉ ~${total} coins, cần 6+ để vào Feature Select.`);
+        let achieved = target - remaining;
+        // Fallback: nếu chưa đặt được Red nào → ép 1 reel giàu nhất (maxRed ≤ 3 nên vẫn < 6).
+        if (achieved === 0) {
+            const richest = [...cands].sort((a, b) => b.maxRed - a.maxRed)[0];
+            if (richest && richest.maxRed > 0) {
+                const idx = this._pickRedIndex(richest, richest.maxRed);
+                if (idx != null) { arr[richest.reel] = idx; achieved = richest.maxRed; }
+            }
         }
-        this._firePreset(arr, label);
+        this._firePreset(arr, `Red Coins ${achieved} (<6) → Force Feature Entry check`);
     }
 
     private _onMinorWin5(): void {

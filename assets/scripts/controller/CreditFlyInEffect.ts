@@ -152,7 +152,7 @@ export class CreditFlyInEffect extends Component {
             if (isValid(node) && data.origParent && data.origParent.isValid && node.parent !== data.origParent) {
                 Tween.stopAllByTarget(node);
                 node.setParent(data.origParent, true);
-                node.setSiblingIndex(data.origSibling);
+                SymbolView.placeOnTopInParent(node, data.origParent);
                 node.setScale(1, 1, 1);
             }
         }
@@ -268,9 +268,11 @@ export class CreditFlyInEffect extends Component {
             .delay(0.5 * this._tm)
             .to(0.5 * this._tm, { scale: symScale }, { easing: 'sineOut' })
             .call(() => {
-                if (isValid(symbolNode) && symOrigParent && symOrigParent.isValid && symbolNode.parent !== symOrigParent) {
-                    symbolNode.setParent(symOrigParent, true);
-                    symbolNode.setSiblingIndex(symOrigSibling);
+                if (isValid(symbolNode) && symOrigParent && symOrigParent.isValid) {
+                    if (symbolNode.parent !== symOrigParent) {
+                        symbolNode.setParent(symOrigParent, true);
+                    }
+                    SymbolView.placeOnTopInParent(symbolNode, symOrigParent);
                 }
                 this._pendingSymbolReparents.delete(symbolNode);
             })

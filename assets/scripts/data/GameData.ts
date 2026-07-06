@@ -12,6 +12,7 @@ import {
     SymbolId,
     ServerSession,
     StickyCell,
+    FREE_SPIN_TIER_REEL_INDICES,
 } from './SlotTypes';
 
 // ═══════════════════════════════════════════════════════════
@@ -114,9 +115,18 @@ const DEFAULT_JACKPOT_MULTIPLIERS = {
     MINI:  10,
 };
 
+function buildDefaultFreeSpinTierStrips(): Record<number, number[][]> {
+    const tiers: Record<number, number[][]> = {};
+    for (const reelIndex of FREE_SPIN_TIER_REEL_INDICES) {
+        tiers[reelIndex] = DEFAULT_FREE_SPIN_REEL_STRIPS.map(strip => [...strip]);
+    }
+    return tiers;
+}
+
 const DEFAULT_SLOT_CONFIG: SlotConfig = {
     reelStrips: DEFAULT_REEL_STRIPS,
     freeSpinReelStrips: DEFAULT_FREE_SPIN_REEL_STRIPS,
+    freeSpinTierStrips: buildDefaultFreeSpinTierStrips(),
     respinReelStrips: DEFAULT_RESPIN_REEL_STRIPS,
     purchaseReelStrips: DEFAULT_REEL_STRIPS, // legacy alias
     betOptions: [1, 2, 3, 5, 10, 20, 50, 100],
@@ -193,6 +203,15 @@ export class GameData {
     /** Counter Wild Trail tích lũy từ đầu phiên chơi. */
     wildTrailCount: number = 0;
 
+    // ─── FEATURE ENTRY LOGIC ADDED — Reel UI Gauge state ─────────────────────
+    /**
+     * Tổng số Sticky tích lũy cho gauge chữ tượng hình (Lighting Condition_2).
+     * Reset về 0 khi vào Feature ('Luck has arrived').
+     */
+    featureGaugeAccumulated: number = 0;
+    /** Lighting stage hiện tại của gauge (0..10). */
+    featureGaugeStage: number = 0;
+
     /** Pick Game state hiện tại (active khi `gameStage = PICK_GAME`). */
     pickGameState: import('./SlotTypes').PickGameState | null = null;
 
@@ -239,6 +258,10 @@ export class GameData {
     rawPsStrips: number[][] = [];
     /** Raw FreeSpin PS reel strips (PS IDs gốc từ FreeSpinReel.Strips) */
     rawPsFreeSpinStrips: number[][] = [];
+    /** Raw PS strips cho 5 tier Free Spin (ReelIndex 2–6). */
+    rawPsFreeSpinTierStrips: Record<number, number[][]> = {};
+    /** Tier Free Spin đã chọn ở FeatureSelect (ReelIndex 2–6). */
+    selectedFreeSpinReelIndex: number | null = null;
     /** Raw Purchase PS reel strips (PS IDs gốc từ PurchaseReel.Strips) */
     rawPsPurchaseReelStrips: number[][] = [];
     /** Active feature item đang bật: dùng PurchaseReel cho normal spin đến khi cancel. */
@@ -352,68 +375,90 @@ export class GameData {
         return this.getGrid(rands, isFreeSpin, stripIndex, false);
     }
 
-    /** Chọn đúng bộ strip theo mode: 0=Normal, 1=FreeSpin, 2=Purchase(legacy), 3=Re-Spin. */
+    /** Strip Free Spin theo tier đã chọn (ReelIndex 2–6 từ SelectFeature). */
+    resolveFreeSpinStrips(reelIndex?: number): number[][] {
+        const tierKey = reelIndex ?? this.selectedFreeSpinReelIndex ?? 2;
+        return this.config.freeSpinTierStrips?.[tierKey]
+            ?? this.config.freeSpinReelStrips;
+    }
+
+    /** Raw PS strips cùng tier với resolveFreeSpinStrips(). */
+    resolveRawPsFreeSpinStrips(reelIndex?: number): number[][] {
+        const tierKey = reelIndex ?? this.selectedFreeSpinReelIndex ?? 2;
+        const tier = this.rawPsFreeSpinTierStrips[tierKey];
+        if (tier?.length) return tier;
+        return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
+    }
+
+    /** Chọn đúng bộ strip theo mode: 0=Normal, 1=FreeSpin, 2=TopUp/Purchase, 3=Re-Spin. */
     getReelStrips(isFreeSpin: boolean = false, stripIndex?: number): number[][] {
-        let result: number[][];
-        let source: string;
+        const isFsMode = isFreeSpin || this.currentMode === 'freespin' || this.currentMode === 'freespin_gold';
+
         if (stripIndex != null) {
             if (stripIndex === 3 || (stripIndex === 2 && this.currentMode === 'respin')) {
-                result = this.config.respinReelStrips;
-                source = `respinReelStrips (stripIndex=${stripIndex})`;
-            } else if (stripIndex === 2) {
-                result = this.config.purchaseReelStrips;
-                source = 'purchaseReelStrips (stripIndex=2)';
-            } else if (stripIndex === 1) {
-                result = this.config.freeSpinReelStrips;
-                source = 'freeSpinReelStrips (stripIndex=1)';
-            } else if (stripIndex === 0 && this.isPurchaseReelActive) {
-                result = this.config.purchaseReelStrips;
-                source = 'purchaseReelStrips (stripIndex=0 OVERRIDE)';
-            } else if (stripIndex === 0 && (this.currentMode === 'freespin_gold' || this.currentMode === 'freespin')) {
-                // Server gửi reelIndex=0 nhưng đang trong FreeSpin/FreeSpin Gold → dùng freeSpinReelStrips
-                result = this.config.freeSpinReelStrips;
-                source = `freeSpinReelStrips (stripIndex=0 override currentMode=${this.currentMode})`;
-            } else {
-                result = this.config.reelStrips;
-                source = `reelStrips (stripIndex=${stripIndex})`;
+                return this.config.respinReelStrips;
             }
-        } else {
-            // ★ NEW: ưu tiên Re-Spin nếu đang trong mode đó
-            if (this.currentMode === 'respin') {
-                result = this.config.respinReelStrips;
-                source = 'respinReelStrips (currentMode=respin)';
-            } else if (!isFreeSpin && this.isPurchaseReelActive) {
-                result = this.config.purchaseReelStrips;
-                source = 'purchaseReelStrips (isPurchaseReelActive)';
-            } else if (isFreeSpin || this.currentMode === 'freespin' || this.currentMode === 'freespin_gold') {
-                result = this.config.freeSpinReelStrips;
-                source = `freeSpinReelStrips (currentMode=${this.currentMode})`;
-            } else {
-                result = this.config.reelStrips;
-                source = 'reelStrips (default)';
+            if (stripIndex === 2 && !isFsMode && this.currentMode !== 'respin') {
+                return this.config.purchaseReelStrips;
             }
+            if (isFsMode) {
+                const tierKey = stripIndex === 1 || stripIndex < 2 || stripIndex > 6
+                    ? undefined
+                    : stripIndex;
+                return this.resolveFreeSpinStrips(tierKey);
+            }
+            if (stripIndex === 1) {
+                return this.config.freeSpinReelStrips;
+            }
+            if (stripIndex === 0 && this.isPurchaseReelActive) {
+                return this.config.purchaseReelStrips;
+            }
+            return this.config.reelStrips;
         }
-        return result;
+
+        if (this.currentMode === 'respin') {
+            return this.config.respinReelStrips;
+        }
+        if (!isFreeSpin && this.isPurchaseReelActive) {
+            return this.config.purchaseReelStrips;
+        }
+        if (isFsMode) {
+            return this.resolveFreeSpinStrips();
+        }
+        return this.config.reelStrips;
     }
 
     /** Raw PS strips cùng mode với getReelStrips(), dùng cho payout/jackpot debug chính xác. */
     getRawPsStrips(isFreeSpin: boolean = false, stripIndex?: number): number[][] {
-        if (stripIndex != null) {   // != catches both null and undefined
-            if (stripIndex === 3 || (stripIndex === 2 && this.currentMode === 'respin')) return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
-            if (stripIndex === 2) return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
-            if (stripIndex === 1) return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
-            // BUG FIX: same as getReelStrips — khi stripIndex=0 nhưng isPurchaseReelActive=true
+        const isFsMode = isFreeSpin || this.currentMode === 'freespin' || this.currentMode === 'freespin_gold';
+
+        if (stripIndex != null) {
+            if (stripIndex === 3 || (stripIndex === 2 && this.currentMode === 'respin')) {
+                return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
+            }
+            if (stripIndex === 2 && !isFsMode && this.currentMode !== 'respin') {
+                return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
+            }
+            if (isFsMode) {
+                const tierKey = stripIndex === 1 || stripIndex < 2 || stripIndex > 6
+                    ? undefined
+                    : stripIndex;
+                return this.resolveRawPsFreeSpinStrips(tierKey);
+            }
+            if (stripIndex === 1) {
+                return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
+            }
             if (stripIndex === 0 && this.isPurchaseReelActive) {
                 return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
             }
-            // FreeSpin Gold/FreeSpin: force freeSpinStrips khi server gửi reelIndex=0
-            if (stripIndex === 0 && (this.currentMode === 'freespin_gold' || this.currentMode === 'freespin')) {
-                return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
-            }
             return this.rawPsStrips;
         }
-        if (!isFreeSpin && this.isPurchaseReelActive) return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
-        if (isFreeSpin || this.currentMode === 'freespin_gold') return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
+        if (!isFreeSpin && this.isPurchaseReelActive) {
+            return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
+        }
+        if (isFsMode) {
+            return this.resolveRawPsFreeSpinStrips();
+        }
         return this.rawPsStrips;
     }
 
@@ -461,6 +506,9 @@ export class GameData {
         this.currentMode = 'normal';
         this.freeSpinGoldRemaining = 0;
         this.freeSpinGoldTotalWin = 0;
+        this.selectedFreeSpinReelIndex = null;
+        this.featureGaugeAccumulated = 0;
+        this.featureGaugeStage = 0;
     }
 
     /** Reset server session (khi logout hoặc reconnect) */

@@ -35,6 +35,7 @@ import {
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
+import { gaugeStageFromPotVisualLevel } from '../data/SlotTypes';
 import { Log } from '../core/Logger';
 import { SoundManager } from '../manager/SoundManager';
 
@@ -300,17 +301,24 @@ export class PotController extends Component {
     private _transitionToLevel(newLevel: number): void {
         Log.d(`[PotController] _transitionToLevel: ${this._currentLevel} → ${newLevel}`);
 
+        const oldLevel = this._currentLevel;
+        const levelChanged = newLevel !== oldLevel;
+
         if (!this.potSpine) {
+            if (levelChanged) {
+                if (newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
+                this._syncGaugeWithPotLevel(newLevel);
+            }
             this._currentLevel = newLevel;
             EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
             return;
         }
 
-        const oldLevel = this._currentLevel;
-
         if (!this.potSpine.node?.active) {
-            // Pot spine chưa active (chưa TRANSITION_DONE) → chỉ update level, skip animation
-            if (newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
+            if (levelChanged) {
+                if (newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
+                this._syncGaugeWithPotLevel(newLevel);
+            }
             this._currentLevel = newLevel;
             Log.d(`[PotController] potSpine inactive → skip transition, queued level=${newLevel}`);
             EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
@@ -318,9 +326,11 @@ export class PotController extends Component {
         }
 
         if (newLevel > oldLevel) {
+            // ★ Âm thanh + gauge sáng cùng thời điểm Pot bắt đầu mở
+            this._playPotLevelUpSound(newLevel);
+            this._syncGaugeWithPotLevel(newLevel);
             const animName = `LV${oldLevel}_trainsition_LV${newLevel}`;
             Log.d(`[PotController] Play transition: ${animName}`);
-            this._playPotLevelUpSound(newLevel);
             this._isTransitioning = true;
             this.potSpine.setCompleteListener(() => {
                 if (this.potSpine) this.potSpine.setCompleteListener(null);
@@ -331,8 +341,10 @@ export class PotController extends Component {
             this.potSpine.timeScale = 1;
             this.potSpine.setAnimation(0, animName, false);
         } else if (newLevel < oldLevel) {
+            if (levelChanged) {
+                this._syncGaugeWithPotLevel(newLevel);
+            }
             if (oldLevel > 0 && newLevel === 0) {
-                // Reset sau Pick Game: về level 0
                 const resetAnim = `LV${oldLevel}_trainsition_LV0`;
                 Log.d(`[PotController] Play reset transition: ${resetAnim}`);
                 this._isTransitioning = true;
@@ -349,11 +361,26 @@ export class PotController extends Component {
                 EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
             }
         } else {
-            // Same level — no animation needed
             EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
         }
 
         this._currentLevel = newLevel;
+    }
+
+    /** Đồng bộ gauge với Pot — gọi cùng lúc sx_pot_effect_lvl_ khi Pot mở/lên level. */
+    private _syncGaugeWithPotLevel(potLevel: number): void {
+        const data = GameData.instance;
+        const stage = gaugeStageFromPotVisualLevel(potLevel);
+        data.featureGaugeStage = stage;
+        Log.d(`[PotController] sync gauge — potLevel=${potLevel} → gaugeStage=${stage}`);
+        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
+            stage,
+            accumulated: data.featureGaugeAccumulated,
+            earned: 0,
+            animate: true,
+            suppressSfx: true,
+            skipPotShake: true,
+        });
     }
 
     /** Play idle animation cho level hiện tại (loop) */

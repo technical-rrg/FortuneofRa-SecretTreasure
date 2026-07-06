@@ -252,12 +252,14 @@ export const GameEvents = {
     /** Hiển thị system popup thông báo lỗi — payload: SystemPopupPayload */
     SHOW_SYSTEM_POPUP: 'ui:system:popup',
 
-    // ─── FEATURE SELECTION (6 Red → chọn TOP UP BONUS / 8 FREE GAMES) ───
-    /** Mở popup Feature Selection — payload: { sumCredit: number, stickyCells: StickyCell[] } */
+    // ─── FEATURE SELECTION (6 Red → chọn TopUp + 5 tier Free Spin) ───
+    /** Mở popup Feature Selection — payload: { sumCredit, stickyCells, options? } */
     FEATURE_SELECT_OPEN: 'feature:select:open',
-    /** Người chơi chọn TOP UP BONUS (Re-Spin). No payload. */
+    /** Người chơi chọn 1 trong 6 option — payload: { option, onAccepted?, onRejected? } */
+    FEATURE_SELECT_CHOICE: 'feature:select:choice',
+    /** @deprecated Dùng FEATURE_SELECT_CHOICE */
     FEATURE_SELECT_RESPIN: 'feature:select:respin',
-    /** Người chơi chọn 8 FREE GAMES (Free Spin). No payload. */
+    /** @deprecated Dùng FEATURE_SELECT_CHOICE */
     FEATURE_SELECT_FREESPIN: 'feature:select:freespin',
     /** Popup Feature Selection đóng xong (sau khi người chơi chọn). No payload. */
     FEATURE_SELECT_CLOSE: 'feature:select:close',
@@ -328,4 +330,37 @@ export const GameEvents = {
     POPUP_OPENED: 'ui:popup:opened',
     /** Bất kỳ popup nào đóng lại */
     POPUP_CLOSED: 'ui:popup:closed',
+
+    // ─── FEATURE ENTRY LOGIC ADDED — Reel UI Gauge (chữ tượng hình 2 cột) ───
+    /**
+     * Cập nhật gauge sau mỗi Normal Spin.
+     * payload: { stage: number, accumulated: number, earned: number, animate: boolean }
+     * FeatureEntryGaugeController listen để bật đèn tới `stage`.
+     */
+    FEATURE_GAUGE_UPDATE: 'feature:gauge:update',
+    /** Reset gauge về 0 (khi 'Luck has arrived' / vào Feature). No payload. */
+    FEATURE_GAUGE_RESET: 'feature:gauge:reset',
+    /** 1 đèn gauge vừa bật — dùng để trigger rung Pot ở giữa. payload: { stage: number } */
+    FEATURE_GAUGE_LIGHT_ON: 'feature:gauge:light:on',
+
+    // ─── FEATURE ENTRY LOGIC ADDED — Force Feature Entry (Sticky < 6 → đổ đủ 6) ───
+    /**
+     * Bắt đầu chuỗi hiệu ứng Force Feature Entry.
+     * payload: ForceFeatureEntryData — orchestrator (FeatureEntryController) chạy:
+     *   guide (nữ thần) → sticky fill (Pot charge → orb → convert) rồi emit DONE.
+     */
+    FORCE_FEATURE_ENTRY_START: 'feature:force-entry:start',
+    /** Toàn bộ chuỗi Force Feature Entry xong → GameManager tiếp tục credit-fly + popup. */
+    FORCE_FEATURE_ENTRY_DONE: 'feature:force-entry:done',
+    /** Hiệu ứng nữ thần dẫn dắt hiện (Appear→Hold→Exit). No payload. */
+    FEATURE_ENTRY_GUIDE_SHOW: 'feature:entry:guide:show',
+    /** Hiệu ứng nữ thần kết thúc (light burst white-out xong). No payload. */
+    FEATURE_ENTRY_GUIDE_DONE: 'feature:entry:guide:done',
+    /**
+     * Bắt đầu hiệu ứng đổ Sticky (Pot charge → orb → lodge → convert).
+     * payload: ForceFeatureEntryData
+     */
+    STICKY_FILL_START: 'feature:sticky-fill:start',
+    /** Đổ Sticky xong (đã convert đủ 6). No payload. */
+    STICKY_FILL_DONE: 'feature:sticky-fill:done',
 } as const;

@@ -238,6 +238,8 @@ export class SymbolHighlighter extends Component {
         // Feature Select popup hiện → cleanup spine/credit labels ngay (sớm hơn FREE_SPIN_START)
         bus.on(GameEvents.FEATURE_SELECT_OPEN, this._onFeatureSelectOpen, this);
         bus.on(GameEvents.CREDIT_FLY_IN_START, this._onFeatureSelectOpen, this);
+        // FeatureEntryGuide xuất hiện → tắt highlight symbol ngay trước khi guide chạy
+        bus.on(GameEvents.FORCE_FEATURE_ENTRY_START, this._onFeatureSelectOpen, this);
         bus.on(GameEvents.PICK_GAME_OPEN, this._onPickGameBoundary, this);
         bus.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameBoundary, this);
         // Red symbol bounce trước khi fly-in (6+ Red → feature)

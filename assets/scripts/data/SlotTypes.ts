@@ -176,7 +176,9 @@ export const FEATURE_GAUGE_MAX_STAGE = 10;
 export const FEATURE_GAUGE_POT_LEVEL_MAX = 6;
 
 /**
- * Map PotVisualLevel (1–6) từ server sang 10 bước đèn UI.
+ * @deprecated Gauge lighting stage giờ dựa trên StickyAccumulated qty [10,20,40,60,80,100,120,140,160,200]
+ *             qua gaugeStageFromAccumulated(). PotVisualLevel chỉ còn dùng cho Pot UI.
+ * Map PotVisualLevel (1–6) từ server sang 10 bước đèn UI (legacy).
  * Level 1 = chưa sáng ô nào; level 2–6 chia đều 10 ô (2→2, 3→4, 4→6, 5→8, 6→10).
  */
 export function gaugeStageFromPotVisualLevel(potVisualLevel: number): number {

@@ -35,7 +35,7 @@ import {
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
-import { gaugeStageFromPotVisualLevel } from '../data/SlotTypes';
+import { gaugeStageFromAccumulated } from '../data/SlotTypes';
 import { Log } from '../core/Logger';
 import { SoundManager } from '../manager/SoundManager';
 
@@ -367,12 +367,12 @@ export class PotController extends Component {
         this._currentLevel = newLevel;
     }
 
-    /** Đồng bộ gauge với Pot — gọi cùng lúc sx_pot_effect_lvl_ khi Pot mở/lên level. */
-    private _syncGaugeWithPotLevel(potLevel: number): void {
+    /** Đồng bộ gauge theo StickyAccumulated khi Pot transition — KHÔNG dựa vào PotVisualLevel. */
+    private _syncGaugeWithPotLevel(_potLevel: number): void {
         const data = GameData.instance;
-        const stage = gaugeStageFromPotVisualLevel(potLevel);
+        const stage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
         data.featureGaugeStage = stage;
-        Log.d(`[PotController] sync gauge — potLevel=${potLevel} → gaugeStage=${stage}`);
+        Log.d(`[PotController] sync gauge — accumulated=${data.featureGaugeAccumulated} → gaugeStage=${stage}`);
         EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
             stage,
             accumulated: data.featureGaugeAccumulated,

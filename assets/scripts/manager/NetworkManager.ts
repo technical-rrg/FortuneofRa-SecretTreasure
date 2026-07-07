@@ -54,7 +54,6 @@ import {
     pickForcedStickyValue,
     isSticky,
     gaugeStageFromAccumulated,
-    gaugeStageFromPotVisualLevel,
 } from '../data/SlotTypes';
 import { MockDataProvider, TestScenario } from '../data/MockDataProvider';
 import { WaysPayCalculator } from '../data/WaysPayCalculator';
@@ -912,24 +911,35 @@ class RealNetworkAdapter implements INetworkAdapter {
         // ─── SYNC POT + GAUGE từ Enter response ───
         const ls = raw.LastSpinResponse;
         const enterPotVisualLevel = (raw as any).PotVisualLevel ?? ls?.PotVisualLevel;
+        const enterPotCount = ls?.PotCount ?? (ls as any)?.potCount;
+        const enterStickyAccumulated = ls?.StickyAccumulated ?? (ls as any)?.stickyAccumulated;
+        const enterStickyEarned = ls?.StickyEarned ?? (ls as any)?.stickyEarned ?? ls?.StickyEarnedCount ?? (ls as any)?.stickyEarnedCount;
+        Log.e(`[FeatureGauge] ENTER raw server fields — PotVisualLevel=${enterPotVisualLevel ?? 'n/a'} PotCount=${enterPotCount ?? 'n/a'} StickyAccumulated=${enterStickyAccumulated ?? 'n/a'} StickyEarned=${enterStickyEarned ?? 'n/a'}`);
+
         if (enterPotVisualLevel != null) {
             data.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
-            data.featureGaugeStage = gaugeStageFromPotVisualLevel(enterPotVisualLevel as number);
-            Log.e(`[POT-DEBUG] ENTER sync potLevel=${data.potLevel} gaugeStage=${data.featureGaugeStage} from PotVisualLevel=${enterPotVisualLevel}`);
         }
-        const enterPotCount = ls?.PotCount ?? (ls as any)?.potCount;
-        if (enterPotCount != null) {
-            data.featureGaugeAccumulated = enterPotCount as number;
-            Log.e(`[FeatureGauge] ENTER sync PotCount=${enterPotCount}`);
+        const enterAccumulated = enterStickyAccumulated ?? enterPotCount ?? null;
+        if (enterAccumulated != null) {
+            data.featureGaugeAccumulated = enterAccumulated as number;
+            data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
+            Log.e(`[FeatureGauge] ENTER sync → accumulated=${data.featureGaugeAccumulated} stage=${data.featureGaugeStage}`);
+        }
+        if (enterStickyEarned != null) {
+            Log.e(`[FeatureGauge] ENTER StickyEarned=${enterStickyEarned}`);
         }
 
-        // ─── RESUME DEBUG: log chi tiết LastSpinResponse từ server ───
-        if (raw.LastSpinResponse) {
-            const ls = raw.LastSpinResponse;
-            Log.d(`[RESUME-DEBUG] ENTER LastSpinResponse keys: [${Object.keys(ls).join(', ')}]`);
-            Log.d(`[RESUME-DEBUG] ENTER LastSpinResponse raw: ${JSON.stringify(ls)}`);
+        // ─── DUMP ALL KEYS + GUESS SIMILAR FIELDS để debug tên field đúng từ server ───
+        if (ls && typeof ls === 'object') {
+            const allKeys = Object.keys(ls);
+            Log.e(`[FeatureGauge] ENTER LastSpinResponse keys: [${allKeys.join(', ')}]`);
+            const candidates = allKeys.filter(k => /count|accum|earn|pot|sticky|trail|wild|light|gauge/i.test(k));
+            if (candidates.length > 0) {
+                const values = candidates.map(k => `${k}=${(ls as any)[k]}`).join(' | ');
+                Log.e(`[FeatureGauge] ENTER candidate fields: ${values}`);
+            }
         } else {
-            Log.d(`[RESUME-DEBUG] ENTER LastSpinResponse = null/undefined`);
+            Log.e(`[FeatureGauge] ENTER LastSpinResponse = null/undefined`);
         }
 
         // ─── Giải nén PS (ParSheet) và áp dụng config ───
@@ -2209,29 +2219,34 @@ class RealNetworkAdapter implements INetworkAdapter {
         }
         resp.naturalStickyCount = naturalCount;
 
-        // 2) Gauge từ server API (PotVisualLevel / PotCount / WildCount)
+        // 2) Gauge từ server API (StickyAccumulated / PotCount / StickyEarned / WildCount)
+        // ★ Gauge lighting stage dựa trên StickyAccumulated qty (10,20,40,60,80,100,120,140,160,200)
+        //   chứ không dựa trên PotVisualLevel.
         const potVisualLevel = anyRes.PotVisualLevel;
         const potCount = anyRes.PotCount;
+        const stickyAccumulated = anyRes.StickyAccumulated ?? potCount ?? null;
+        const stickyEarned = anyRes.StickyEarned ?? anyRes.StickyEarnedCount ?? null;
         const wildCount = anyRes.WildCount;
+        Log.e(`[FeatureGauge] SPIN raw server fields — PotVisualLevel=${potVisualLevel ?? 'n/a'} PotCount=${potCount ?? 'n/a'} StickyAccumulated=${anyRes.StickyAccumulated ?? 'n/a'} StickyEarned=${stickyEarned ?? 'n/a'} WildCount=${wildCount ?? 'n/a'}`);
+        const spinKeys = anyRes && typeof anyRes === 'object' ? Object.keys(anyRes) : [];
+        Log.e(`[FeatureGauge] SPIN Res keys: [${spinKeys.join(', ')}]`);
+        const spinCandidates = spinKeys.filter(k => /count|accum|earn|pot|sticky|trail|wild|light|gauge/i.test(k));
+        if (spinCandidates.length > 0) {
+            Log.e(`[FeatureGauge] SPIN candidate fields: ${spinCandidates.map(k => `${k}=${anyRes[k]}`).join(' | ')}`);
+        }
         if (potVisualLevel != null) {
-            resp.lightingStage = gaugeStageFromPotVisualLevel(potVisualLevel);
             resp.potVisualLevel = potVisualLevel;
         }
-        if (potCount != null) {
-            resp.stickyAccumulated = potCount;
-            resp.potCount = potCount;
+        if (stickyAccumulated != null) {
+            resp.stickyAccumulated = stickyAccumulated;
+            resp.potCount = potCount ?? stickyAccumulated;
+            resp.lightingStage = gaugeStageFromAccumulated(stickyAccumulated);
         }
-        resp.stickyEarnedThisSpin = wildCount ?? anyRes.StickyEarned ?? anyRes.StickyEarnedCount ?? naturalCount;
+        resp.stickyEarnedThisSpin = stickyEarned ?? wildCount ?? naturalCount;
 
         // Legacy field names (fallback)
         if (resp.lightingStage == null && anyRes.LightingStage != null) {
             resp.lightingStage = anyRes.LightingStage;
-        }
-        if (resp.stickyAccumulated == null && anyRes.StickyAccumulated != null) {
-            resp.stickyAccumulated = anyRes.StickyAccumulated;
-            if (resp.lightingStage == null) {
-                resp.lightingStage = gaugeStageFromAccumulated(anyRes.StickyAccumulated);
-            }
         }
 
         // 3) Chỉ xét Force Feature Entry cho Normal Spin
@@ -3311,6 +3326,9 @@ export class NetworkManager {
     private _jackpotTimer: any = null;
 
     private constructor() {
+        // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — phải enable trước khi login/enter.
+        Log.enable('featuregauge');
+
         // ★ Chuyển đổi Mock ↔ Real dựa trên USE_REAL_API
         if (USE_REAL_API) {
             this._adapter = new RealNetworkAdapter();

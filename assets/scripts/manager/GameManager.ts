@@ -7,7 +7,7 @@ import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Color, game, 
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
-import { SlotStageType, SpinResponse, MatchedLinePay, JackpotType, SymbolId, GameState, FeatureItem, PickGameState, StickyCell, TopupReelSlot, TopupReelType, FeatureSelectChoiceId, isFreeSpinTierReelIndex, gaugeStageFromAccumulated, gaugeStageFromPotVisualLevel } from '../data/SlotTypes';
+import { SlotStageType, SpinResponse, MatchedLinePay, JackpotType, SymbolId, GameState, FeatureItem, PickGameState, StickyCell, TopupReelSlot, TopupReelType, FeatureSelectChoiceId, isFreeSpinTierReelIndex, gaugeStageFromAccumulated } from '../data/SlotTypes';
 import { FeatureSelectChoicePayload } from '../controller/FeatureSelectionPopup';
 import { NetworkManager } from './NetworkManager';
 import { WalletManager } from './WalletManager';
@@ -223,6 +223,9 @@ export class GameManager extends Component {
         // Khởi tạo AutoSpinManager sớm để ENTER_SUCCESS listener được đăng ký trước khi login xong.
         // Dùng toString() để tránh build optimizer tree-shake biểu thức không có side-effect.
         AutoSpinManager.instance.toString();
+
+        // ★ Bật log tag để debug StickyAccumulated / StickyEarned từ server.
+        Log.enable('featuregauge');
 
         this._bindEvents();
 
@@ -2290,7 +2293,9 @@ export class GameManager extends Component {
 
     /**
      * ★ FEATURE ENTRY — Reel UI Gauge.
-     * Server: PotVisualLevel (1–6) → map 10 đèn UI; PotCount = tích lũy; WildCount = earned/spin.
+     * Gauge lighting stage (1–10) được tính từ StickyAccumulated qty theo ngưỡng:
+     * [10,20,40,60,80,100,120,140,160,200].
+     * PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
      * Reset gauge sau Pick Game completion — client luôn dùng giá trị server, không tự reset.
      */
     private _updateFeatureGauge(resp: SpinResponse | null): void {
@@ -2300,52 +2305,34 @@ export class GameManager extends Component {
         if ((resp.reelIndex ?? 0) !== 0) return;
 
         const earned = resp.stickyEarnedThisSpin ?? resp.naturalStickyCount ?? 0;
-        let stage: number;
-        let accumulated: number;
-
-        if (resp.potVisualLevel != null) {
-            stage = gaugeStageFromPotVisualLevel(resp.potVisualLevel);
-            accumulated = resp.potCount ?? resp.stickyAccumulated ?? data.featureGaugeAccumulated;
-        } else if (resp.lightingStage != null) {
-            stage = resp.lightingStage;
-            accumulated = resp.potCount ?? resp.stickyAccumulated ?? data.featureGaugeAccumulated;
-        } else {
-            accumulated = data.featureGaugeAccumulated + earned;
-            stage = gaugeStageFromAccumulated(accumulated);
-        }
+        const serverAccumulated = resp.stickyAccumulated ?? resp.potCount ?? null;
+        const accumulated = serverAccumulated != null
+            ? (serverAccumulated as number)
+            : data.featureGaugeAccumulated + earned;
+        const stage = gaugeStageFromAccumulated(accumulated);
 
         data.featureGaugeAccumulated = accumulated;
-
-        // Pot sắp đổi level → defer sáng gauge; PotController sync cùng lúc transition + sx_pot_effect
-        const newPotLevel = resp.potVisualLevel != null
-            ? Math.max(0, Math.min(6, resp.potVisualLevel as number))
-            : null;
-        const potWillChange = newPotLevel != null && newPotLevel !== data.potLevel;
-        if (potWillChange) {
-            Log.e(`[FeatureGauge] defer visual update — pot ${data.potLevel}→${newPotLevel}, stage=${stage}`);
-            return;
-        }
 
         const changed = stage !== data.featureGaugeStage;
         data.featureGaugeStage = stage;
 
         if (!changed && earned === 0) return;
-        Log.e(`[FeatureGauge] earned=${earned} accumulated=${accumulated} stage=${stage} potVisualLevel=${resp.potVisualLevel ?? 'n/a'}`);
+        Log.e(`[FeatureGauge] earned=${earned} accumulated=${accumulated} stage=${stage}`);
         EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
             stage, accumulated, earned, animate: true,
         });
     }
 
-    /** Khôi phục gauge từ LastSpinResponse hoặc potLevel đã sync khi /Enter. */
+    /** Khôi phục gauge từ LastSpinResponse (StickyAccumulated / PotCount) khi /Enter. */
     private _syncEnterGaugeState(lastSpin: any): void {
         const data = GameData.instance;
-        const potVisualLevel = lastSpin?.PotVisualLevel ?? lastSpin?.potVisualLevel ?? data.potLevel;
-        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount;
-        if (potVisualLevel != null && potVisualLevel > 0) {
-            data.featureGaugeStage = gaugeStageFromPotVisualLevel(potVisualLevel);
-        }
-        if (potCount != null) {
-            data.featureGaugeAccumulated = potCount;
+        const stickyAccumulated = lastSpin?.StickyAccumulated ?? lastSpin?.stickyAccumulated ?? null;
+        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount ?? null;
+        const accumulated = stickyAccumulated ?? potCount ?? null;
+        Log.e(`[FeatureGauge] _syncEnterGaugeState — StickyAccumulated=${stickyAccumulated ?? 'n/a'} PotCount=${potCount ?? 'n/a'} accumulated=${accumulated ?? 'n/a'}`);
+        if (accumulated != null) {
+            data.featureGaugeAccumulated = accumulated as number;
+            data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
         }
     }
 

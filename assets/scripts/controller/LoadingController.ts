@@ -176,6 +176,9 @@ export class LoadingController extends Component {
         //   Đọc DEV_FORCE_LANG (từ ServerConfig) hoặc localStorage 'supernova_lang'.
         LocalizationManager.instance.loadSavedLanguage();
 
+        // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — trước cả login/enter.
+        Log.enable('featuregauge');
+
         // ★ Bắt đầu tải font ngay lập tức — dùng browser HTTP cache nếu đã từng tải.
         //   Kết quả được _loadCdnAssets() await sau, không download lại.
         this._earlyLoadFont();

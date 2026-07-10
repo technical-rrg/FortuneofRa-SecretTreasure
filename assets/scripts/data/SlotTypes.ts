@@ -128,7 +128,8 @@ export function isFreeSpinTierReelIndex(reelIndex: number): reelIndex is FreeSpi
 //
 //  Có 2 hệ thống độc lập phía client:
 //   (A) Reel UI Gauge — 10 hình chữ tượng hình 2 cột trái/phải, sáng dần
-//       theo số Sticky tích lũy (gauge). Xem FEATURE_GAUGE_* bên dưới.
+//       theo PotCount (= StickyAccumulated) + WildCount (= StickyEarned/spin).
+//       KHÔNG dùng PotVisualLevel cho gauge. Xem FEATURE_GAUGE_* bên dưới.
 //   (B) Force Feature Entry — khi Sticky < 6 mà server cho vào Feature theo
 //       xác suất, hệ thống tự "đổ" đủ 6 Sticky (Pot charge → orb → convert),
 //       kèm hiệu ứng nữ thần dẫn dắt trước khi mở Feature Selection.
@@ -579,13 +580,15 @@ export interface SpinResponse {
     forceFeatureEntry?: ForceFeatureEntryData;
     /** Số Sticky xuất hiện tự nhiên trên reel spin này (dùng cho gauge + force check). */
     naturalStickyCount?: number;
-    /** Số Sticky "earned" cộng vào gauge trong spin này (Lighting Condition_2). */
+    /** Số Sticky earned spin này — server field WildCount (= StickyEarned). */
     stickyEarnedThisSpin?: number;
-    /** Lighting stage 0..10 (map từ PotVisualLevel hoặc legacy LightingStage). */
+    /** Alias server WildCount (= stickyEarnedThisSpin). */
+    wildCount?: number;
+    /** Lighting stage 0..10 — tính từ PotCount qua gaugeStageFromAccumulated(). */
     lightingStage?: number;
-    /** Tổng tích lũy gauge — server field PotCount (= StickyAccumulated). */
+    /** Tổng tích lũy gauge — alias server PotCount (= StickyAccumulated). */
     stickyAccumulated?: number;
-    /** Server field PotCount (alias stickyAccumulated). */
+    /** Server field PotCount (= StickyAccumulated, cumulative). */
     potCount?: number;
 }
 

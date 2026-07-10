@@ -197,7 +197,7 @@ export class FeatureSelectionPopup extends Component {
         this._choosing = true;
         Log.d(`[FeatureSelectionPopup] Chọn ${choiceId} → NextStage=${option.nextStage} ReelIndex=${option.reelIndex}`);
         this._setButtonsInteractable(false);
-        SoundManager.instance?.playSFX(SoundManager.instance?.sxFeatureSelect);
+        SoundManager.instance?.playSfxByName('sxFeatureSelect');
         SoundManager.instance?.playFeatureSelectMusic();
 
         let choiceEmitted = false;

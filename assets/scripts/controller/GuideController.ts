@@ -14,7 +14,7 @@
  *   → click continueArea → fade out → emit GUIDE_COMPLETE → deactivate
  */
 
-import { _decorator, Component, Node, UIOpacity, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween } from 'cc';
+import { _decorator, Component, Node, UIOpacity, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween, assetManager } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
@@ -23,6 +23,23 @@ import { SettingPopup } from './SettingPopup';
 import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
+
+const GUIDE_BUNDLE = 'MainBundle';
+/** Portrait / landscape guide slides — lazy-loaded (nulled from Base.prefab). */
+const GUIDE_PORTRAIT_PATHS = [
+    'newTextures/guide/Verticle/Guide1/spriteFrame',
+    'newTextures/guide/Verticle/Guide2/spriteFrame',
+    'newTextures/guide/Verticle/Guide3/spriteFrame',
+    'newTextures/guide/Verticle/Guide4/spriteFrame',
+    'newTextures/guide/Verticle/Guide5/spriteFrame',
+] as const;
+const GUIDE_LANDSCAPE_PATHS = [
+    'newTextures/guide/Guide1/spriteFrame',
+    'newTextures/guide/Guide2/spriteFrame',
+    'newTextures/guide/Guide3/spriteFrame',
+    'newTextures/guide/Guide4/spriteFrame',
+    'newTextures/guide/Guide5/spriteFrame',
+] as const;
 
 @ccclass('GuideController')
 export class GuideController extends Component {
@@ -116,6 +133,7 @@ export class GuideController extends Component {
     private _carouselActive: boolean = false;
     private _prevTween: Tween<Node> | null = null;
     private _nextTween: Tween<Node> | null = null;
+    private _guideFramesPromise: Promise<void> | null = null;
 
     // ─── LIFECYCLE ───
 
@@ -123,6 +141,8 @@ export class GuideController extends Component {
         EventBus.instance.on(GameEvents.LANGUAGE_CHANGED, this._setGuideLabels, this);
         screen.on('window-resize', this._applyGuideLayout, this);
         screen.on('orientation-change', this._applyGuideLayout, this);
+        // Warm guide slides in background — không block Base boot
+        this._ensureGuideFrames();
     }
 
     start(): void {
@@ -156,8 +176,16 @@ export class GuideController extends Component {
         }
         if (this.guidePanel) this.guidePanel.active = true;
         this._setGuideLabels();
-        this._applyGuideLayout();
 
+        // Apply layout + sprites after frames ready (lazy-loaded)
+        void this._ensureGuideFrames().then(() => {
+            if (!this.node.active || this._dismissed) return;
+            this._applyGuideLayout();
+            this._beginGuideFadeIn();
+        });
+    }
+
+    private _beginGuideFadeIn(): void {
         // Debug: kiểm tra trạng thái continueArea
         if (this.continueArea) {
             Log.d('[GuideController] continueArea node active:', this.continueArea.node.active,
@@ -175,7 +203,7 @@ export class GuideController extends Component {
             tween(this.uiOpacity)
                 .to(this.fadeInDuration, { opacity: 255 })
                 .call(() => {
-                    Log.d('[GuideController] FadeOut complete → _bindClicks() + delay 1s before carousel');
+                    Log.d('[GuideController] FadeOut complete → _bindClicks() + delay before carousel');
                     this._bindClicks();
                     this._bindTabIconClicks();
                     this.scheduleOnce(this._delayedStartCarousel, this.carouselDelay);
@@ -229,7 +257,7 @@ export class GuideController extends Component {
     /** Cập nhật spriteFrame cho tất cả bgNodes theo orientation (nếu có assign). */
     private _updateBgSprites(isPortrait: boolean): void {
         const frames = isPortrait ? this.bgPortraitFrames : this.bgLandscapeFrames;
-        if (!frames || frames.length === 0) return;
+        if (!frames || frames.length === 0 || frames.every((f) => !f)) return;
         for (let i = 0; i < this.bgNodes.length; i++) {
             const node = this.bgNodes[i];
             if (!node) continue;
@@ -238,6 +266,39 @@ export class GuideController extends Component {
             const sprite = node.getComponent(Sprite);
             if (sprite) sprite.spriteFrame = frame;
         }
+    }
+
+    /** Lazy-load 10 guide slides from MainBundle (nulled out of Base.prefab). */
+    private _ensureGuideFrames(): Promise<void> {
+        const needPortrait = !this.bgPortraitFrames || this.bgPortraitFrames.length < GUIDE_PORTRAIT_PATHS.length
+            || this.bgPortraitFrames.some((f) => !f);
+        const needLandscape = !this.bgLandscapeFrames || this.bgLandscapeFrames.length < GUIDE_LANDSCAPE_PATHS.length
+            || this.bgLandscapeFrames.some((f) => !f);
+        if (!needPortrait && !needLandscape) return Promise.resolve();
+        if (this._guideFramesPromise) return this._guideFramesPromise;
+
+        this._guideFramesPromise = new Promise<void>((resolve) => {
+            const bundle = assetManager.getBundle(GUIDE_BUNDLE);
+            if (!bundle) {
+                Log.w(`[GuideController] Bundle '${GUIDE_BUNDLE}' missing — guide frames unavailable`);
+                resolve();
+                return;
+            }
+            const paths = [...GUIDE_PORTRAIT_PATHS, ...GUIDE_LANDSCAPE_PATHS];
+            bundle.load(paths as unknown as string[], SpriteFrame, (err, assets) => {
+                if (err || !assets) {
+                    Log.w('[GuideController] Guide frame load failed', err);
+                    resolve();
+                    return;
+                }
+                const list = assets as SpriteFrame[];
+                this.bgPortraitFrames = list.slice(0, GUIDE_PORTRAIT_PATHS.length);
+                this.bgLandscapeFrames = list.slice(GUIDE_PORTRAIT_PATHS.length);
+                Log.d(`[GuideController] Lazy-loaded guide frames P=${this.bgPortraitFrames.length} L=${this.bgLandscapeFrames.length}`);
+                resolve();
+            });
+        });
+        return this._guideFramesPromise;
     }
 
     /** Force ẩn HTML loading overlay ngay lập tức — tránh overlay còn sót khi GuideView hiện */

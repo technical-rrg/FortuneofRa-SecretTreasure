@@ -252,10 +252,10 @@ export class StickyFillEffect extends Component {
 
     /**
      * row convention (stickyCells / CreditFlyIn):
-     *   row 0 = Bot → symbolNodes[4], row 1 = Mid → [3], row 2 = Top → [2].
+     *   row 0 = Bot → symbolNodes[3], row 1 = Mid → [2], row 2 = Top → [1].
      */
     private _symbolNodeIndex(cell: StickyCell): number {
-        return 4 - cell.row;
+        return 3 - cell.row;
     }
 
     private _getSymbolView(cell: StickyCell): SymbolView | null {

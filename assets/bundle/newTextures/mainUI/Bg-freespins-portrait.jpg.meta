@@ -11,7 +11,7 @@
     "6c48a": {
       "importer": "texture",
       "uuid": "1c3b225f-a85e-4a8c-a02d-72d1c6035212@6c48a",
-      "displayName": "Bg-Freespins-Portrait 1",
+      "displayName": "Bg-freespins-portrait",
       "id": "6c48a",
       "name": "texture",
       "userData": {
@@ -35,7 +35,7 @@
     "f9941": {
       "importer": "sprite-frame",
       "uuid": "1c3b225f-a85e-4a8c-a02d-72d1c6035212@f9941",
-      "displayName": "Bg-Freespins-Portrait 1",
+      "displayName": "Bg-freespins-portrait",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {

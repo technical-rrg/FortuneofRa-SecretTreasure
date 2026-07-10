@@ -27,9 +27,6 @@ import { EventBus }                from '../core/EventBus';
 import { GameEvents }              from '../core/GameEvents';
 import { GameData }                from '../data/GameData';
 import { Log }                     from '../core/Logger';
-import { TopUpAbsorbEffect }       from './TopUpAbsorbEffect';
-import { WaysPayDisplay }          from './WaysPayDisplay';
-import { SlotMachineController }   from './SlotMachineController';
 
 const { ccclass, property } = _decorator;
 
@@ -103,29 +100,7 @@ export class GameEntryController extends Component {
             Log.d('[GameEntryController] gameRoot activated early in _onLoadingComplete');
         }
 
-        // ── Bước 2: Prebuild các pool/effect ─────────────────────────────────────────────────
-        const absorbFx = this.gameRoot?.getComponentInChildren(TopUpAbsorbEffect);
-        if (absorbFx) {
-            absorbFx.prebuildPools();
-            Log.d('[GameEntryController] TopUpAbsorbEffect.prebuildPools() called early');
-        }
-
-        const smc = this.gameRoot?.getComponentInChildren(SlotMachineController);
-
-        const waysPayDisplay = this.gameRoot?.getComponentInChildren(WaysPayDisplay);
-        if (waysPayDisplay) {
-            if (!waysPayDisplay.highlightSpinePrefab && smc?.highlightSpinePrefab) {
-                waysPayDisplay.highlightSpinePrefab = smc.highlightSpinePrefab;
-            }
-            waysPayDisplay.prebuildPool();
-        }
-
-        if (smc) {
-            smc.prebuildCreditLabels();
-            Log.d('[GameEntryController] SlotMachineController.prebuildCreditLabels() called early');
-            // applyInitialSymbols() đã được gọi từ LoadingController với 0.1s GPU delay
-            // trước khi bar đạt 100%. Tại điểm này symbols đã render xong hoàn toàn.
-        }
+        // ── Bước 2: không prebuild pool lúc load — pool tự tạo khi dùng ──
 
         const isResuming = GameData.instance.isResumingFreeSpin;
         Log.d(`[RESUME-DEBUG] GameEntryController._onLoadingComplete — isResumingFreeSpin=${isResuming}`);

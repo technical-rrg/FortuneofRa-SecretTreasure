@@ -179,6 +179,19 @@ const CUSTOM_FAVICON_LINK = buildFaviconLink();
 // Sentinel to detect our favicon has been injected (works for both custom & fallback)
 const FAVICON_SENTINEL = CUSTOM_FAVICON_LINK ? 'data:image/' : null;
 
+// ─── Game title ──────────────────────────────────────────────────────────────
+const GAME_TITLE = 'Fortune of Ra - Secret Treasure';
+
+function patchGameTitle(content) {
+  let patched = content.replace(/<title>Cocos Creator \| /g, '<title>');
+  patched = patched.replace(/<title>[^<]*<\/title>/i, `<title>${GAME_TITLE}</title>`);
+  patched = patched.replace(
+    /<h1(\s[^>]*class=["']header["'][^>]*)>[^<]*<\/h1>/i,
+    `<h1$1>${GAME_TITLE}</h1>`
+  );
+  return patched;
+}
+
 function patchFavicon(content) {
   // Remove all existing favicon links
   let patched = content.replace(/\s*<link\s+rel=["'](?:shortcut\s+)?icon["'][^>]*>/gi, '');
@@ -192,11 +205,12 @@ function patchFavicon(content) {
 const BUILD_DIR = path.resolve(__dirname, '../build');
 
 function patchContent(content, filePath) {
-  const contentWithFavicon = patchFavicon(content);
+  const contentWithTitle = patchGameTitle(content);
+  const contentWithFavicon = patchFavicon(contentWithTitle);
   if (content.includes(PATCH_SENTINEL)) {
     if (contentWithFavicon !== content) {
       fs.writeFileSync(filePath, contentWithFavicon, 'utf-8');
-      console.log(`  [favicon] ${path.relative(process.cwd(), filePath)}`);
+      console.log(`  [title/favicon] ${path.relative(process.cwd(), filePath)}`);
     } else {
       console.log(`  [skip]    ${path.relative(process.cwd(), filePath)} (already patched)`);
     }
@@ -235,10 +249,7 @@ function patchWebDesktopFile(filePath) {
   try { content = fs.readFileSync(filePath, 'utf-8'); }
   catch (e) { console.error(`  [error]   ${filePath}: ${e.message}`); return; }
 
-  let patched = content;
-
-  // 0. Strip "Cocos Creator | " prefix from <title> (always, idempotent)
-  patched = patched.replace(/<title>Cocos Creator \| /g, '<title>');
+  let patched = patchGameTitle(content);
 
   // 0b. Replace Cocos favicon with an inline globe favicon.
   // Deleting favicon.ico alone is not reliable because browsers cache /favicon.ico per URL.

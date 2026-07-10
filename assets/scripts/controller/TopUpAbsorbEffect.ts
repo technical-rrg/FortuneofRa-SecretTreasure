@@ -85,9 +85,14 @@ export class TopUpAbsorbEffect extends Component {
 
     @property({
         type: StickyOverlayController,
-        tooltip: 'StickyOverlayController de lay vi tri cac o coin.',
+        tooltip: 'Thường để trống — StickyOverlayLoader.bindStickyOverlay() wire lúc runtime khi lazy-load.',
     })
     stickyOverlay: StickyOverlayController | null = null;
+
+    /** Wire StickyOverlay từ code sau khi lazy-load Prefab. */
+    bindStickyOverlay(overlay: StickyOverlayController | null): void {
+        this.stickyOverlay = overlay;
+    }
 
     @property({
         type: Node,
@@ -112,12 +117,11 @@ export class TopUpAbsorbEffect extends Component {
     private _isPlaying: boolean = false;
     private _pulseTween: Tween<Node> | null = null;
     private _pulseBaseScale: Vec3 = new Vec3(1, 1, 1);
-    private _effectPoolSize: number = 5;
     private _newSpinCount: number = -1;
     private _allStickyCells: Map<string, StickyCell> | null = null;
     private _currentSpinNextWinKeys: Set<string> = new Set();
 
-    // Fixed-size pools: moi loai effect clone dung 5 node, het pool thi skip effect.
+    // Lazy pools: chỉ tạo object khi borrow, trả về pool khi xong.
     private _flyPool:       Node[] = [];
     private _redHitPool:    Node[] = [];
     private _yellowHitPool: Node[] = [];
@@ -130,51 +134,14 @@ export class TopUpAbsorbEffect extends Component {
     // == LIFECYCLE ==
 
     onLoad(): void {
-        // Build pool ngay khi node được load (nếu GameRoot đã active).
-        // Nếu GameRoot inactive khi scene start, prebuildPools() sẽ được gọi
-        // từ GameEntryController._onLoadingComplete() trước khi GameRoot active.
-        this._buildFlyNodes();
-        this._buildHitNodes();
-
+        // Không prebuild pool lúc load — tạo object khi borrow.
         EventBus.instance.on(GameEvents.TOPUP_ABSORB_START, this._onAbsorbStart, this);
     }
 
     /**
-     * Gọi từ bên ngoài (ví dụ GameEntryController) để build pool sớm,
-     * ngay cả khi node này chưa được activate (parent inactive).
-     * @property references được editor serialize trước onLoad nên vẫn dùng được.
+     * Mượn node từ pool; nếu trống thì instantiate từ template (lazy).
      */
-    public prebuildPools(): void {
-        this._buildFlyNodes();
-        this._buildHitNodes();
-    }
-
-    /** Pre-instantiate fly effect de khong instantiate trong luc dang absorb. */
-    private _buildFlyNodes(): void {
-        this._buildEffectPool(this.flyEffectTemplate, this._flyPool, 'FlyFX');
-    }
-
-    /** Pre-instantiate 5 hit-effect node cho moi loai effect. */
-    private _buildHitNodes(): void {
-        this._buildEffectPool(this.redHitTemplate, this._redHitPool, 'RedHitFX');
-        this._buildEffectPool(this.yellowHitTemplate, this._yellowHitPool, 'YellowHitFX');
-        this._buildEffectPool(this.greenHitTemplate, this._greenHitPool, 'GreenHitFX');
-    }
-
-    private _buildEffectPool(template: Node | null, pool: Node[], prefix: string): void {
-        if (!template) return;
-        if (pool.length > 0) return;
-
-        for (let i = 0; i < this._effectPoolSize; i++) {
-            const n = instantiate(template);
-            n.name = `${prefix}_${i}`;
-            n.active = false;
-            n.setParent(this.node);
-            pool.push(n);
-        }
-    }
-
-    private _borrowEffect(pool: Node[], poolName: string = 'unknown'): Node | null {
+    private _borrowEffect(pool: Node[], template: Node | null, poolName: string = 'unknown'): Node | null {
         Log.d(`[TopUpAbsorb] _borrowEffect from ${poolName}, pool.length=${pool.length}`);
         while (pool.length > 0) {
             const n = pool.pop()!;
@@ -185,8 +152,16 @@ export class TopUpAbsorbEffect extends Component {
                 Log.w(`[TopUpAbsorb] skipped invalid node in ${poolName}`);
             }
         }
-        Log.e(`[TopUpAbsorb] ${poolName} EXHAUSTED!`);
-        return null;
+        if (!template) {
+            Log.e(`[TopUpAbsorb] ${poolName} empty and no template`);
+            return null;
+        }
+        const n = instantiate(template);
+        n.name = `${poolName}_${pool.length}`;
+        n.active = false;
+        n.setParent(this.node);
+        Log.d(`[TopUpAbsorb] created new ${n.name} for ${poolName}`);
+        return n;
     }
 
     private _returnEffect(pool: Node[], n: Node, poolName: string = 'unknown'): void {
@@ -209,7 +184,7 @@ export class TopUpAbsorbEffect extends Component {
 
     /** Mượn 1 fly effect node từ pool để dùng ngoài class này (vd. FreeSpinGoldCoinEffect). */
     public borrowFlyEffect(): Node | null {
-        return this._borrowEffect(this._flyPool, 'flyPool[shared]');
+        return this._borrowEffect(this._flyPool, this.flyEffectTemplate, 'flyPool[shared]');
     }
 
     /** Trả fly effect node về pool sau khi dùng xong. */
@@ -543,9 +518,9 @@ export class TopUpAbsorbEffect extends Component {
             const layerUT = this.node.getComponent(UITransform);
             if (!layerUT) { resolve(); return; }
 
-            const fx = this._borrowEffect(this._flyPool, 'flyPool');
+            const fx = this._borrowEffect(this._flyPool, this.flyEffectTemplate, 'flyPool');
             if (!fx) {
-                Log.e('[TopUpAbsorb] Fly effect pool exhausted, skip this fly effect - RESOLVE immediately');
+                Log.e('[TopUpAbsorb] Fly effect create failed, skip this fly effect - RESOLVE immediately');
                 resolve();
                 return;
             }
@@ -634,9 +609,13 @@ export class TopUpAbsorbEffect extends Component {
         if (!layerUT) return;
 
         const poolName = pool === this._redHitPool ? 'redHitPool' : pool === this._yellowHitPool ? 'yellowHitPool' : 'greenHitPool';
-        const fx = this._borrowEffect(pool, poolName);
+        const template =
+            pool === this._redHitPool ? this.redHitTemplate :
+            pool === this._yellowHitPool ? this.yellowHitTemplate :
+            this.greenHitTemplate;
+        const fx = this._borrowEffect(pool, template, poolName);
         if (!fx) {
-            Log.e(`[TopUpAbsorb] ${poolName} exhausted, skip this hit effect`);
+            Log.e(`[TopUpAbsorb] ${poolName} create failed, skip this hit effect`);
             return;
         }
         Log.d(`[TopUpAbsorb] _spawnHitEffect: got ${fx.name} from ${poolName}`);
@@ -764,7 +743,7 @@ export class TopUpAbsorbEffect extends Component {
 
             if (slotNode && isValid(slotNode) && slotNode.active) {
                 // Only play +1 sound when the symbol actually appears on StickyOverlay
-                SoundManager.instance?.playSFX(SoundManager.instance?.sxPlus1Spin);
+                SoundManager.instance?.playSfxByName('sxPlus1Spin');
                 Tween.stopAllByTarget(slotNode);
                 slotNode.setScale(1, 1, 1);
 

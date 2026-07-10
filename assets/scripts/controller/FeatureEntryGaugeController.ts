@@ -9,14 +9,14 @@
  *   bottom-left(1) → bottom-right(2) → 2nd-left(3) → 2nd-right(4) → …
  *   → top-left(9) → top-right(10)
  *
- * Khi vào Feature → gauge giữ theo server; reset sau Pick Game (PotVisualLevel=1, PotCount=0).
+ * Khi vào Feature → gauge giữ theo server; reset sau Pick Game (PotCount=0).
  *
  * ── GAUGE DATA (server API) ──
- *   PotVisualLevel (1–6) → level 1=0 ô, 2→2, 3→4, 4→6, 5→8, 6→10.
+ *   PotCount  = StickyAccumulated (cumulative) → lighting stage 0..10 qua ngưỡng.
+ *   WildCount = StickyEarned (this spin only) → log / earned payload.
+ *   PotVisualLevel chỉ dùng cho Pot UI — KHÔNG map sang 10 ô gauge.
  * ── CÁCH KÍCH HOẠT ──
- *   Gauge sáng đồng bộ với Pot transition (PotController → FEATURE_GAUGE_UPDATE).
- *   GameManager chỉ emit trực tiếp khi Pot level không đổi.
- *   PotCount = tích lũy; WildCount = earned/spin.
+ *   GameManager emit FEATURE_GAUGE_UPDATE khi reel dừng (đọc PotCount/WildCount từ spin response).
  *
  * ── SETUP TRONG EDITOR ──
  *   1. Tạo Node "FeatureEntryGauge" trong scene (con của khung Reel/Canvas).
@@ -38,7 +38,6 @@ import {
 import { EventBus }      from '../core/EventBus';
 import { GameEvents }    from '../core/GameEvents';
 import { GameData }      from '../data/GameData';
-import { Log }           from '../core/Logger';
 import { SoundManager }  from '../manager/SoundManager';
 import { gaugeStageToPillar, gaugeStageToFlatIndex, FEATURE_GAUGE_MAX_STAGE } from '../data/SlotTypes';
 
@@ -121,16 +120,10 @@ export class FeatureEntryGaugeController extends Component {
         const stage = Math.max(0, Math.min(FEATURE_GAUGE_MAX_STAGE, payload?.stage ?? 0));
         this._suppressSfx = payload?.suppressSfx ?? false;
         this._skipPotShake = payload?.skipPotShake ?? false;
-        Log.d(`[FeatureGauge] update stage ${this._shownStage} → ${stage} (accumulated=${payload?.accumulated}, earned=${payload?.earned}, lit flat[0..${stage - 1}])`);
-        if (stage > 0) {
-            const desc = this._describeLitStages(stage);
-            Log.e(`[FeatureGauge] stage=${stage} → ${desc}`);
-        }
         this._applyStage(stage, payload?.animate ?? true);
     }
 
     private _onReset(): void {
-        Log.d('[FeatureGauge] reset — tắt toàn bộ đèn');
         this._applyStage(0, true);
     }
 
@@ -238,20 +231,5 @@ export class FeatureEntryGaugeController extends Component {
 
     private _applyBaseScale(node: Node): void {
         node.setScale(this._baseScaleOf(node));
-    }
-
-    /** Log tên node + vị trí doc để debug wiring Editor. */
-    private _describeLitStages(upToStage: number): string {
-        const labels = [
-            '1:bottom-left', '2:bottom-right', '3:2nd-left', '4:2nd-right',
-            '5:3rd-left', '6:3rd-right', '7:4th-left', '8:4th-right',
-            '9:top-left', '10:top-right',
-        ];
-        const parts: string[] = [];
-        for (let s = 1; s <= upToStage; s++) {
-            const node = this._nodeForStage(s);
-            parts.push(`${labels[s - 1]}→${node?.name ?? 'null'}`);
-        }
-        return parts.join(' | ');
     }
 }

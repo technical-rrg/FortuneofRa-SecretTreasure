@@ -19,9 +19,9 @@
  *   4. Kéo "slotMachine"          — SlotMachineController.
  *
  * ── ROW MAPPING ──
- *   row 0 = visual Bot = symbolNodes[4]
- *   row 1 = visual Mid = symbolNodes[3]
- *   row 2 = visual Top = symbolNodes[2]   (nodeIndex = 4 - row)
+ *   row 0 = visual Bot = symbolNodes[3]
+ *   row 1 = visual Mid = symbolNodes[2]
+ *   row 2 = visual Top = symbolNodes[1]   (nodeIndex = 3 - row)
  *   Visual top-to-bottom = sort row DESC (2→1→0)
  */
 
@@ -387,7 +387,7 @@ export class CreditFlyInEffect extends Component {
         const reel = this.slotMachine.reels[cell.reel];
         if (!reel) return null;
 
-        const nodeIndex = 4 - cell.row;
+        const nodeIndex = 3 - cell.row;
         const symbolNode = reel.symbolNodes[nodeIndex];
         if (!symbolNode) return null;
 

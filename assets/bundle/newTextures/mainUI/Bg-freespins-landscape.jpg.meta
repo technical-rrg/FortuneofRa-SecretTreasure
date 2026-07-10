@@ -2,7 +2,7 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b",
+  "uuid": "f2ddb167-d3fd-48fd-8876-3b998a760127",
   "files": [
     ".jpg",
     ".json"
@@ -10,14 +10,14 @@
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b@6c48a",
-      "displayName": "bg-maingame-landscape 1",
+      "uuid": "f2ddb167-d3fd-48fd-8876-3b998a760127@6c48a",
+      "displayName": "Bg-freespins-landscape",
       "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
         "wrapModeT": "clamp-to-edge",
-        "imageUuidOrDatabaseUri": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b",
+        "imageUuidOrDatabaseUri": "f2ddb167-d3fd-48fd-8876-3b998a760127",
         "isUuid": true,
         "visible": false,
         "minfilter": "linear",
@@ -34,8 +34,8 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b@f9941",
-      "displayName": "bg-maingame-landscape 1",
+      "uuid": "f2ddb167-d3fd-48fd-8876-3b998a760127@f9941",
+      "displayName": "Bg-freespins-landscape",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {
@@ -113,7 +113,7 @@
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b@6c48a",
+        "imageUuidOrDatabaseUri": "f2ddb167-d3fd-48fd-8876-3b998a760127@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,6 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": false,
-    "redirect": "033bd8c8-c03a-4166-8a2b-9e68d7fb234b@6c48a"
+    "redirect": "f2ddb167-d3fd-48fd-8876-3b998a760127@6c48a"
   }
 }

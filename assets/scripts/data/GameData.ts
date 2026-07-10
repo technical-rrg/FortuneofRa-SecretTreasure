@@ -205,8 +205,8 @@ export class GameData {
 
     // ─── FEATURE ENTRY LOGIC ADDED — Reel UI Gauge state ─────────────────────
     /**
-     * Tổng số Sticky tích lũy cho gauge chữ tượng hình (Lighting Condition_2).
-     * Reset về 0 khi vào Feature ('Luck has arrived').
+     * Tổng PotCount (= StickyAccumulated) từ server — dùng tính lighting stage gauge.
+     * Reset về 0 sau Pick Game (server gửi PotCount=0).
      */
     featureGaugeAccumulated: number = 0;
     /** Lighting stage hiện tại của gauge (0..10). */

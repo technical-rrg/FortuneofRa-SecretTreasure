@@ -11,25 +11,16 @@
  *   [1] FillbackFrame  (khung trang trí)
  *   [2] StickyOverlay  ← component này — trên fillback, tĩnh tuyệt đối
  *
- * ── SETUP TRONG EDITOR ──
- *   1. Tạo Node "StickyOverlay" con của Canvas, z-order trên FillbackFrame.
- *   2. Gắn component StickyOverlayController vào node đó.
- *   3. Tạo 15 child node (hoặc dùng prefab) — đặt tên CoinSlot_R{reel}_Row{row}.
- *      Mỗi CoinSlot cần:
- *        - Sprite component        → hình đồng xu (Red/Yellow/Green/Grand)
- *        - UIOpacity component     → dùng để fade in khi coin mới xuất hiện
- *        - Child node "CreditLabel" (optional) → SpriteNumber hiển thị credit
- *   4. Kéo 15 node đó vào mảng coinSlots theo thứ tự:
- *        index = reel * 3 + row  (row: 0=Bottom, 1=Mid, 2=Top visual)
- *        [0]=R0_Bot [1]=R0_Mid [2]=R0_Top  [3]=R1_Bot ... [14]=R4_Top
- *   5. Kéo 3 SpriteFrame vào coinFrames: [0]=Red [1]=Yellow [2]=Green  (không cần Grand nếu không có art)
- *   6. Node StickyOverlay bắt đầu với active=false — script tự bật khi TOPUP_START.
+ * ── SETUP ──
+ *   Prefab StickyOverlay (MainBundle) — KHÔNG nhúng vào Base.
+ *   StickyOverlayLoader lazy-load khi vào TopUp và gọi bindSlotMachine() bằng code.
+ *   Trong Prefab: coinSlots / coinFrames gán sẵn; slotMachine để trống (wire runtime).
  *
  * ── ROW CONVENTION ──
  *   Theo GameData / stickyCells key `${reel}-${row}`:
- *     row 0 = visual Bottom  (symbolNodes[4])
- *     row 1 = visual Middle  (symbolNodes[3])
- *     row 2 = visual Top     (symbolNodes[2])
+ *     row 0 = visual Bottom  (symbolNodes[3])
+ *     row 1 = visual Middle  (symbolNodes[2])
+ *     row 2 = visual Top     (symbolNodes[1])
  */
 
 import {
@@ -78,10 +69,17 @@ export class StickyOverlayController extends Component {
 
     @property({
         type: SlotMachineController,
-        tooltip: 'Tham chiếu SlotMachineController để lấy reels → symbolNodes.',
+        tooltip: 'Thường để trống trên Prefab — StickyOverlayLoader.bindSlotMachine() wire lúc runtime.',
     })
     slotMachine: SlotMachineController | null = null;
 
+    /**
+     * Wire SlotMachineController từ code (lazy-load Prefab không serialize cross-prefab refs).
+     * Gọi trước khi active / trước TOPUP_START.
+     */
+    bindSlotMachine(smc: SlotMachineController | null): void {
+        this.slotMachine = smc;
+    }
 
     // ── STATE ──────────────────────────────────────────────────────────────────
 
@@ -101,7 +99,6 @@ export class StickyOverlayController extends Component {
     // ── LIFECYCLE ──────────────────────────────────────────────────────────────
 
     onLoad(): void {
-        this.node.active = false;
         this._hideAll();
 
         EventBus.instance.on(GameEvents.TOPUP_START,         this._onTopUpStart,   this);
@@ -110,6 +107,15 @@ export class StickyOverlayController extends Component {
         EventBus.instance.on(GameEvents.FREE_SPIN_GOLD_END, this._onTopUpEnd,     this);
         EventBus.instance.on(GameEvents.FREE_SPIN_END,       this._onTopUpEnd,     this);
         EventBus.instance.on(GameEvents.REELS_START_SPIN,   this._onReelsStartSpin, this);
+
+        // Defer inactive: nếu set active=false ngay trong onLoad, child TopUpManager
+        // có thể chưa kịp onLoad khi lazy-instantiate Prefab.
+        // Đang ở TopUp (resume / vừa set mode) → giữ active, chờ TOPUP_START refresh.
+        this.scheduleOnce(() => {
+            if (GameData.instance.currentMode !== 'respin') {
+                this.node.active = false;
+            }
+        }, 0);
     }
 
     onDestroy(): void {
@@ -549,7 +555,7 @@ export class StickyOverlayController extends Component {
             const reel = this.slotMachine.reels[reelIdx];
             if (!reel) continue;
 
-            const symbolNodeIndices = [2, 3, 4]; // Top, Mid, Bot
+            const symbolNodeIndices = [1, 2, 3]; // Top, Mid, Bot
             for (let row = 0; row < 3; row++) {
                 const coinIdx = reelIdx * 3 + row;
                 const slotNode = this.coinSlots[coinIdx];
@@ -570,13 +576,16 @@ export class StickyOverlayController extends Component {
      *   index = reel * 3 + row  (row 0 = Bottom, 1 = Mid, 2 = Top visual).
      */
     alignPositionsFromTopUpManager(): void {
-        const topUpMgrs = this.node.scene?.getComponentsInChildren(TopUpManager) ?? [];
-        if (topUpMgrs.length === 0) {
+        // Ưu tiên TopUpManager trong cùng prefab hierarchy (lazy-loaded), fallback scene scan.
+        const topUpMgr = this.node.getComponentInChildren(TopUpManager)
+            ?? this.node.parent?.getComponentInChildren(TopUpManager)
+            ?? this.node.scene?.getComponentInChildren(TopUpManager)
+            ?? null;
+        if (!topUpMgr) {
             Log.e('[StickyOverlay] alignPositionsFromTopUpManager: TopUpManager not found.');
             return;
         }
 
-        const topUpMgr = topUpMgrs[0];
         if (topUpMgr.reels.length !== 15) {
             Log.w(`[StickyOverlay] alignPositionsFromTopUpManager: reels.length=${topUpMgr.reels.length} (expected 15).`);
         }
@@ -625,7 +634,7 @@ export class StickyOverlayController extends Component {
         // In TopUp mode, play gold-land sound when yellow/green coins pop onto StickyOverlay
         if (GameData.instance.currentMode === 'respin' &&
             (symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN)) {
-            SoundManager.instance?.playSFX(SoundManager.instance?.sxBonusStickyGoldLand);
+            SoundManager.instance?.playSfxByName('sxBonusStickyGoldLand');
         }
 
         tween(slotNode)

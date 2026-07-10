@@ -3,7 +3,7 @@
  * Component gắn vào root node, quản lý SlotStageType.
  */
 
-import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Color, game, ParticleSystem } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Color, game, ParticleSystem, assetManager } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
@@ -25,8 +25,20 @@ import { Log } from '../core/Logger';
 import { TopUpManager } from '../controller/TopUpManager';
 import { SlotMachineController } from '../controller/SlotMachineController';
 import { StickyOverlayController } from '../controller/StickyOverlayController';
+import { StickyOverlayLoader } from '../controller/StickyOverlayLoader';
 
 const { ccclass, property } = _decorator;
+
+const BG_BUNDLE = 'MainBundle';
+/** [0]=portrait, [1]=landscape — paths inside MainBundle (SpriteFrame sub-asset). */
+const NORMAL_BG_PATHS = [
+    'newTextures/mainUI/Bg-maingame-portrait/spriteFrame',
+    'newTextures/mainUI/Bg-maingame-landscape/spriteFrame',
+] as const;
+const FREESPIN_BG_PATHS = [
+    'newTextures/mainUI/Bg-freespins-portrait/spriteFrame',
+    'newTextures/mainUI/Bg-freespins-landscape/spriteFrame',
+] as const;
 
 const truncateMoney3 = (value: number): number => {
     const clean = Math.round(value * 1e9) / 1e9;
@@ -104,6 +116,9 @@ export class GameManager extends Component {
 
     @property({ type: ParticleSystem, tooltip: 'Particle system - RateOverTime điều chỉnh theo orientation' })
     particleSystem: ParticleSystem | null = null;
+
+    /** Lazy BG load promises keyed by bundle path */
+    private _bgLoadPromises: Map<string, Promise<SpriteFrame | null>> = new Map();
 
     private _currentStage: SlotStageType = SlotStageType.SPIN;
     /** State machine — kiểm soát luồng xử lý và block input */
@@ -238,6 +253,8 @@ export class GameManager extends Component {
         screen.on('orientation-change', this._updateBackgroundSprite, this);
         screen.on('window-resize', this._updateParticleRateOverTime, this);
         screen.on('orientation-change', this._updateParticleRateOverTime, this);
+        // Boot: chỉ lazy-load BG đúng orientation + mode hiện tại (không preload ngang/dọc cùng lúc)
+        this._clearBackgroundSprite();
         this._updateBackgroundSprite();
         this._updateParticleRateOverTime();
     }
@@ -412,12 +429,11 @@ export class GameManager extends Component {
             return;
         }
 
-        // HeartBeat + Jackpot polling (real API only, not yet started by LoadingController)
+        // Đã Enter ở loading scene (real hoặc mock) — không login lại
         if (USE_REAL_API) {
             net.startHeartBeat();
             net.startJackpotPolling();
-            // Re-emit ENTER_SUCCESS để SlotMachineController trong game scene init reels
-            // (ENTER_SUCCESS đã emit ở loading scene nhưng SlotMachineController chưa tồn tại)
+            // Re-emit ENTER_SUCCESS để SlotMachineController init reels
             EventBus.instance.emit(GameEvents.ENTER_SUCCESS, {
                 cash: WalletManager.instance.balance,
                 slotName: 'Gold of Fortunes',
@@ -430,31 +446,20 @@ export class GameManager extends Component {
                 smm: null,
             });
         } else {
-            // Mock mode: gọi _startWithMockInit để emit ENTER_SUCCESS + xử lý lastSpinResponse
-            // từ MOCK_RESUME_SCENARIO (giống luồng real API).
-            // LOADING_COMPLETE được emit bên trong _startWithMockInit sau khi enterGame() hoàn tất.
-            // ★ RETURN NGAY — tránh scheduleOnce(0) bên dưới emit LOADING_COMPLETE trước enterGame xong.
-            this._startWithMockInit(true);
-            return;
+            // Mock: init strips/map + emit ENTER_SUCCESS (không gọi lại login/enter)
+            this._initMockMode();
         }
 
-        // Kiểm tra Free Spin resume (chỉ cho real API path — mock xử lý trong _startWithMockInit)
-        if (USE_REAL_API) {
-            const rawLast = data.rawEnterLastSpinResponse;
-            // Log removed for performance
-            if (rawLast) {
-                this._pendingResume = this._buildPendingResume(rawLast, '_startFromGameScene');
-                // Log removed for performance
-            } else {
-                // Log removed for performance
-            }
+        // Kiểm tra Free Spin resume
+        const rawLast = data.rawEnterLastSpinResponse;
+        if (rawLast) {
+            this._pendingResume = this._buildPendingResume(rawLast, '_startFromGameScene');
+        }
 
-            // ★ Flag resume để GameEntryController skip guide
-            // Chỉ skip guide khi FreeSpin/Claim cần xử lý ngay — Normal Spin resume không cần skip
-            if (this._pendingResume && this._pendingResume.nextStage !== SlotStageType.SPIN) {
-                data.isResumingFreeSpin = true;
-                // Log removed for performance
-            }
+        // ★ Flag resume để GameEntryController skip guide
+        // Chỉ skip guide khi FreeSpin/Claim cần xử lý ngay — Normal Spin resume không cần skip
+        if (this._pendingResume && this._pendingResume.nextStage !== SlotStageType.SPIN) {
+            data.isResumingFreeSpin = true;
         }
 
         // Dùng scheduleOnce(0) để defer sang frame tiếp theo:
@@ -462,7 +467,6 @@ export class GameManager extends Component {
         this.scheduleOnce(() => {
             this._emitInitialData();
             EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
-            // Log removed for performance
             // Sau đó: GuideController show → GUIDE_COMPLETE → GAME_ENTRY_EFFECT → GAME_READY
         }, 0);
 
@@ -470,7 +474,6 @@ export class GameManager extends Component {
         // Đảm bảo resume flow chạy ngay cả khi GameEntryController không có trong scene.
         if (this.skipIntroScreens) {
             this.scheduleOnce(() => {
-                // Log removed for performance
                 EventBus.instance.emit(GameEvents.GAME_READY);
             }, 0.1);
         }
@@ -1393,29 +1396,16 @@ export class GameManager extends Component {
             }
         }
 
-        // ══ DEBUG: log wild tính được từ grid local so với server ══
-        const wildPosStr = positions.map(p => `R${p.reel}C${p.row}`).join(',') || 'NONE';
-        Log.e(`[WILD-DEBUG] Grid wild count=${positions.length} positions=[${wildPosStr}] | resp.wildTrailCount=${resp.wildTrailCount ?? 'undefined'}`);
-        // ═══════════════════════════════════════════════════════
-
         // ★ POT LEVEL: dùng PotVisualLevel trực tiếp từ server (1..6)
         let potLevelChanged = false;
-        Log.e(`[POT-DEBUG] resp.potVisualLevel=${resp.potVisualLevel}, data.potLevel=${data.potLevel}, _isFreeSpin=${this._isFreeSpin()}`);
         if (resp.potVisualLevel !== undefined && resp.potVisualLevel !== null && !this._isFreeSpin()) {
             const oldLevel = data.potLevel;
             const newLevel = Math.max(0, Math.min(6, resp.potVisualLevel as number));
             data.potLevel = newLevel;
-            Log.e(`[POT-DEBUG] server PotVisualLevel=${resp.potVisualLevel} → level=${newLevel}, oldLevel=${oldLevel}`);
             if (newLevel !== oldLevel) {
                 potLevelChanged = true;
                 this._isPotTransitioning = true;
-                Log.e(`[POT-DEBUG] potLevel CHANGED → ${newLevel}, _isPotTransitioning=true`);
-            } else {
-                Log.e(`[POT-DEBUG] potLevel NO CHANGE (same=${newLevel})`);
             }
-        } else if (!this._isFreeSpin() && resp.potVisualLevel === undefined) {
-            // Server không trả PotVisualLevel → giữ nguyên level hiện tại
-            Log.e(`[POT-DEBUG] potVisualLevel=undefined → keep level=${data.potLevel}`);
         }
 
         if (potLevelChanged) {
@@ -1870,6 +1860,8 @@ export class GameManager extends Component {
         data.wildTrailCount = 0;
         data.potLevel       = 1;
         data.featureGaugeAccumulated = 0;
+        data.featureGaugeStage = 0;
+        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_RESET);
         EventBus.instance.emit(GameEvents.POT_LEVEL_CHANGED, { level: 1, total: 0 });
         // Restore game state bị block bởi _transitionStage(POT_WIN)
         this._gameState = GameState.IDLE;
@@ -2293,10 +2285,11 @@ export class GameManager extends Component {
 
     /**
      * ★ FEATURE ENTRY — Reel UI Gauge.
-     * Gauge lighting stage (1–10) được tính từ StickyAccumulated qty theo ngưỡng:
+     * 10 ô lighting tính từ PotCount (= StickyAccumulated) theo ngưỡng
      * [10,20,40,60,80,100,120,140,160,200].
+     * WildCount (= StickyEarned) = số earned spin này (log/animation).
      * PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
-     * Reset gauge sau Pick Game completion — client luôn dùng giá trị server, không tự reset.
+     * Reset gauge sau Pick Game — client dùng PotCount=0 từ server, không tự tính.
      */
     private _updateFeatureGauge(resp: SpinResponse | null): void {
         if (!resp) return;
@@ -2304,8 +2297,8 @@ export class GameManager extends Component {
         if (data.currentMode !== 'normal') return;
         if ((resp.reelIndex ?? 0) !== 0) return;
 
-        const earned = resp.stickyEarnedThisSpin ?? resp.naturalStickyCount ?? 0;
-        const serverAccumulated = resp.stickyAccumulated ?? resp.potCount ?? null;
+        const earned = resp.wildCount ?? resp.stickyEarnedThisSpin ?? 0;
+        const serverAccumulated = resp.potCount ?? resp.stickyAccumulated ?? null;
         const accumulated = serverAccumulated != null
             ? (serverAccumulated as number)
             : data.featureGaugeAccumulated + earned;
@@ -2317,21 +2310,18 @@ export class GameManager extends Component {
         data.featureGaugeStage = stage;
 
         if (!changed && earned === 0) return;
-        Log.e(`[FeatureGauge] earned=${earned} accumulated=${accumulated} stage=${stage}`);
         EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
             stage, accumulated, earned, animate: true,
         });
     }
 
-    /** Khôi phục gauge từ LastSpinResponse (StickyAccumulated / PotCount) khi /Enter. */
+    /** Khôi phục gauge từ LastSpinResponse (PotCount) khi /Enter. */
     private _syncEnterGaugeState(lastSpin: any): void {
         const data = GameData.instance;
-        const stickyAccumulated = lastSpin?.StickyAccumulated ?? lastSpin?.stickyAccumulated ?? null;
-        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount ?? null;
-        const accumulated = stickyAccumulated ?? potCount ?? null;
-        Log.e(`[FeatureGauge] _syncEnterGaugeState — StickyAccumulated=${stickyAccumulated ?? 'n/a'} PotCount=${potCount ?? 'n/a'} accumulated=${accumulated ?? 'n/a'}`);
-        if (accumulated != null) {
-            data.featureGaugeAccumulated = accumulated as number;
+        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount
+            ?? lastSpin?.StickyAccumulated ?? lastSpin?.stickyAccumulated ?? null;
+        if (potCount != null) {
+            data.featureGaugeAccumulated = potCount as number;
             data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
         }
     }
@@ -2943,6 +2933,10 @@ export class GameManager extends Component {
     }
 
     private _restoreTopUpResumeState(resume: PendingResumeData, continueSpin: boolean): void {
+        void this._restoreTopUpResumeStateAsync(resume, continueSpin);
+    }
+
+    private async _restoreTopUpResumeStateAsync(resume: PendingResumeData, continueSpin: boolean): Promise<void> {
         const data = GameData.instance;
         Log.d(`[RESUME-DEBUG] _restoreTopUpResumeState — continueSpin=${continueSpin}, remainRespin=${resume.remainRespinCount ?? 0}, stickyCells=${resume.stickyCells?.length ?? 0}, featureWin=${resume.featureSpinTotalWin}`);
         data.currentMode = 'respin';
@@ -2976,6 +2970,9 @@ export class GameManager extends Component {
         this._updateDisplayVisibility();
         this._updateBackgroundSprite();
 
+        // Lazy-load StickyOverlay (+ TopUpManager) trước khi emit TOPUP_START
+        await this._ensureStickyOverlayLoaded();
+
         EventBus.instance.emit(GameEvents.TOPUP_START, {
             spinsRemaining: data.respinRemaining,
             baseCredit: data.featureBaseCredit,
@@ -2995,6 +2992,19 @@ export class GameManager extends Component {
             this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), 0.35);
         } else {
             EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, true);
+        }
+    }
+
+    /** Lazy-load StickyOverlay Prefab (nếu có StickyOverlayLoader). No-op khi overlay vẫn nằm sẵn trên Base. */
+    private async _ensureStickyOverlayLoaded(): Promise<void> {
+        const loader = this.node.scene?.getComponentInChildren(StickyOverlayLoader) ?? null;
+        if (!loader) {
+            // Fallback: overlay vẫn gắn sẵn trong Base (chưa chuyển sang lazy)
+            return;
+        }
+        const overlay = await loader.ensureLoaded();
+        if (!overlay) {
+            Log.e('[GameManager] StickyOverlayLoader.ensureLoaded() failed — TopUp overlay sẽ không hiện');
         }
     }
 
@@ -3283,6 +3293,10 @@ export class GameManager extends Component {
     }
 
     private _enterTopUp(count: number): void {
+        void this._enterTopUpAsync(count);
+    }
+
+    private async _enterTopUpAsync(count: number): Promise<void> {
         const data = GameData.instance;
         data.currentMode = 'respin';
         data.respinRemaining = count > 0 ? count : 6;
@@ -3336,6 +3350,9 @@ export class GameManager extends Component {
         data.featureBaseCredit = this._sumTopUpBaseCredit(Array.from(data.stickyCells.values()));
         data.respinTotalWin = data.featureBaseCredit;
         Log.e(`[TOPUP-CREDIT][GM] enterTopUp baseCredit=${data.featureBaseCredit} initialTotal=${data.respinTotalWin} cells=${data.stickyCells.size}`);
+
+        // Lazy-load StickyOverlay (+ TopUpManager) trước khi emit TOPUP_START
+        await this._ensureStickyOverlayLoaded();
 
         EventBus.instance.emit(GameEvents.TOPUP_START, {
             spinsRemaining: data.respinRemaining,
@@ -4021,24 +4038,70 @@ export class GameManager extends Component {
 
     /**
      * Cập nhật background sprite theo orientation + spin mode (Normal/Free Spin).
-     * Normal Spin: backgroundSprites[0=portrait/1=landscape]
-     * Free Spin: freeSpinBackgroundSprites[0=portrait/1=landscape]
+     * Chỉ load đúng 1 ảnh mỗi lần — portrait HOẶC landscape, normal HOẶC freespin.
      */
     private _updateBackgroundSprite(): void {
         if (!this.backgroundNode) return;
 
         const isFeatureMode = this._isFreeSpin() || this._isTopUp() || this._isPickGameActive;
-        const sprites = isFeatureMode ? this.freeSpinBackgroundSprites : this.backgroundSprites;
-        if (sprites.length < 2) return;
-
         const size = screen.windowSize;
         const isPortrait = size.height > size.width;
-        const spriteComponent = this.backgroundNode.getComponent(Sprite);
+        const idx = isPortrait ? 0 : 1;
+        const paths = isFeatureMode ? FREESPIN_BG_PATHS : NORMAL_BG_PATHS;
+        const arr = isFeatureMode ? this.freeSpinBackgroundSprites : this.backgroundSprites;
 
-        if (spriteComponent) {
-            spriteComponent.spriteFrame = isPortrait ? sprites[0] : sprites[1];
-            //spriteComponent.color= !isFreeSpin ? new Color(83, 120, 145) : new Color(207,124,124); // Ví dụ: đổi màu hồng nhạt khi free spin
+        const apply = (sf: SpriteFrame | null) => {
+            if (!sf || !this.backgroundNode) return;
+            const spriteComponent = this.backgroundNode.getComponent(Sprite);
+            if (spriteComponent) spriteComponent.spriteFrame = sf;
+        };
+
+        const cached = arr[idx] ?? null;
+        if (cached) {
+            apply(cached);
+            return;
         }
+
+        void this._loadBackgroundSprite(paths[idx], isFeatureMode, idx).then(apply);
+    }
+
+    /** Xóa spriteFrame serialize cứng — tránh boot load landscape 3.3MB trước khi lazy-load */
+    private _clearBackgroundSprite(): void {
+        if (!this.backgroundNode) return;
+        const spriteComponent = this.backgroundNode.getComponent(Sprite);
+        if (spriteComponent) spriteComponent.spriteFrame = null;
+    }
+
+    private _loadBackgroundSprite(
+        path: string,
+        isFeature: boolean,
+        idx: number,
+    ): Promise<SpriteFrame | null> {
+        const existing = this._bgLoadPromises.get(path);
+        if (existing) return existing;
+
+        const promise = new Promise<SpriteFrame | null>((resolve) => {
+            const bundle = assetManager.getBundle(BG_BUNDLE);
+            if (!bundle) {
+                Log.w(`[GameManager] Bundle '${BG_BUNDLE}' missing — cannot load BG ${path}`);
+                resolve(null);
+                return;
+            }
+            bundle.load(path, SpriteFrame, (err, sf) => {
+                this._bgLoadPromises.delete(path);
+                if (err || !sf) {
+                    Log.w(`[GameManager] BG load failed: ${path}`, err);
+                    resolve(null);
+                    return;
+                }
+                const arr = isFeature ? this.freeSpinBackgroundSprites : this.backgroundSprites;
+                while (arr.length <= idx) arr.push(null as any);
+                arr[idx] = sf;
+                resolve(sf);
+            });
+        });
+        this._bgLoadPromises.set(path, promise);
+        return promise;
     }
 
     /** Điều chỉnh ParticleSystem RateOverTime theo screen orientation */

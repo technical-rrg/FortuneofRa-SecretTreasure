@@ -1,4 +1,4 @@
-﻿import { _decorator, Component, AudioSource, AudioClip } from 'cc';
+﻿import { _decorator, Component, AudioSource, AudioClip, assetManager } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
@@ -10,6 +10,62 @@ const { ccclass, property } = _decorator;
 
 type ReelStoppedPayload = number | { reelIndex: number; result?: unknown };
 type StickyCellLike = { symbolId?: number; credit?: number };
+
+/** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
+const LAZY_AUDIO_PATHS: Record<string, string> = {
+    mxBonusIdle: 'sound/mx_bonus_idle',
+    mxBonusLoop: 'sound/mx_bonus_loop',
+    mxBonusCongratulation: 'sound/mx_bonus_congratulation',
+    mxProgressiveWin: 'sound/mx_progressive_win',
+    mxProgressiveWinSkip: 'sound/mx_progressive_win_skip',
+    mxGrandJackpotWin: 'sound/mx_grand_jackpot_win',
+    mxMajorJackpotWin: 'sound/mx_major_jackpot_win',
+    mxMinorJackpotWin: 'sound/mx_minor_jackpot_win',
+    mxMiniJackpotWin: 'sound/mx_mini_jackpot_win',
+    sxReelSpinQuickTurbo: 'sound/sx_reel_spin_quick_turbo',
+    sxReelLand1: 'sound/sx_reel_land_1',
+    sxReelLand2: 'sound/sx_reel_land_2',
+    sxReelLand3: 'sound/sx_reel_land_3',
+    sxReelLand4: 'sound/sx_reel_land_4',
+    sxReelLand5: 'sound/sx_reel_land_5',
+    sxReelLandAll: 'sound/sx_reel_land_all',
+    sxSelectAFeature: 'sound/sx_select_a_feature',
+    sxFeatureSelect: 'sound/sx_feature_select',
+    sxSymbolMatchLowValue: 'sound/sx_symbol_match_low_value',
+    sxSymbolMatchHighValue: 'sound/sx_symbol_match_high_value',
+    sxSymbolPayout: 'sound/sx_symbol_payout',
+    sxBonusTrigger: 'sound/sx_bonus_trigger',
+    sxPotEffectLvl2: 'sound/sx_pot_effect_lvl_2',
+    sxPotEffectLvl3: 'sound/sx_pot_effect_lvl_3',
+    sxPotEffectLvl4: 'sound/sx_pot_effect_lvl_4',
+    sxPotEffectLvl5: 'sound/sx_pot_effect_lvl_5',
+    sxPotEffectLvl6: 'sound/sx_pot_effect_lvl_6',
+    sxPotTrailWhoosh: 'sound/sx_pot_trail_whoosh',
+    sxPotHit: 'sound/sx_pot_hit',
+    sxBonusSelectMini: 'sound/sx_bonus_select_mini',
+    sxBonusSelectMinor: 'sound/sx_bonus_select_minor',
+    sxBonusSelectMajor: 'sound/sx_bonus_select_major',
+    sxBonusSelectGrand: 'sound/sx_bonus_select_grand',
+    sxBonusJpWin: 'sound/sx_bonus_jp_win',
+    sxBonusFakeTrigger: 'sound/sx_bonus_fake_trigger',
+    sxBonusTrail: 'sound/sx_bonus_trail',
+    sxBonusStickyLand: 'sound/sx_bonus_sticky_land',
+    sxBonusStickyLand2: 'sound/sx_bonus_sticky_land_2',
+    sxBonusStickyLand3: 'sound/sx_bonus_sticky_land_3',
+    sxBonusStickyLand4: 'sound/sx_bonus_sticky_land_4',
+    sxBonusStickyLand5: 'sound/sx_bonus_sticky_land_5',
+    sxBonusStickyGoldLand: 'sound/sx_bonus_sticky_gold_land',
+    sxBonusStickyGoldIncreaseHit: 'sound/sx_bonus_sticky_gold_increase_hit',
+    sxBonusStickyWin: 'sound/sx_bonus_sticky_win',
+    sxTransition: 'sound/sx_transition',
+    sxCounterLoop: 'sound/sx_counter_loop',
+    sxCounterEnd: 'sound/sx_counter_end',
+    sxPlus1Spin: 'sound/sx_plus_1_anim',
+    sxGirlSymbolAnim: 'sound/sx_girl_symbol_anim',
+    sxBannerDisappear: 'sound/sx_banner_disappear',
+};
+
+const SOUND_BUNDLE = 'MainBundle';
 
 @ccclass('SoundManager')
 export class SoundManager extends Component {
@@ -117,6 +173,9 @@ export class SoundManager extends Component {
     private _featureSelectSoundPlayed: boolean = false;
     private _stickyLandCount: number = 0;
     private _stickyWinSoundPlayedThisSpin: boolean = false;
+    /** In-flight lazy clip loads — avoid duplicate bundle.load */
+    private _lazyLoading: Map<string, Promise<AudioClip | null>> = new Map();
+    private _deferredAudioKickStarted = false;
 
     onLoad(): void {
         SoundManager._instance = this;
@@ -129,6 +188,8 @@ export class SoundManager extends Component {
             this.node.parent?.setParent(null);
         }
         this._bindEvents();
+        // Warm feature/jackpot clips after first frame — không block boot
+        this.scheduleOnce(() => this._kickDeferredAudioWarmup(), 0);
     }
 
     onDestroy(): void {
@@ -206,10 +267,111 @@ export class SoundManager extends Component {
         this._startAmbience();
         if (GameData.instance.isResumingFreeSpin) {
             this._inFeatureMusic = true;
-            if (this.bgmSource?.clip !== this.mxBonusLoop) {
-                this._playMusic(this.mxBonusLoop, true);
-            }
+            void this._ensureClip('mxBonusLoop').then((clip) => {
+                if (clip && this.bgmSource?.clip !== clip) {
+                    this._playMusic(clip, true);
+                }
+            });
         }
+        this._kickDeferredAudioWarmup();
+    }
+
+    /** Prefetch deferred clips in background after boot (non-blocking). */
+    private _kickDeferredAudioWarmup(): void {
+        if (this._deferredAudioKickStarted) return;
+        this._deferredAudioKickStarted = true;
+        // Priority: feature BGM + common SFX first, then jackpot/progressive packs
+        const priority = [
+            'sxReelLand1', 'sxReelLand2', 'sxReelLand3', 'sxReelLand4', 'sxReelLand5', 'sxReelLandAll',
+            'sxReelSpinQuickTurbo', 'sxSymbolMatchLowValue', 'sxSymbolMatchHighValue', 'sxSymbolPayout',
+            'mxBonusIdle', 'mxBonusLoop', 'mxBonusCongratulation',
+            'sxBonusTrigger', 'sxTransition', 'sxCounterLoop', 'sxCounterEnd',
+            'sxBonusStickyLand', 'sxBonusStickyLand2', 'sxBonusStickyLand3',
+            'sxBonusStickyLand4', 'sxBonusStickyLand5', 'sxBonusStickyWin',
+            'sxPotTrailWhoosh', 'sxPotHit', 'sxSelectAFeature', 'sxFeatureSelect',
+            'mxProgressiveWin', 'mxProgressiveWinSkip',
+            'mxGrandJackpotWin', 'mxMajorJackpotWin', 'mxMinorJackpotWin', 'mxMiniJackpotWin',
+        ];
+        const rest = Object.keys(LAZY_AUDIO_PATHS).filter((k) => !priority.includes(k));
+        const queue = [...priority, ...rest];
+        let i = 0;
+        const step = () => {
+            if (i >= queue.length) return;
+            const key = queue[i++];
+            void this._ensureClip(key).finally(() => {
+                // Stagger to avoid main-thread spikes
+                this.scheduleOnce(step, 0.05);
+            });
+        };
+        step();
+    }
+
+    /**
+     * Ensure a SoundManager clip property is loaded.
+     * Boot clips stay on the prefab; deferred clips load from MainBundle on demand.
+     */
+    ensureClip(prop: string): Promise<AudioClip | null> {
+        return this._ensureClip(prop);
+    }
+
+    /** playSFX after ensuring deferred clip is ready (no-op if still loading). */
+    playSfxByName(prop: string): void {
+        this._playSfxProp(prop);
+    }
+
+    private _ensureClip(prop: string): Promise<AudioClip | null> {
+        const current = (this as any)[prop] as AudioClip | null | undefined;
+        if (current) return Promise.resolve(current);
+
+        const path = LAZY_AUDIO_PATHS[prop];
+        if (!path) return Promise.resolve(null);
+
+        const existing = this._lazyLoading.get(prop);
+        if (existing) return existing;
+
+        const promise = new Promise<AudioClip | null>((resolve) => {
+            const bundle = assetManager.getBundle(SOUND_BUNDLE);
+            if (!bundle) {
+                Log.w(`[SoundManager] Bundle '${SOUND_BUNDLE}' missing — cannot lazy-load ${prop}`);
+                resolve(null);
+                return;
+            }
+            bundle.load(path, AudioClip, (err, clip) => {
+                this._lazyLoading.delete(prop);
+                if (err || !clip) {
+                    Log.w(`[SoundManager] Lazy load failed: ${path}`, err);
+                    resolve(null);
+                    return;
+                }
+                (this as any)[prop] = clip;
+                resolve(clip);
+            });
+        });
+        this._lazyLoading.set(prop, promise);
+        return promise;
+    }
+
+    /** playSFX after ensuring deferred clip is ready (no-op if still loading). */
+    private _playSfxProp(prop: string): void {
+        const clip = (this as any)[prop] as AudioClip | null;
+        if (clip) {
+            this.playSFX(clip);
+            return;
+        }
+        void this._ensureClip(prop).then((c) => {
+            if (c) this.playSFX(c);
+        });
+    }
+
+    private _playMusicProp(prop: string, loop: boolean, onEnded?: () => void): void {
+        const clip = (this as any)[prop] as AudioClip | null;
+        if (clip) {
+            this._playMusic(clip, loop, onEnded);
+            return;
+        }
+        void this._ensureClip(prop).then((c) => {
+            if (c) this._playMusic(c, loop, onEnded);
+        });
     }
 
     private _onGameEntryEffect(): void {
@@ -239,7 +401,11 @@ export class SoundManager extends Component {
         this._stickyWinSoundPlayedThisSpin = false;
         this.stopCoinLoop();
         const quick = this._speedMode === SpeedMode.QUICK || this._speedMode === SpeedMode.TURBO;
-        this.playSFX(quick ? this.sxReelSpinQuickTurbo : this.sxReelSpin);
+        if (quick) {
+            this._playSfxProp('sxReelSpinQuickTurbo');
+        } else {
+            this.playSFX(this.sxReelSpin);
+        }
     }
 
     private _onReelStopped(payload: ReelStoppedPayload): void {
@@ -249,18 +415,24 @@ export class SoundManager extends Component {
         if (this._speedMode === SpeedMode.TURBO) {
             if (!this._turboLandPlayed) {
                 this._turboLandPlayed = true;
-                this.playSFX(this.sxReelLandAll);
+                this._playSfxProp('sxReelLandAll');
             }
             return;
         }
 
         if (this._speedMode === SpeedMode.NORMAL || this._speedMode === SpeedMode.QUICK) {
-            this.playSFX(this._reelLandClip(reelIndex));
+            const prop =
+                reelIndex === 0 ? 'sxReelLand1' :
+                reelIndex === 1 ? 'sxReelLand2' :
+                reelIndex === 2 ? 'sxReelLand3' :
+                reelIndex === 3 ? 'sxReelLand4' :
+                reelIndex === 4 ? 'sxReelLand5' : null;
+            if (prop) this._playSfxProp(prop);
         }
     }
 
     private _onLongSpinTriggered(): void {
-        this.playSFX(this.sxBonusTrigger);
+        this._playSfxProp('sxBonusTrigger');
     }
 
     private _onWinPresentStart(resp: SpinResponse): void {
@@ -270,7 +442,7 @@ export class SoundManager extends Component {
     }
 
     private _onProgressiveWinShow(): void {
-        this._playMusic(this.mxProgressiveWin, false);
+        this._playMusicProp('mxProgressiveWin', false);
     }
 
     private _onProgressiveWinSkip(): void {
@@ -278,15 +450,16 @@ export class SoundManager extends Component {
     }
 
     stopProgressiveWinMusic(): void {
-        if (!this.bgmSource || !this.mxProgressiveWinSkip) return;
-        // Dừng ngay, không fade
-        if (this._bgmFadeTick) { this.unschedule(this._bgmFadeTick); this._bgmFadeTick = null; }
-        this.bgmSource.stop();
-        this.bgmSource.clip = this.mxProgressiveWinSkip;
-        this.bgmSource.loop = false;
-        this.bgmSource.volume = this.bgmVolume;
-        this.bgmSource.node.once(AudioSource.EventType.ENDED, () => this._restoreCurrentLoop(), this);
-        if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
+        void this._ensureClip('mxProgressiveWinSkip').then((skipClip) => {
+            if (!this.bgmSource || !skipClip) return;
+            if (this._bgmFadeTick) { this.unschedule(this._bgmFadeTick); this._bgmFadeTick = null; }
+            this.bgmSource.stop();
+            this.bgmSource.clip = skipClip;
+            this.bgmSource.loop = false;
+            this.bgmSource.volume = this.bgmVolume;
+            this.bgmSource.node.once(AudioSource.EventType.ENDED, () => this._restoreCurrentLoop(), this);
+            if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
+        });
     }
 
     private _onProgressiveWinEnd(): void {
@@ -294,9 +467,13 @@ export class SoundManager extends Component {
     }
 
     private _onJackpotTrigger(type: JackpotType): void {
-        this.playSFX(this.sxBonusJpWin);
-        const clip = this._jackpotMusic(type);
-        if (clip) this._playMusic(clip, false);
+        this._playSfxProp('sxBonusJpWin');
+        const prop =
+            type === JackpotType.GRAND ? 'mxGrandJackpotWin' :
+            type === JackpotType.MAJOR ? 'mxMajorJackpotWin' :
+            type === JackpotType.MINOR ? 'mxMinorJackpotWin' :
+            type === JackpotType.MINI ? 'mxMiniJackpotWin' : null;
+        if (prop) this._playMusicProp(prop, false);
     }
 
     private _onFeatureOrJackpotEnd(): void {
@@ -306,7 +483,7 @@ export class SoundManager extends Component {
     private _onFeatureSelectOpen(): void {
         if (this._featureSelectSoundPlayed) return;
         this._featureSelectSoundPlayed = true;
-        this.playSFX(this.sxSelectAFeature);
+        this._playSfxProp('sxSelectAFeature');
     }
 
     private _onFeatureSelectClose(): void {
@@ -325,7 +502,7 @@ export class SoundManager extends Component {
     private _onFeatureEndPopup(): void {
         Log.d(`[coinloop][SM._onFeatureEndPopup] coinLoopActive=${this._coinLoopActive}`);
         this._inFeatureMusic = false;
-        this._playMusic(this.mxBonusCongratulation, false, () => this._playMusic(this.mxNormalLoop, true));
+        this._playMusicProp('mxBonusCongratulation', false, () => this._playMusicProp('mxNormalLoop', true));
     }
 
     private _onFeatureEndPopupClosed(): void {
@@ -336,11 +513,11 @@ export class SoundManager extends Component {
     }
 
     private _onPickGameMatchFound(): void {
-        this.playSFX(this.sxBonusFakeTrigger);
+        this._playSfxProp('sxBonusFakeTrigger');
     }
 
     private _onPotWinIntro(): void {
-        this.playSFX(this.sxBonusFakeTrigger);
+        this._playSfxProp('sxBonusFakeTrigger');
         this._inFeatureMusic = true;
         this._startFeatureMusic();
     }
@@ -353,7 +530,7 @@ export class SoundManager extends Component {
     private _onTransitionShow(): void {
         if (this._transitionSoundPlayed) return;
         this._transitionSoundPlayed = true;
-        this.playSFX(this.sxTransition);
+        this._playSfxProp('sxTransition');
     }
 
     private _onTransitionDone(): void {
@@ -361,31 +538,31 @@ export class SoundManager extends Component {
     }
 
     private _onWildTrailOne(): void {
-        this.playSFX(this.sxPotTrailWhoosh);
+        this._playSfxProp('sxPotTrailWhoosh');
     }
 
     private _onWildTrailHit(): void {
-        this.playSFX(this.sxPotHit);
+        this._playSfxProp('sxPotHit');
     }
 
     private _onRedCreditUpdated(payload?: { totalRedCredit?: number; redCount?: number; reelIndex?: number }): void {
         const redCount = payload?.redCount ?? 0;
-        const clips = [
-            this.sxBonusStickyLand,
-            this.sxBonusStickyLand2,
-            this.sxBonusStickyLand3,
-            this.sxBonusStickyLand4,
-            this.sxBonusStickyLand5,
+        const props = [
+            'sxBonusStickyLand',
+            'sxBonusStickyLand2',
+            'sxBonusStickyLand3',
+            'sxBonusStickyLand4',
+            'sxBonusStickyLand5',
         ];
-        const idx = Math.min(this._stickyLandCount, clips.length - 1);
-        this.playSFX(clips[idx] ?? this.sxBonusStickyLand);
+        const idx = Math.min(this._stickyLandCount, props.length - 1);
+        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand');
         this._stickyLandCount++;
 
         // Big red-coin win sound: play once per spin when normal-reel red coins exceed 6
         if (GameData.instance.currentMode === 'normal' && redCount > 6 && !this._stickyWinSoundPlayedThisSpin) {
             this._stickyWinSoundPlayedThisSpin = true;
             Log.d(`[coinloop][SM._onRedCreditUpdated] redCount=${redCount} > 6 → play sxBonusStickyWin`);
-            this.playSFX(this.sxBonusStickyWin);
+            this._playSfxProp('sxBonusStickyWin');
         }
     }
 
@@ -400,11 +577,15 @@ export class SoundManager extends Component {
 
     private _startFeatureMusic(): void {
         if (this.bgmSource?.clip === this.mxBonusIdle || this.bgmSource?.clip === this.mxBonusLoop) return;
-        this._playMusic(this.mxBonusIdle, false, () => this._playMusic(this.mxBonusLoop, true));
+        this._playMusicProp('mxBonusIdle', false, () => this._playMusicProp('mxBonusLoop', true));
     }
 
     private _restoreCurrentLoop(): void {
-        this._playMusic(this._inFeatureMusic ? this.mxBonusLoop : this.mxNormalLoop, true);
+        if (this._inFeatureMusic) {
+            this._playMusicProp('mxBonusLoop', true);
+        } else {
+            this._playMusic(this.mxNormalLoop, true);
+        }
     }
 
     private _playMusic(clip: AudioClip | null, loop: boolean, onEnded?: () => void): void {
@@ -510,37 +691,46 @@ export class SoundManager extends Component {
     }
 
     playCoinLoop(): void {
-        if (!this.sxCounterLoop) {
-            Log.d(`[coinloop][SM.playCoinLoop] SKIP — sxCounterLoop=${!!this.sxCounterLoop}`);
+        const start = (clip: AudioClip) => {
+            if (!this.coinSource || !this.coinSource.isValid) {
+                this._recreateCoinSource();
+            }
+            if (!this.coinSource) {
+                Log.d(`[coinloop][SM.playCoinLoop] SKIP — failed to recreate coinSource`);
+                return;
+            }
+            this._coinLoopActive = true;
+            this.coinSource.volume = this.sfxVolume;
+            if (this._masterMuted || this._sfxMuted) {
+                Log.d(`[coinloop][SM.playCoinLoop] SKIP — muted (master=${this._masterMuted} sfx=${this._sfxMuted})`);
+                return;
+            }
+            const needRestart = this.coinSource.clip !== clip || !this.coinSource.loop;
+            Log.d(`[coinloop][SM.playCoinLoop] valid=${this.coinSource.isValid} playing=${this.coinSource.playing} needRestart=${needRestart}`);
+            if (needRestart) {
+                this.coinSource.stop();
+                this.coinSource.clip = clip;
+                this.coinSource.loop = true;
+            }
+            if (!this.coinSource.playing) {
+                Log.d(`[coinloop][SM.playCoinLoop] ▶ play()`);
+                this.coinSource.play();
+            } else {
+                Log.d(`[coinloop][SM.playCoinLoop] already playing, skip play()`);
+            }
+        };
+
+        if (this.sxCounterLoop) {
+            start(this.sxCounterLoop);
             return;
         }
-        if (!this.coinSource || !this.coinSource.isValid) {
-            this._recreateCoinSource();
-        }
-        if (!this.coinSource) {
-            Log.d(`[coinloop][SM.playCoinLoop] SKIP — failed to recreate coinSource`);
-            return;
-        }
-        this._coinLoopActive = true;
-        this.coinSource.volume = this.sfxVolume;
-        if (this._masterMuted || this._sfxMuted) {
-            Log.d(`[coinloop][SM.playCoinLoop] SKIP — muted (master=${this._masterMuted} sfx=${this._sfxMuted})`);
-            return;
-        }
-        // Nếu đang phát clip khác hoặc loop chưa bật, restart để đảm bảo sx_counter_loop phát đúng
-        const needRestart = this.coinSource.clip !== this.sxCounterLoop || !this.coinSource.loop;
-        Log.d(`[coinloop][SM.playCoinLoop] valid=${this.coinSource.isValid} playing=${this.coinSource.playing} needRestart=${needRestart}`);
-        if (needRestart) {
-            this.coinSource.stop();
-            this.coinSource.clip = this.sxCounterLoop;
-            this.coinSource.loop = true;
-        }
-        if (!this.coinSource.playing) {
-            Log.d(`[coinloop][SM.playCoinLoop] ▶ play()`);
-            this.coinSource.play();
-        } else {
-            Log.d(`[coinloop][SM.playCoinLoop] already playing, skip play()`);
-        }
+        void this._ensureClip('sxCounterLoop').then((clip) => {
+            if (!clip) {
+                Log.d(`[coinloop][SM.playCoinLoop] SKIP — sxCounterLoop load failed`);
+                return;
+            }
+            start(clip);
+        });
     }
 
     stopCoinLoop(): void {
@@ -570,7 +760,7 @@ export class SoundManager extends Component {
 
     playCoinEnd(): void {
         Log.d(`[coinloop][SM.playCoinEnd] ► play sxCounterEnd`);
-        this.playSFX(this.sxCounterEnd);
+        this._playSfxProp('sxCounterEnd');
     }
 
     playCounterStart(): void {
@@ -582,26 +772,26 @@ export class SoundManager extends Component {
     }
 
     playBannerDisappear(): void {
-        this.playSFX(this.sxBannerDisappear);
+        this._playSfxProp('sxBannerDisappear');
     }
 
     playBonusSelect(type: JackpotType): void {
         switch (type) {
-            case JackpotType.MINI: this.playSFX(this.sxBonusSelectMini); break;
-            case JackpotType.MINOR: this.playSFX(this.sxBonusSelectMinor); break;
-            case JackpotType.MAJOR: this.playSFX(this.sxBonusSelectMajor); break;
-            case JackpotType.GRAND: this.playSFX(this.sxBonusSelectGrand); break;
+            case JackpotType.MINI: this._playSfxProp('sxBonusSelectMini'); break;
+            case JackpotType.MINOR: this._playSfxProp('sxBonusSelectMinor'); break;
+            case JackpotType.MAJOR: this._playSfxProp('sxBonusSelectMajor'); break;
+            case JackpotType.GRAND: this._playSfxProp('sxBonusSelectGrand'); break;
             default: break;
         }
     }
 
     playGirlSymbolAnim(): void {
-        this.playSFX(this.sxGirlSymbolAnim);
+        this._playSfxProp('sxGirlSymbolAnim');
     }
 
     playSymbolPayoutForLine(lineCount: number): void {
-        this.playSFX(lineCount >= 5 ? this.sxSymbolMatchHighValue : this.sxSymbolMatchLowValue);
-        this.playSFX(this.sxSymbolPayout);
+        this._playSfxProp(lineCount >= 5 ? 'sxSymbolMatchHighValue' : 'sxSymbolMatchLowValue');
+        this._playSfxProp('sxSymbolPayout');
     }
 
     playSymbolMatch7(): void {
@@ -625,25 +815,23 @@ export class SoundManager extends Component {
     }
 
     playBonusTrail(): void {
-        this.playSFX(this.sxBonusTrail);
+        this._playSfxProp('sxBonusTrail');
     }
 
     playPotTrailWhoosh(): void {
-        this.playSFX(this.sxPotTrailWhoosh);
+        this._playSfxProp('sxPotTrailWhoosh');
     }
 
     playFeatureSelectMusic(): void {
         this._inFeatureMusic = true;
-        this._playMusic(this.mxBonusIdle, false, () => this._playMusic(this.mxBonusLoop, true));
+        this._startFeatureMusic();
     }
 
     initBGM(): void {
         this._startAmbience();
         if (GameData.instance.isResumingFreeSpin) {
             this._inFeatureMusic = true;
-            if (this.bgmSource?.clip !== this.mxBonusLoop) {
-                this._playMusic(this.mxBonusLoop, true);
-            }
+            this._playMusicProp('mxBonusLoop', true);
         }
     }
 

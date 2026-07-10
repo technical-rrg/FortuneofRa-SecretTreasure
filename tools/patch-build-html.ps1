@@ -21,8 +21,11 @@ if (Test-Path $splashSrc) {
 
 $html = [System.IO.File]::ReadAllText($indexPath, [System.Text.Encoding]::UTF8)
 
-# Fix title: remove "Cocos Creator | " prefix
+# Fix title: remove "Cocos Creator | " prefix and set game name
+$gameTitle = 'Fortune of Ra - Secret Treasure'
 $html = $html -replace '<title>Cocos Creator \| ', '<title>'
+$html = $html -replace '<title>[^<]*</title>', "<title>$gameTitle</title>"
+$html = $html -replace '<h1([^>]*class="header"[^>]*)>[^<]*</h1>', "<h1`$1>$gameTitle</h1>"
 
 if ($html.Contains('id="splash-overlay"')) {
     Write-Host "[PATCH] Already patched, skipping."

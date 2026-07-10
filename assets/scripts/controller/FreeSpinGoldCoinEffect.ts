@@ -20,9 +20,9 @@
  *   5. slotMachine          → SlotMachineController
  *
  * ── ROW MAPPING ──
- *   row 0 = visual Bot = symbolNodes[4]
- *   row 1 = visual Mid = symbolNodes[3]
- *   row 2 = visual Top = symbolNodes[2]   (nodeIndex = 4 - row)
+ *   row 0 = visual Bot = symbolNodes[3]
+ *   row 1 = visual Mid = symbolNodes[2]
+ *   row 2 = visual Top = symbolNodes[1]   (nodeIndex = 3 - row)
  */
 
 import {
@@ -219,7 +219,7 @@ export class FreeSpinGoldCoinEffect extends Component {
         const { symbolNode } = target;
 
         // 1. Play sound ngay khi coin bắn fly effect
-        SoundManager.instance?.playSFX(SoundManager.instance?.sxBonusStickyGoldIncreaseHit);
+        SoundManager.instance?.playSfxByName('sxBonusStickyGoldIncreaseHit');
 
         // 2. Nhún coin khi bắn fly effect — clone sang top node để vẽ chồng lên tất cả
         const symScale = symbolNode.scale.clone();
@@ -355,7 +355,7 @@ export class FreeSpinGoldCoinEffect extends Component {
         const reel = this.slotMachine.reels[cell.reel];
         if (!reel) return null;
 
-        const nodeIndex  = 4 - cell.row;
+        const nodeIndex  = 3 - cell.row;
         const symbolNode = reel.symbolNodes[nodeIndex];
         if (!symbolNode) return null;
 

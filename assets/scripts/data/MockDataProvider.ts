@@ -619,10 +619,12 @@ export class MockDataProvider {
                     redCount: earned,
                     stickyCells: stickies,
                     naturalStickyCount: earned,
-                    stickyEarnedThisSpin: 10,
+                    wildCount: earned,
+                    stickyEarnedThisSpin: earned,
                     potVisualLevel: 2,
                     potCount: 40,
                     stickyAccumulated: 40,
+                    lightingStage: 3,
                 });
             }
 
@@ -664,7 +666,10 @@ export class MockDataProvider {
                     redCount: naturalCount,
                     stickyCells: existingCells,
                     naturalStickyCount: naturalCount,
+                    wildCount: naturalCount,
                     stickyEarnedThisSpin: naturalCount,
+                    potCount: 60,
+                    stickyAccumulated: 60,
                     isForcedFeatureEntry: true,
                     forceFeatureEntry: force,
                 });

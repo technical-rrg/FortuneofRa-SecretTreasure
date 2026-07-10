@@ -12,15 +12,13 @@
  *   cubicOut scroll xuống về đúng rest positions.
  *
  * ── NODE LAYOUT ──
- *   [0] ExtraTop2  (buffer)  Y cao nhất
- *   [1] ExtraTop1  (buffer)
- *   [2] Top        (visible — row 0)
- *   [3] Mid        (visible — payline center)
- *   [4] Bot        (visible — row 2)
- *   [5] ExtraBot1  (buffer)
- *   [6] ExtraBot2  (buffer)  Y thấp nhất
+ *   [0] ExtraTop1  (buffer)  Y cao nhất
+ *   [1] Top        (visible — display row 0)
+ *   [2] Mid        (visible — payline center)
+ *   [3] Bot        (visible — display row 2)
+ *   [4] ExtraBot1  (buffer)  Y thấp nhất
  *
- *   Nodes 0,1,5,6 nằm ngoài Mask → invisible, dùng làm buffer khi wrap.
+ *   Nodes 0,4 nằm ngoài Mask → invisible, dùng làm buffer khi wrap.
  *
  * ── SPIN FLOW ──
  *   startSpin()    → LAUNCHING: bounce up → SPINNING
@@ -44,7 +42,7 @@ export class ReelController extends Component {
 
     @property({
         type: [Node],
-        tooltip: '7 Node symbol TOP→BOT:\n[0]=ExtraTop2 [1]=ExtraTop1 [2]=Top [3]=Mid [4]=Bot [5]=ExtraBot1 [6]=ExtraBot2',
+        tooltip: '5 Node symbol TOP→BOT:\n[0]=ExtraTop1 [1]=Top [2]=Mid [3]=Bot [4]=ExtraBot1',
     })
     symbolNodes: Node[] = [];
 
@@ -75,7 +73,7 @@ export class ReelController extends Component {
     @property({ tooltip: 'Tốc độ cuộn khi Long Spin (pixels/sec). 0 = dùng spinSpeed mặc định' })
     longSpinSpeed: number = 0;
 
-    @property({ tooltip: 'Auto-layout 5 nodes từ Mid (node[2])' })
+    @property({ tooltip: 'Auto-layout 5 nodes từ Mid (node[2]) — ExtraTop1/Top/Mid/Bot/ExtraBot1' })
     autoLayoutSymbols: boolean = false;
 
     /** Bỏ qua bounce lên khi bắt đầu spin (dùng cho Turbo). Set bởi SlotMachineController. */
@@ -168,13 +166,13 @@ export class ReelController extends Component {
     onLoad(): void {
         this._logPrefix = `[Reel ${this.reelIndex}]`;
 
-        // Auto-layout: node[3] = Mid giữ Y, các node khác cách đều
-        if (this.autoLayoutSymbols && this.symbolNodes.length === 7) {
-            const midPos = this.symbolNodes[3].position;
+        // Auto-layout: node[2] = Mid giữ Y, các node khác cách đều
+        if (this.autoLayoutSymbols && this.symbolNodes.length === 5) {
+            const midPos = this.symbolNodes[2].position;
             // Force Mid về y=0 để các reel có cùng baseline, không phụ thuộc vị trí lệch trong Editor
             const baseY = 0;
-            const offsets = [3, 2, 1, 0, -1, -2, -3]; // ExtraTop2 cao nhất → ExtraBot2 thấp nhất
-            for (let i = 0; i < 7; i++) {
+            const offsets = [2, 1, 0, -1, -2]; // ExtraTop1 cao nhất → ExtraBot1 thấp nhất
+            for (let i = 0; i < 5; i++) {
                 this.symbolNodes[i].setPosition(midPos.x, baseY + offsets[i] * this.symbolHeight, midPos.z);
             }
         }
@@ -184,7 +182,7 @@ export class ReelController extends Component {
         this._nodeY = this._restPositions.map(p => p.y);
 
         // Auto-detect symbolHeight
-        if (this._restPositions.length >= 4) {
+        if (this._restPositions.length >= 3) {
             const gap1 = Math.abs(this._restPositions[1].y - this._restPositions[2].y);
             const gap2 = Math.abs(this._restPositions[2].y - this._restPositions[3].y);
             const avg  = (gap1 + gap2) / 2;
@@ -204,7 +202,7 @@ export class ReelController extends Component {
         Log.d(`${this._logPrefix} h=${this.symbolHeight} restY=[${ys.map(y=>y.toFixed(0))}] top=${this._topEdge.toFixed(0)} bot=${this._bottomEdge.toFixed(0)}`);
 
         // DEBUG: so sánh Y visible nodes giữa các reel — cùng row phải cùng Y
-        const visY = [2,3,4].map(i => ys[i]?.toFixed(2) ?? 'null');
+        const visY = [1, 2, 3].map(i => ys[i]?.toFixed(2) ?? 'null');
         Log.e(`[GRID-DEBUG][REEL-Y-INIT] Reel${this.reelIndex} visibleY[Top,Mid,Bot]=[${visY.join(',')}]`);
     }
 
@@ -396,7 +394,7 @@ export class ReelController extends Component {
         if (data.freeSpinRemaining <= 0 && data.currentMode === 'normal') {
             this._lastNormalCenterIndex = centerIndex;
         }
-        const syms = this._getSymbols7(centerIndex);
+        const syms = this._getSymbols5(centerIndex);
         for (let i = 0; i < this.symbolNodes.length && i < syms.length; i++) {
             this.symbolNodes[i].active = true;
             this.symbolNodes[i].setPosition(this._restPositions[i]);
@@ -417,7 +415,7 @@ export class ReelController extends Component {
         const L = strip.length;
         if (L === 0) return;
         const centerIdx = this._lastNormalCenterIndex;
-        const syms = this._getSymbols7FromStrip(strip, centerIdx);
+        const syms = this._getSymbols5FromStrip(strip, centerIdx);
         for (let i = 0; i < this.symbolNodes.length && i < syms.length; i++) {
             this.symbolNodes[i].emit('symbol-changed', syms[i]);
         }
@@ -536,22 +534,22 @@ export class ReelController extends Component {
 
         this._decelCenterIdx = centerIndex;
 
-        const midRest    = this._restPositions[3].y;
-        const midCurrent = this._nodeY[3];
+        const midRest    = this._restPositions[2].y;
+        const midCurrent = this._nodeY[2];
 
         // Quãng đường Mid cần scroll xuống (Y giảm) để đến midRest (có thể có wrap).
         let dist = midCurrent - midRest;
 
         // ── CRITICAL: đảm bảo MỌI node đều wrap ít nhất 1 lần trong decel ──────
         //
-        // Khi dist < (topEdge - bottomEdge ≈ 1050), không có node nào pass qua
+        // Khi dist < (topEdge - bottomEdge), không có node nào pass qua
         // bottomEdge → không wrap → symbol random giữ nguyên → _finishDecel snap
         // đột ngột → "đổi hình đột ngột" (xảy ra ở cả Normal, Quick, Turbo).
         //
         // Fix: minDist = topEdge - bottomEdge + 1 cho MỌI mode.
         // Tốc độ stop nhanh/chậm do currentSpeed (6000 Turbo/Quick vs 4000 Normal)
         // → _decelAdaptedDuration ngắn hơn tự động, không cần giảm dist.
-        const minDist = this._topEdge - this._bottomEdge + 1;  // ≈ 1051 px
+        const minDist = this._topEdge - this._bottomEdge + 1;
         while (dist < minDist) {
             dist += this._totalSpan;
         }
@@ -575,7 +573,7 @@ export class ReelController extends Component {
         this._state = ReelState.DECELERATING;
 
         // NOTE: buffer nodes hidden during decel for visual clarity — uncomment when ready
-        // const bufferIndices = [0, 1, 5, 6];
+        // const bufferIndices = [0, 4];
         // for (const idx of bufferIndices) {
         //     if (this.symbolNodes[idx]) this.symbolNodes[idx].active = false;
         // }
@@ -630,7 +628,7 @@ export class ReelController extends Component {
 
         // Spine trigger khi Mid gần rest
         if (!this._snapFired && this.spineTriggerDistance > 0) {
-            const midRemaining = Math.abs(this._nodeY[3] - this._restPositions[3].y);
+            const midRemaining = Math.abs(this._nodeY[2] - this._restPositions[2].y);
             if (midRemaining <= this.spineTriggerDistance) {
                 this._snapFired = true;
                 this.onSnapComplete?.();
@@ -671,7 +669,7 @@ export class ReelController extends Component {
                 if (isFinalResultWrap) {
                     // Wrap cuối: gán symbol kết quả đúng cho vị trí này
                     const isTopUp = GameData.instance.currentMode === 'respin';
-                    const offset = isTopUp ? (i - 3) : (3 - i); // TopUp: logic order; Normal: reversed display
+                    const offset = isTopUp ? (i - 2) : (2 - i); // TopUp: logic order; Normal: reversed display
                     symId = strip[((this._decelCenterIdx + offset) % L + L) % L];
                 } else {
                     // Wrap trung gian: random, giống spinning thường
@@ -712,7 +710,8 @@ export class ReelController extends Component {
     }
 
     private _getVisibleRowIndex(nodeIndex: number): number {
-        return nodeIndex >= 2 && nodeIndex <= 4 ? 4 - nodeIndex : -1;
+        // Visible: [1]=Top(row2), [2]=Mid(row1), [3]=Bot(row0)  → stickyCells row
+        return nodeIndex >= 1 && nodeIndex <= 3 ? 3 - nodeIndex : -1;
     }
 
     private _finishDecel(): void {
@@ -724,13 +723,13 @@ export class ReelController extends Component {
         if (data.freeSpinRemaining <= 0 && data.currentMode === 'normal') {
             this._lastNormalCenterIndex = this._decelCenterIdx;
         }
-        const syms = this._getSymbols7(this._decelCenterIdx);
+        const syms = this._getSymbols5(this._decelCenterIdx);
         const names = ['7','77','777','BAR','BB','3X','BNS','R⚡','B⚡'];
         const fmt = (id: number) => id < 0 ? '___' : (names[id] ?? `?${id}`);
         // Log.e(
         //     `${this._logPrefix} SNAP symbols stripIndex=${this._resultStripIndex ?? 'state'} center=${this._decelCenterIdx}` +
         //     ` isPurchaseActive=${data.isPurchaseReelActive} stripLen=${stripUsed.length}` +
-        //     ` nodes=[${syms.map(fmt).join(',')}] visibleTopMidBot=[${fmt(syms[2])},${fmt(syms[3])},${fmt(syms[4])}]`
+        //     ` nodes=[${syms.map(fmt).join(',')}] visibleTopMidBot=[${fmt(syms[1])},${fmt(syms[2])},${fmt(syms[3])}]`
         // );
 
         // Decel đã scroll quá đích (overshoot), node đang ở dưới rest.
@@ -754,17 +753,17 @@ export class ReelController extends Component {
         Log.e(`${this._logPrefix} _finishDecel snap done — starting bounce, nodes=${this.symbolNodes.length}, hasStopCb=${!!this.onStopComplete}`);
 
         // Bounce nhỏ — snap từ dưới quá khứ về rest
-        // Chỉ tween 3 visible nodes (2,3,4). Buffer nodes (0,1,5,6) đang inactive → snap ngay lập tức.
+        // Chỉ tween 3 visible nodes (1,2,3). Buffer nodes (0,4) → snap ngay lập tức.
         const setDur = this.stopBounceSettleDuration;
         this.onBounceStart?.();
         let done = 0;
-        const visibleIndices = [2, 3, 4];
+        const visibleIndices = [1, 2, 3];
         for (const i of visibleIndices) {
             this._emitStickyResultLanded(i, syms[i]);
         }
 
         // Snap buffer nodes instantly
-        const bufferIndices = [0, 1, 5, 6];
+        const bufferIndices = [0, 4];
         for (const idx of bufferIndices) {
             if (this.symbolNodes[idx]) {
                 this.symbolNodes[idx].setPosition(this._restPositions[idx]);
@@ -785,7 +784,7 @@ export class ReelController extends Component {
                         this.onStopComplete?.();
 
                         // DEBUG: log actual Y of visible nodes after stop
-                        const vis = [2,3,4].map(j => {
+                        const vis = [1, 2, 3].map(j => {
                             const n = this.symbolNodes[j];
                             return `n${j} localY=${n.position.y.toFixed(2)} worldY=${n.worldPosition.y.toFixed(2)}`;
                         }).join(' | ');
@@ -799,27 +798,27 @@ export class ReelController extends Component {
     // ─── HELPERS ─────────────────────────────────────────────────────────────
 
     /**
-     * 7 symbol IDs quanh centerIndex trên strip, theo thứ tự hiển thị đã đảo dọc:
-     *   [center+3, center+2, center+1, center, center-1, center-2, center-3]
-     *   → map vào [ExtraTop2, ExtraTop1, Top, Mid, Bot, ExtraBot1, ExtraBot2]
+     * 5 symbol IDs quanh centerIndex trên strip, theo thứ tự hiển thị đã đảo dọc:
+     *   [center+2, center+1, center, center-1, center-2]
+     *   → map vào [ExtraTop1, Top, Mid, Bot, ExtraBot1]
      * Server/logical row vẫn là [center-1, center, center+1]; chỉ visual Top/Bot được đảo.
      */
-    private _getSymbols7(centerIndex: number): number[] {
+    private _getSymbols5(centerIndex: number): number[] {
         const isTopUp = GameData.instance.currentMode === 'respin';
-        return this._getSymbols7FromStrip(this._strip, centerIndex, !isTopUp);
+        return this._getSymbols5FromStrip(this._strip, centerIndex, !isTopUp);
     }
 
-    private _getSymbols7FromStrip(strip: number[], centerIndex: number, reverse: boolean = true): number[] {
+    private _getSymbols5FromStrip(strip: number[], centerIndex: number, reverse: boolean = true): number[] {
         const L = strip.length;
-        if (L === 0) return [0, 0, 0, 0, 0, 0, 0];
+        if (L === 0) return [0, 0, 0, 0, 0];
         const c = ((centerIndex % L) + L) % L;
         const result: number[] = [];
         if (reverse) {
-            for (let off = 3; off >= -3; off--) {
+            for (let off = 2; off >= -2; off--) {
                 result.push(strip[((c + off) % L + L) % L]);
             }
         } else {
-            for (let off = -3; off <= 3; off++) {
+            for (let off = -2; off <= 2; off++) {
                 result.push(strip[((c + off) % L + L) % L]);
             }
         }

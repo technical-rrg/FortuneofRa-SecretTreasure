@@ -125,17 +125,21 @@ export class CdnAssetManager {
     // ─── MANIFEST ─────────────────────────────────────────────────────────────
 
     /**
-     * Fetch cdn-manifest.json từ CDN (luôn lấy fresh, bỏ qua HTTP cache).
-     * Nếu thất bại → trả null, game tiếp tục với local bundled assets.
+     * Fetch cdn-manifest.json từ CDN.
+     * Dùng session cache (memory) trong cùng session; HTTP cache mặc định của browser
+     * thay vì no-store mỗi lần launch.
      */
     async fetchManifest(): Promise<CdnManifest | null> {
         if (!this._cdnBase) {
             Log.w('[CDN] init(cdnBase) chưa được gọi.');
             return null;
         }
+        if (this._manifest) {
+            return this._manifest;
+        }
         try {
             const url = `${this._cdnBase}/cdn-manifest.json`;
-            const res = await fetch(url, { cache: 'no-store' });
+            const res = await fetch(url, { cache: 'default' });
             if (!res.ok) {
                 Log.w(`[CDN] manifest fetch failed: HTTP ${res.status}`);
                 return null;

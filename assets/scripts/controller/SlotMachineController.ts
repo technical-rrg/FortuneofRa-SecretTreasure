@@ -401,11 +401,10 @@ export class SlotMachineController extends Component {
     }
 
     /**
-     * Gọi từ GameEntryController khi LOADING_COMPLETE — instantiate CreditLabel sớm
-     * cho mọi SymbolView trước khi GameRoot active, tránh stutter khi vào game.
-     * Guard `!view.SpriteNumber` đảm bảo không tạo lại nếu đã prebuild.
+     * Instantiate CreditLabel cho SymbolView chưa có (lazy / on-demand).
+     * Không gọi lúc load — _distributeFramesToSymbolViews cũng tạo khi cần.
      */
-    public prebuildCreditLabels(): void {
+    public ensureCreditLabels(): void {
         if (!this.creditLabelPrefab) return;
         for (const reel of this.reels) {
             for (const node of reel.symbolNodes) {
@@ -418,8 +417,6 @@ export class SlotMachineController extends Component {
                     if (view.SpriteNumber) {
                         view.SpriteNumber.node.active = false;
                         view.SpriteNumber.joltEnabled = false;
-                    } else {
-                        // Log removed for performance
                     }
                 }
             }
@@ -442,10 +439,10 @@ export class SlotMachineController extends Component {
                     view.symbolFrames = this.symbolFrames;
                     view.blurFrames   = this.blurFrames;
                     // Gán vị trí reel/row để setSymbol() tra cứu stickyCells
-                    // Visible nodes: ni=2 (top/row2), ni=3 (mid/row1), ni=4 (bot/row0)
-                    // Off-screen:    ni=0,1 (trên) và ni=5,6 (dưới) → rowIndex=-1
+                    // Visible nodes: ni=1 (top/row2), ni=2 (mid/row1), ni=3 (bot/row0)
+                    // Off-screen:    ni=0 (trên) và ni=4 (dưới) → rowIndex=-1
                     view.reelIndex = reel.reelIndex;
-                    view.rowIndex  = (ni >= 2 && ni <= 4) ? (4 - ni) : -1;
+                    view.rowIndex  = (ni >= 1 && ni <= 3) ? (3 - ni) : -1;
 
                     // Inject SpriteNumber từ prefab (chỉ tạo nếu chưa có)
                     if (this.creditLabelPrefab && !view.SpriteNumber) {
@@ -862,7 +859,7 @@ export class SlotMachineController extends Component {
             // Client strips (đã map PS→clientId) — dùng để hiện tên symbol vẽ ra
             const clientStrips = data.getReelStrips(isFS, reelIndex);
 
-            // ReelController._getSymbols7: visual TOP = center+1, MID = center, BOT = center-1
+            // ReelController._getSymbols5: visual TOP = center+1, MID = center, BOT = center-1
             const serverRows: { rand: number; rawTop: number; rawMid: number; rawBot: number }[] = [];
             const clientRows: { top: number; mid: number; bot: number }[]                       = [];
 
@@ -1186,10 +1183,10 @@ export class SlotMachineController extends Component {
      * CHỈ hiện credit trên symbol thực sự là STICKY_RED (kiểm tra symbolId trên SymbolView).
      *
      * Mapping GameData row → ReelController symbolNode index:
-     *   row 0 (logical top = strip[center-1]) → symbolNodes[4] (visual Bot)
-     *   row 1 (logical mid = strip[center])   → symbolNodes[3] (visual Mid)
-     *   row 2 (logical bot = strip[center+1]) → symbolNodes[2] (visual Top)
-     * Formula: nodeIndex = 4 - row
+     *   row 0 → symbolNodes[3] (visual Bot)
+     *   row 1 → symbolNodes[2] (visual Mid)
+     *   row 2 → symbolNodes[1] (visual Top)
+     * Formula: nodeIndex = 3 - row
      */
     private _showCreditsForReel(reelIndex: number): void {
         // TopUp mode: credit label chỉ hiện trên StickyOverlay, không hiện trên background reel
@@ -1209,7 +1206,7 @@ export class SlotMachineController extends Component {
                 || cell.symbolId === SymbolId.STICKY_GREEN;
             if (!isStickyCoin) continue;
 
-            const nodeIndex = 4 - cell.row;
+            const nodeIndex = 3 - cell.row;
             const node = reel.symbolNodes[nodeIndex];
             if (!node) continue;
 

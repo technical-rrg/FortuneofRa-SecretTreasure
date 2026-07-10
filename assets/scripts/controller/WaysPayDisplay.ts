@@ -1,12 +1,11 @@
 /**
  * WaysPayDisplay — Highlight ô symbol thắng cho Gold of Fortune (Ways Pay 243).
  *
- * Dùng Spine skeleton loop chạy trên overlay nodes được pool trước từ 1 Node template trong scene.
- * Pool được tạo 1 lần trong init(), nodes được mượn/trả khi show/hide — không bao giờ clone runtime.
+ * Dùng Spine skeleton loop trên overlay nodes. Pool lazy: tạo khi cần, reuse khi return.
  *
  * FLOW:
- *   1. WIN_SHOW_ALL_WAYS  → hiện TOÀN BỘ ô thắng (union của mọi WaysPayWin) — mượn từ pool
- *   2. WIN_CYCLE_ONE_WAY  → trả hết về pool, mượn lại chỉ ô của way đang cycle
+ *   1. WIN_SHOW_ALL_WAYS  → hiện TOÀN BỘ ô thắng (union của mọi WaysPayWin)
+ *   2. WIN_CYCLE_ONE_WAY  → diff update: giữ ô chung, return ô thừa, show ô mới
  *   3. REELS_START_SPIN   → trả tất cả về pool
  *
  * SETUP:
@@ -18,13 +17,11 @@
  *   6. SlotMachineController.start() sẽ tự gọi WaysPayDisplay.init().
  *
  * NODE LAYOUT (mỗi reel):
- *   symbolNodes[0] = ExtraTop2  (buffer)
- *   symbolNodes[1] = ExtraTop1  (buffer)
- *   symbolNodes[2] = Top  ← visible row 0
- *   symbolNodes[3] = Mid  ← visible row 1
- *   symbolNodes[4] = Bot  ← visible row 2
- *   symbolNodes[5] = ExtraBot1  (buffer)
- *   symbolNodes[6] = ExtraBot2  (buffer)
+ *   symbolNodes[0] = ExtraTop1  (buffer)
+ *   symbolNodes[1] = Top  ← visible row 0
+ *   symbolNodes[2] = Mid  ← visible row 1
+ *   symbolNodes[3] = Bot  ← visible row 2
+ *   symbolNodes[4] = ExtraBot1  (buffer)
  */
 
 import { _decorator, Component, Node, sp, instantiate } from 'cc';
@@ -37,8 +34,8 @@ import { SymbolView } from './SymbolView';
 
 const { ccclass, property } = _decorator;
 
-/** Index bắt đầu của visible rows trong symbolNodes (sau ExtraTop2 + ExtraTop1) */
-const VISIBLE_ROW_OFFSET = 2;
+/** Index bắt đầu của visible rows trong symbolNodes (sau ExtraTop1) */
+const VISIBLE_ROW_OFFSET = 1;
 /** Số visible rows mỗi reel */
 const VISIBLE_ROWS = 3;
 
@@ -51,30 +48,21 @@ export class WaysPayDisplay extends Component {
     reels: ReelController[] = [];
 
     /**
-     * Node template inactive trong scene — instantiate() từ đây để fill pool.
+     * Node template inactive trong scene — instantiate() khi pool trống (lazy).
      * Gán từ SlotMachineController.highlightSpinePrefab.
-     * Cũng có thể kéo trực tiếp vào Inspector để prebuildPool() hoạt động sớm.
      */
     @property({
         type: Node,
-        tooltip: 'Node template Spine cho highlight (inactive). Kéo vào đây để pool được build sớm trước khi vào game.',
+        tooltip: 'Node template Spine cho highlight (inactive). Pool tạo object khi cần, không prebuild lúc load.',
     })
     highlightSpinePrefab: Node | null = null;
 
     /** Tên animation Spine phát khi highlight (mặc định: "animation") */
     highlightSpineAnim: string = 'animation';
 
-    @property({
-        tooltip: 'Số node cần build trước trong pool (reels × visibleRows). Mặc định 15 = 5 reels × 3 rows.',
-    })
-    prebuildPoolSize: number = 15;
-
     // ─── INTERNAL ──────────────────────────────────────────────────────────
 
-    /**
-     * Pool các node idle (inactive, parented to this.node).
-     * Được fill 1 lần trong init() — không bao giờ instantiate thêm sau đó.
-     */
+    /** Pool các node idle (inactive). Chỉ add khi borrow mà pool trống. */
     private _pool: Node[] = [];
 
     /**
@@ -114,47 +102,15 @@ export class WaysPayDisplay extends Component {
     // ─── PUBLIC API ────────────────────────────────────────────────────────
 
     /**
-     * Gọi từ GameEntryController khi LOADING_COMPLETE — build pool sớm trước khi GameRoot active.
-     * Dùng prebuildPoolSize thay vì reels.length (reels chưa được set lúc này).
-     * init() sẽ rebuild pool với đúng count khi SlotMachineController.start() chạy.
-     */
-    public prebuildPool(): void {
-        // log removed
-
-        if (!this.highlightSpinePrefab) return;
-        if (this._pool.length >= this.prebuildPoolSize) {
-            // log removed
-            return; // đã build rồi
-        }
-
-        for (let i = this._pool.length; i < this.prebuildPoolSize; i++) {
-            const node = instantiate(this.highlightSpinePrefab);
-            node.active = false;
-            this.node.addChild(node);
-            this._pool.push(node);
-        }
-
-        // log removed
-    }
-
-    /**
-     * Khởi tạo pool. Gọi từ SlotMachineController.start() SAU khi reels đã setup xong.
-     * @param reels        Mảng 5 ReelController
-     * @param templateNode Node template inactive trong scene (có sp.Skeleton gắn sẵn)
-     * @param animName     Tên animation phát loop (mặc định "animation")
+     * Khởi tạo. Gọi từ SlotMachineController.start() SAU khi reels đã setup xong.
+     * Không prebuild pool — node highlight tạo khi _showOverlay cần.
      */
     init(reels: ReelController[], templateNode: Node | null, animName: string = 'animation'): void {
-        // log removed
-
         this.reels               = reels;
         this.highlightSpinePrefab = templateNode;
         this.highlightSpineAnim  = animName;
-        this._buildPool();
-        // Khởi tạo _overlays tracking
         this._overlays = reels.map(() => new Array<Node | null>(VISIBLE_ROWS).fill(null));
         this._ready = true;
-
-        // log removed
     }
 
     // ─── EVENT HANDLERS ────────────────────────────────────────────────────
@@ -166,34 +122,48 @@ export class WaysPayDisplay extends Component {
      */
     private _onShowAllWays(ways: WaysPayWin[], _duration?: number): void {
         if (!this._ready) return;
-        this._returnAll();
+        this._applyCells(this._collectCells(ways));
+    }
 
+    /**
+     * Cycle từng way riêng lẻ: chỉ giữ ô của way này (diff — không destroy/recreate ô còn lại).
+     */
+    private _onCycleOneWay(way: WaysPayWin): void {
+        if (!this._ready) return;
+        this._applyCells(this._collectCells([way]));
+    }
+
+    /** Gom unique display cells từ ways (grid row → visual row). */
+    private _collectCells(ways: WaysPayWin[]): Set<string> {
         const shown = new Set<string>();
         for (const way of ways) {
             for (const { reel, row } of way.cells) {
                 // grid row (0=center-1, 2=center+1) ngược với visual row (0=Top=center+1).
-                // Conversion: displayRow = 2 - gridRow
                 const displayRow = 2 - row;
-                const key = `${reel},${displayRow}`;
-                if (!shown.has(key)) {
-                    shown.add(key);
-                    this._showOverlay(reel, displayRow);
-                }
+                shown.add(`${reel},${displayRow}`);
             }
         }
+        return shown;
     }
 
     /**
-     * Cycle từng way riêng lẻ: ẩn hết, hiện lại chỉ ô của way này.
-     * @param way  1 WaysPayWin đang được cycle
+     * Diff update overlays: giữ node đã có, chỉ return ô thừa, show ô mới.
+     * Tránh destroy/recreate liên tục khi cycle (gây flicker / mất effect).
      */
-    private _onCycleOneWay(way: WaysPayWin): void {
-        if (!this._ready) return;
-        this._returnAll();
-        for (const { reel, row } of way.cells) {
-            // grid row ngược với visual row: displayRow = 2 - gridRow
-            const displayRow = 2 - row;
-            this._showOverlay(reel, displayRow);
+    private _applyCells(wanted: Set<string>): void {
+        // Return overlays không còn trong wanted
+        for (let col = 0; col < this._overlays.length; col++) {
+            for (let row = 0; row < this._overlays[col].length; row++) {
+                if (!this._overlays[col][row]) continue;
+                if (!wanted.has(`${col},${row}`)) {
+                    this._returnOverlay(col, row);
+                }
+            }
+        }
+        // Show overlays còn thiếu
+        for (const key of wanted) {
+            const [colStr, rowStr] = key.split(',');
+            this._showOverlay(Number(colStr), Number(rowStr));
         }
     }
 
@@ -243,42 +213,24 @@ export class WaysPayDisplay extends Component {
         }
     }
 
-    // ─── INTERNAL ──────────────────────────────────────────────────────────
-
-    /**
-     * Pre-fill pool: instantiate (reels × VISIBLE_ROWS) nodes từ prefab 1 lần duy nhất.
-     * Tất cả inactive, parented to this.node (node chứa WaysPayDisplay component).
-     */
-    private _buildPool(): void {
-        if (!this.highlightSpinePrefab) return;
-
-        const count = this.reels.length * VISIBLE_ROWS;
-        // log removed
-
-        // Chỉ add thêm node còn thiếu — không bao giờ destroy node đã prebuild
-        // Check nếu pool đã đủ từ prebuildPool() thì không build thêm
-        if (this._pool.length >= count) {
-            // log removed
-            return;
-        }
-
-        // log removed
-        for (let i = this._pool.length; i < count; i++) {
-            const node = instantiate(this.highlightSpinePrefab);
-            node.active = false;
-            this.node.addChild(node);
-            this._pool.push(node);
-        }
-
-        // log removed
-    }
-
     // ─── POOL BORROW / RETURN ───────────────────────────────────────────
 
+    /** Lấy node từ pool; nếu trống thì instantiate từ template. */
+    private _borrowHighlight(): Node | null {
+        while (this._pool.length > 0) {
+            const n = this._pool.pop()!;
+            if (n?.isValid) return n;
+        }
+        if (!this.highlightSpinePrefab) return null;
+        const node = instantiate(this.highlightSpinePrefab);
+        node.active = false;
+        this.node.addChild(node);
+        return node;
+    }
+
     /**
-     * Hiện overlay tại (col, row): mượn node từ pool, parent vào symbolNode,
-     * đặt position (0,0,0), bật Spine loop.
-     * Nếu ô đó đang có node rồi → không làm gì thêm.
+     * Hiện overlay tại (col, row): mượn node từ pool (hoặc tạo mới),
+     * đặt position, bật Spine loop.
      */
     private _showOverlay(col: number, row: number): void {
         if (this._overlays[col]?.[row]) return; // đang hiện rồi
@@ -290,8 +242,8 @@ export class WaysPayDisplay extends Component {
         const view = symNode.getComponent(SymbolView);
         if (this._shouldUseGreenTint(view?.symbolId ?? -1)) return;
 
-        const node = this._pool.pop();
-        if (!node) return; // pool cạn (không nên xảy ra với pool size = cols×rows)
+        const node = this._borrowHighlight();
+        if (!node) return;
 
         // Đặt node vào đúng vị trí world của symbol,
         // sibling = 0 để highlight nằm dưới symbol spine trong PaylineManager

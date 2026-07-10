@@ -333,12 +333,11 @@ export const GameEvents = {
 
     // ─── FEATURE ENTRY LOGIC ADDED — Reel UI Gauge (chữ tượng hình 2 cột) ───
     /**
-     * Cập nhật gauge sau mỗi Normal Spin.
-     * payload: { stage: number, accumulated: number, earned: number, animate: boolean }
-     * FeatureEntryGaugeController listen để bật đèn tới `stage`.
+     * Cập nhật gauge sau mỗi Normal Spin (đọc PotCount/WildCount từ server).
+     * payload: { stage, accumulated (=PotCount), earned (=WildCount), animate }
      */
     FEATURE_GAUGE_UPDATE: 'feature:gauge:update',
-    /** Reset gauge về 0 (khi 'Luck has arrived' / vào Feature). No payload. */
+    /** Reset gauge về 0 sau Pick Game (server PotCount=0). No payload. */
     FEATURE_GAUGE_RESET: 'feature:gauge:reset',
     /** 1 đèn gauge vừa bật — dùng để trigger rung Pot ở giữa. payload: { stage: number } */
     FEATURE_GAUGE_LIGHT_ON: 'feature:gauge:light:on',

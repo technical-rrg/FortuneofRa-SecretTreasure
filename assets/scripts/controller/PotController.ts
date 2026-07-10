@@ -35,7 +35,6 @@ import {
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
-import { gaugeStageFromAccumulated } from '../data/SlotTypes';
 import { Log } from '../core/Logger';
 import { SoundManager } from '../manager/SoundManager';
 
@@ -305,20 +304,14 @@ export class PotController extends Component {
         const levelChanged = newLevel !== oldLevel;
 
         if (!this.potSpine) {
-            if (levelChanged) {
-                if (newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
-                this._syncGaugeWithPotLevel(newLevel);
-            }
+            if (levelChanged && newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
             this._currentLevel = newLevel;
             EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
             return;
         }
 
         if (!this.potSpine.node?.active) {
-            if (levelChanged) {
-                if (newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
-                this._syncGaugeWithPotLevel(newLevel);
-            }
+            if (levelChanged && newLevel > oldLevel) this._playPotLevelUpSound(newLevel);
             this._currentLevel = newLevel;
             Log.d(`[PotController] potSpine inactive → skip transition, queued level=${newLevel}`);
             EventBus.instance.emit(GameEvents.POT_TRANSITION_END);
@@ -326,9 +319,7 @@ export class PotController extends Component {
         }
 
         if (newLevel > oldLevel) {
-            // ★ Âm thanh + gauge sáng cùng thời điểm Pot bắt đầu mở
             this._playPotLevelUpSound(newLevel);
-            this._syncGaugeWithPotLevel(newLevel);
             const animName = `LV${oldLevel}_trainsition_LV${newLevel}`;
             Log.d(`[PotController] Play transition: ${animName}`);
             this._isTransitioning = true;
@@ -341,9 +332,6 @@ export class PotController extends Component {
             this.potSpine.timeScale = 1;
             this.potSpine.setAnimation(0, animName, false);
         } else if (newLevel < oldLevel) {
-            if (levelChanged) {
-                this._syncGaugeWithPotLevel(newLevel);
-            }
             if (oldLevel > 0 && newLevel === 0) {
                 const resetAnim = `LV${oldLevel}_trainsition_LV0`;
                 Log.d(`[PotController] Play reset transition: ${resetAnim}`);
@@ -367,22 +355,6 @@ export class PotController extends Component {
         this._currentLevel = newLevel;
     }
 
-    /** Đồng bộ gauge theo StickyAccumulated khi Pot transition — KHÔNG dựa vào PotVisualLevel. */
-    private _syncGaugeWithPotLevel(_potLevel: number): void {
-        const data = GameData.instance;
-        const stage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
-        data.featureGaugeStage = stage;
-        Log.d(`[PotController] sync gauge — accumulated=${data.featureGaugeAccumulated} → gaugeStage=${stage}`);
-        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_UPDATE, {
-            stage,
-            accumulated: data.featureGaugeAccumulated,
-            earned: 0,
-            animate: true,
-            suppressSfx: true,
-            skipPotShake: true,
-        });
-    }
-
     /** Play idle animation cho level hiện tại (loop) */
     private _playIdle(level: number): void {
         if (!this.potSpine || !this.potSpine.node?.active) return;
@@ -396,15 +368,15 @@ export class PotController extends Component {
         const snd = SoundManager.instance;
         if (!snd) return;
         if (level === 1 || level === 2) {
-            snd.playSFX(snd.sxPotEffectLvl2);
+            snd.playSfxByName('sxPotEffectLvl2');
         } else if (level === 3) {
-            snd.playSFX(snd.sxPotEffectLvl3);
+            snd.playSfxByName('sxPotEffectLvl3');
         } else if (level === 4) {
-            snd.playSFX(snd.sxPotEffectLvl4);
+            snd.playSfxByName('sxPotEffectLvl4');
         } else if (level === 5) {
-            snd.playSFX(snd.sxPotEffectLvl5);
+            snd.playSfxByName('sxPotEffectLvl5');
         } else if (level >= 6) {
-            snd.playSFX(snd.sxPotEffectLvl6);
+            snd.playSfxByName('sxPotEffectLvl6');
         }
     }
 

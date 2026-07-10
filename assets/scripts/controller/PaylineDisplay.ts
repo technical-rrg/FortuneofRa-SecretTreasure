@@ -9,7 +9,7 @@
  *   5. Đặt node PaylineOverlay kích thước lấp đầy Canvas, không có Sprite/Color.
  *
  * ── NODE MAPPING ──
- *   Mỗi cột: symbolNodes[2]=Top(row0), symbolNodes[3]=Mid(row1), symbolNodes[4]=Bot(row2)
+ *   Mỗi cột: symbolNodes[1]=Top(row0), symbolNodes[2]=Mid(row1), symbolNodes[3]=Bot(row2)
  *   Payline definition: [row_col0, row_col1, row_col2], row 0=top/1=mid/2=bot
  */
 
@@ -121,12 +121,12 @@ export class PaylineDisplay extends Component {
         if (useServerIndices) {
             // Server trả chính xác: Item1=reelCol (0-2), Item2=row (0=top,1=mid,2=bot)
             const serverStr = serverIndices!.map(s => `col${s.Item1}:row${s.Item2}`).join(' | ');
-            const displayStr = serverIndices!.map(s => `col${s.Item1}:row${this._toDisplayRow(s.Item2)}(node${this._toDisplayRow(s.Item2)+2})`).join(' | ');
+            const displayStr = serverIndices!.map(s => `col${s.Item1}:row${this._toDisplayRow(s.Item2)}(node${this._toDisplayRow(s.Item2)+1})`).join(' | ');
             console.log(`%c[PaylineDisplay] Line#${linePay.payLineIndex+1}(idx=${linePay.payLineIndex}) ${source}\n  server logical: ${serverStr}\n  → display node: ${displayStr}`, 'color:#0af;font-weight:bold');
             for (const idx of serverIndices!) {
                 const reel = this.reels[idx.Item1];
                 if (!reel) continue;
-                const cellNode = reel.symbolNodes[this._toDisplayRow(idx.Item2) + 2];  // [2]=Top,[3]=Mid,[4]=Bot
+                const cellNode = reel.symbolNodes[this._toDisplayRow(idx.Item2) + 1];  // [1]=Top,[2]=Mid,[3]=Bot
                 if (!cellNode) continue;
                 positions.push(this._worldToLocal(cellNode.getWorldPosition()));
             }
@@ -134,12 +134,12 @@ export class PaylineDisplay extends Component {
             // Fallback: tính từ payline definition
             if (!paylineLogical) return;
             const logicalStr  = paylineLogical.map((r, c) => `col${c}:row${r}(${ROW_NAME[r]??r})`).join(' | ');
-            const displayStr  = paylineLogical.map((r, c) => `col${c}:row${this._toDisplayRow(r)}(node${this._toDisplayRow(r)+2})`).join(' | ');
+            const displayStr  = paylineLogical.map((r, c) => `col${c}:row${this._toDisplayRow(r)}(node${this._toDisplayRow(r)+1})`).join(' | ');
             console.log(`%c[PaylineDisplay] Line#${linePay.payLineIndex+1}(idx=${linePay.payLineIndex}) ${source}\n  payline logical: ${logicalStr}\n  → display node:  ${displayStr}`, 'color:#fa0;font-weight:bold');
             for (let col = 0; col < 3; col++) {
                 const reel = this.reels[col];
                 if (!reel) continue;
-                const cellNode = reel.symbolNodes[this._toDisplayRow(paylineLogical[col]) + 2];
+                const cellNode = reel.symbolNodes[this._toDisplayRow(paylineLogical[col]) + 1];
                 if (!cellNode) continue;
                 positions.push(this._worldToLocal(cellNode.getWorldPosition()));
             }
@@ -186,7 +186,7 @@ export class PaylineDisplay extends Component {
 
         const getCellNode = (col: number, row: number): Node | null => {
             const reel = this.reels[col];
-            return reel ? (reel.symbolNodes[row + 2] as Node) ?? null : null;
+            return reel ? (reel.symbolNodes[row + 1] as Node) ?? null : null;
         };
 
         if (useServerIndices) {

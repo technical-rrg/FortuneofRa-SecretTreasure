@@ -1,5 +1,5 @@
 /**
- * SymbolView - Component gắn vào mỗi Symbol Node (ExtraTop2..ExtraBot2).
+ * SymbolView - Component gắn vào mỗi Symbol Node (ExtraTop1..ExtraBot1).
  *
  * ─── BINDING TRONG EDITOR ───
  * KHÔNG cần kéo ảnh vào từng SymbolView.
@@ -349,7 +349,7 @@ export class SymbolView extends Component {
 
         // Play sound when a sticky yellow coin lands in FreeSpin Gold
         if (this._currentSymbolId === SymbolId.STICKY_YELLOW && GameData.instance.currentMode === 'freespin_gold') {
-            SoundManager.instance?.playSFX(SoundManager.instance?.sxBonusStickyGoldLand);
+            SoundManager.instance?.playSfxByName('sxBonusStickyGoldLand');
         }
 
         const origParent  = this.node.parent;

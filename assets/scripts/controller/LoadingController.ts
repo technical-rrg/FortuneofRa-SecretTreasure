@@ -34,8 +34,6 @@ import { CdnAssetManager } from '../core/CdnAssetManager';
 import { LocalizationManager } from '../core/LocalizationManager';
 import { FontManager } from '../manager/FontManager';
 import { Log } from '../core/Logger';
-import { TopUpAbsorbEffect } from './TopUpAbsorbEffect';
-import { WaysPayDisplay } from './WaysPayDisplay';
 import { SlotMachineController } from './SlotMachineController';
 
 const { ccclass, property } = _decorator;
@@ -130,6 +128,11 @@ export class LoadingController extends Component {
     phaseBundleEnd: number = 0.66;
 
     @property({
+        tooltip: '[Three-phase] Bar crawl tới đây (0-1) TRƯỚC khi load Base prefab. Mặc định 0.99 = 99%'
+    })
+    prePrefabBarEnd: number = 1;
+
+    @property({
         tooltip: '[Three-phase] Giây crawl tối đa mỗi phase (bar luôn nhúc nhích dù operation chậm). Mặc định 10s'
     })
     phaseCrawlSecs: number = 10;
@@ -148,15 +151,21 @@ export class LoadingController extends Component {
     private _loadedPrefab: any = null;
     /** Bar đã animate từ 2% tới 100% chưa */
     private _animatingToFull: boolean = false;
-    /** Symbols + pools đã prebuild và GPU đã xử lý xong textures */
+    /** Symbols đã apply và GPU đã xử lý xong textures */
     private _heavyInitDone: boolean = false;
-    /** Đã schedule delay 1s sau bar 100% → tránh double-schedule */
-    private _loadingDelayScheduled: boolean = false;
+    /** Đã gọi applyInitialSymbols — tránh double-apply từ ENTER_SUCCESS race */
+    private _symbolsApplied: boolean = false;
     /** Node đã instantiate và ẩn sẵn — chỉ cần active=true khi bar 100% */
     private _instantiatedGameNode: Node | null = null;
 
     /** Promise load font sớm từ onLoad() — để _loadCdnAssets() await thay vì tải lại */
     private _earlyFontPromise: Promise<import('cc').TTFFont | null> | null = null;
+    /** CDN kick-off sớm từ onLoad — không block bundle/prefab */
+    private _cdnPromise: Promise<void> | null = null;
+    /** Bundle kick-off sớm — chạy song song với login */
+    private _bundlePromise: Promise<AssetManager.Bundle | null> | null = null;
+    /** Guard: tránh fill bar 100% nhiều lần */
+    private _fillStarted: boolean = false;
 
     /** Guard: _onLoadComplete đã chạy một lần rồi, không chạy lại */
     private _completed: boolean = false;
@@ -179,9 +188,17 @@ export class LoadingController extends Component {
         // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — trước cả login/enter.
         Log.enable('featuregauge');
 
-        // ★ Bắt đầu tải font ngay lập tức — dùng browser HTTP cache nếu đã từng tải.
-        //   Kết quả được _loadCdnAssets() await sau, không download lại.
+        // ★ Bắt đầu tải font + CDN + MainBundle ngay — song song với login ở start().
         this._earlyLoadFont();
+        this._cdnPromise = this._loadCdnAssets().catch((err) => {
+            Log.w('[LoadingController] Early CDN load failed (non-blocking):', err);
+        });
+        if (this.gameBundleName) {
+            this._bundlePromise = this._loadBundleAsync().catch((err) => {
+                Log.e('[LoadingController] Early bundle load failed:', err);
+                return null;
+            });
+        }
 
         // Lắng nghe ENTER_SUCCESS từ server (hoặc mock) — điều kiện để unlock LOADING_COMPLETE
         EventBus.instance.on(GameEvents.ENTER_SUCCESS, this._onServerReady, this);
@@ -336,29 +353,24 @@ export class LoadingController extends Component {
 
     /**
      * Gọi applyInitialSymbols() khi CẢ prefab đã instantiate VÀ ENTER_SUCCESS đã fire.
-     * Đảm bảo symbols luôn dùng real data (không fallback), và delay 0.3s cho GPU
-     * trước khi set _heavyInitDone.
+     * Đánh dấu heavy init xong ngay frame sau (không chờ delay cứng).
      */
     private _applySymbolsIfReady(): void {
-        if (!this._instantiatedGameNode || this._heavyInitDone || !this._serverReady) return;
+        if (!this._instantiatedGameNode || this._heavyInitDone || this._symbolsApplied || !this._serverReady) return;
+        this._symbolsApplied = true;
 
         const smc = this._instantiatedGameNode.getComponentInChildren(SlotMachineController);
-        if (!smc) {
-            // Không có SMC → không cần init symbols
-            this._heavyInitDone = true;
-            this._tryFillToFull();
-            return;
+        if (smc) {
+            smc.applyInitialSymbols();
+            Log.d('[LoadingController] applyInitialSymbols() called with real data');
         }
 
-        smc.applyInitialSymbols();
-        Log.d('[LoadingController] applyInitialSymbols() called with real data — waiting 0.3s for GPU');
-
-        // Delay 0.3s để GPU xử lý xong textures trước khi cho phép bar đạt 100%
+        // 1 frame defer — đủ để GPU submit texture upload, không chờ 0.3s cứng
         this.scheduleOnce(() => {
             this._heavyInitDone = true;
             this._tryFillToFull();
-            Log.d('[LoadingController] Heavy init done (0.3s GPU delay) → bar allowed to reach 100%');
-        }, 0.3);
+            Log.d('[LoadingController] Heavy init done → bar allowed to reach 100%');
+        }, 0);
     }
 
     // ─── LOADING BAR ───
@@ -368,7 +380,7 @@ export class LoadingController extends Component {
         if (this.useScenePreload && this.targetScene && !this.gamePrefabPath) {
             this._startScenePreload();
         } else if (this.handleServerLogin && this.gamePrefabPath) {
-            // ★ THREE-PHASE MODE: 0→phaseLoginEnd (Login) → phaseBundleEnd (Bundle) → 100% (Prefab)
+            // ★ THREE-PHASE MODE: crawl 0→99% (Login ∥ Bundle), rồi load Base → 100%
             this._runThreePhaseLoading();
         } else {
             this._startFakeTimer();
@@ -420,6 +432,13 @@ export class LoadingController extends Component {
         const net  = NetworkManager.instance;
         const data = GameData.instance;
 
+        // CDN đã kick từ onLoad — không await ở đây (chạy song song với login)
+        if (!this._cdnPromise) {
+            this._cdnPromise = this._loadCdnAssets().catch((err) => {
+                Log.w('[LoadingController] CDN load error (non-blocking):', err);
+            });
+        }
+
         try {
             if (USE_REAL_API) {
                 const urlParams  = new (window.URLSearchParams)(window.location.search);
@@ -435,7 +454,14 @@ export class LoadingController extends Component {
                 net.startHeartBeat();
                 net.startJackpotPolling();
             } else {
-                // Mock mode in loading scene — seed GameData with defaults
+                // Mock: chạy login+enter thật (MockAdapter) để GameManager không gọi lại
+                const session = await net.login();
+                data.setServerSession(session);
+                WalletManager.instance.balance = session.cash;
+
+                const enterResp = await net.enterGame();
+                WalletManager.instance.balance = enterResp.cash;
+                data.player.betIndex = enterResp.betIndex;
                 data.isLoggedIn = true;
                 data.isEntered  = true;
             }
@@ -443,11 +469,18 @@ export class LoadingController extends Component {
             Log.e('[LoadingController] Server error during login:', err);
         }
 
-        // Load CDN assets (locale + fonts) song song với login
-        await this._loadCdnAssets();
-
         this._serverReady = true;
         this._tryFillToFull();
+    }
+
+    /** Đợi CDN xong (locale/font) trước khi cho phép hiện game UI */
+    private async _awaitCdnReady(): Promise<void> {
+        if (!this._cdnPromise) return;
+        try {
+            await this._cdnPromise;
+        } catch (err) {
+            Log.w('[LoadingController] CDN await error (non-blocking):', err);
+        }
     }
 
     // ─── CDN ASSETS ───
@@ -624,23 +657,6 @@ export class LoadingController extends Component {
                         parent.addChild(gameNode);
                         this._instantiatedGameNode = gameNode;
                         Log.d(`[LoadingController] Prefab instantiated (active=true, opacity=0): ${this.gameBundleName}/${this.gamePrefabPath}`);
-
-                        // Prebuild effect pools ngay — lifecycle đã chạy xong vì active=true
-                        const absorbFx = gameNode.getComponentInChildren(TopUpAbsorbEffect);
-                        if (absorbFx) { absorbFx.prebuildPools(); Log.d('[LoadingController] TopUpAbsorbEffect.prebuildPools() called early'); }
-
-                        const smc = gameNode.getComponentInChildren(SlotMachineController);
-                        const waysPayDisplay = gameNode.getComponentInChildren(WaysPayDisplay);
-                        if (waysPayDisplay) {
-                            if (!waysPayDisplay.highlightSpinePrefab && smc?.highlightSpinePrefab) {
-                                waysPayDisplay.highlightSpinePrefab = smc.highlightSpinePrefab;
-                            }
-                            waysPayDisplay.prebuildPool();
-                        }
-                        if (smc) {
-                            smc.prebuildCreditLabels();
-                            Log.d('[LoadingController] SlotMachineController.prebuildCreditLabels() called early');
-                        }
                     }
                     // Prefab đã instantiate — đánh dấu ready, nhưng CHỜ ENTER_SUCCESS + GPU
                     // _applySymbolsIfReady() sẽ chạy khi ENTER_SUCCESS fire (hoặc đã fire)
@@ -683,9 +699,12 @@ export class LoadingController extends Component {
      * và sau khi heavy init delay hoàn tất.
      */
     private _tryFillToFull(): void {
+        if (this._fillStarted || this._animatingToFull) return;
         const prefabDone = !this.gamePrefabPath || this._prefabReady;
         const heavyDone  = !this.gamePrefabPath || this._heavyInitDone;
+        // CDN không block bar 100% — locale/font apply nền khi xong
         if (this._serverReady && prefabDone && heavyDone) {
+            this._fillStarted = true;
             this._fillToFull();
         }
     }
@@ -693,45 +712,58 @@ export class LoadingController extends Component {
     // ─── THREE-PHASE LOADING ───
 
     /**
-     * Chạy loading 3 giai đoạn tuần tự:
-     *   Phase 1 (0 → phaseLoginEnd):   Login + CDN assets
-     *   Phase 2 (phaseLoginEnd → phaseBundleEnd): Load AssetBundle
-     *   Phase 3 (phaseBundleEnd → 1.0): Load Prefab + Instantiate
-     *
-     * Mỗi giai đoạn: bar crawl chậm đến 82% range của phase → khi xong fill nhanh đến cuối.
-     * → Bar LUÔN nhúc nhích, không bao giờ đứng yên quá lâu.
+     * Bar crawl mượt 0→99% trong lúc Login ∥ Bundle (CDN nền).
+     * Đạt 99% xong mới load Base — tránh khựng ở ~90% khi Base nặng.
      */
     private async _runThreePhaseLoading(): Promise<void> {
         if (this.loadingBar) this.loadingBar.progress = 0;
 
-        // Phase 1: Login + CDN
-        Log.d('[ThreePhase] Phase 1: Login');
-        await this._phaseWithCrawl(0, this.phaseLoginEnd, () => this._doServerLogin());
+        if (!this._bundlePromise) {
+            this._bundlePromise = this._loadBundleAsync().catch((err) => {
+                Log.e('[LoadingController] Bundle load failed:', err);
+                return null;
+            });
+        }
+        if (!this._cdnPromise) {
+            this._cdnPromise = this._loadCdnAssets().catch((err) => {
+                Log.w('[LoadingController] CDN load error (non-blocking):', err);
+            });
+        }
 
-        // Phase 2: Load AssetBundle
-        Log.d('[ThreePhase] Phase 2: Load Bundle');
+        const barEnd = Math.min(0.995, Math.max(0.5, this.prePrefabBarEnd));
+
+        Log.d(`[ThreePhase] Crawl 0→${(barEnd * 100).toFixed(0)}% (Login ∥ Bundle), then Base`);
         let bundle: AssetManager.Bundle | null = null;
-        await this._phaseWithCrawl(this.phaseLoginEnd, this.phaseBundleEnd, async () => {
-            bundle = await this._loadBundleAsync();
+        await this._phaseWithCrawl(0, barEnd, async () => {
+            const [, b] = await Promise.all([
+                this._doServerLogin(),
+                this._bundlePromise!,
+            ]);
+            bundle = b;
         });
 
-        // Phase 3: Load Prefab asset + Instantiate
-        Log.d('[ThreePhase] Phase 3: Instantiate Prefab');
-        await this._phaseWithCrawl(this.phaseBundleEnd, 1.0, async () => {
-            if (bundle && this.gamePrefabPath) {
-                await this._loadAndInstantiatePrefab(bundle);
-            }
-        });
+        if (this.loadingBar) {
+            Tween.stopAllByTarget(this.loadingBar);
+            this.loadingBar.progress = barEnd;
+            this._syncHtmlLoadingOverlay();
+        }
 
-        Log.d('[ThreePhase] All phases done → fill bar to 100%');
-        this._fillToFull();
+        Log.d('[ThreePhase] Load Base prefab at bar 99%');
+        if (bundle && this.gamePrefabPath) {
+            await this._loadAndInstantiatePrefab(bundle);
+        } else if (!bundle) {
+            Log.e('[LoadingController] No bundle — cannot instantiate prefab');
+            this._prefabReady = true;
+            this._heavyInitDone = true;
+        }
+
+        Log.d('[ThreePhase] Base done → fill bar to 100%');
+        this._tryFillToFull();
     }
 
     /**
-     * Animate bar crawl từ [from → softTarget] đồng thời chạy operation.
-     * softTarget = from + (to - from) * 0.82  (82% của khoảng phase, không bao giờ đụng to).
-     * Khi operation resolve → dừng crawl, fill nhanh [current → to] trong 0.35s → resolve.
-     * Nếu crawl đến softTarget trước → tiếp tục crawl CHẬM hơn đến 92% để tránh dừng hẳn.
+     * Bar crawl đều tới `to` trong khi operation chạy.
+     * Operation xong → snap/fill tới `to`, rồi resolve.
      */
     private _phaseWithCrawl(from: number, to: number, operation: () => Promise<void>): Promise<void> {
         this._syncHtmlLoadingOverlay();
@@ -744,10 +776,6 @@ export class LoadingController extends Component {
                 return;
             }
 
-            const range      = to - from;
-            const softTarget = from + range * 0.82;   // crawl nhanh đến 82%
-            const verySlowTarget = from + range * 0.92; // rồi crawl rất chậm đến 92%
-
             let resolved = false;
 
             const finish = () => {
@@ -755,18 +783,16 @@ export class LoadingController extends Component {
                 resolved = true;
                 Tween.stopAllByTarget(this.loadingBar!);
                 const cur = this.loadingBar!.progress;
-                const fillSecs = Math.max(0.2, (to - cur) * 0.8); // nhanh tỉ lệ khoảng còn lại
+                const fillSecs = Math.max(0.1, (to - cur) * 0.5);
                 tween(this.loadingBar!)
                     .to(fillSecs, { progress: to }, { easing: 'sineOut' })
                     .call(() => resolve())
                     .start();
             };
 
-            // Crawl nhanh: from → softTarget trong phaseCrawlSecs giây
+            const crawlSecs = Math.max(3, this.phaseCrawlSecs);
             tween(this.loadingBar)
-                .to(this.phaseCrawlSecs * 0.7, { progress: softTarget }, { easing: 'quartOut' })
-                // Sau đó crawl chậm: softTarget → verySlowTarget (phần còn lại của phaseCrawlSecs)
-                .to(this.phaseCrawlSecs * 0.3, { progress: verySlowTarget }, { easing: 'sineOut' })
+                .to(crawlSecs, { progress: to }, { easing: 'sineOut' })
                 .start();
 
             operation().then(finish).catch((err) => {
@@ -809,50 +835,31 @@ export class LoadingController extends Component {
                     parent.addChild(gameNode);
                     this._instantiatedGameNode = gameNode;
                     Log.d(`[LoadingController] Prefab instantiated (active=true, opacity=0): ${this.gamePrefabPath}`);
-
-                    // Prebuild effect pools ngay
-                    const absorbFx = gameNode.getComponentInChildren(TopUpAbsorbEffect);
-                    if (absorbFx) { absorbFx.prebuildPools(); Log.d('[LoadingController] TopUpAbsorbEffect.prebuildPools() called early'); }
-
-                    const smc = gameNode.getComponentInChildren(SlotMachineController);
-                    const waysPayDisplay = gameNode.getComponentInChildren(WaysPayDisplay);
-                    if (waysPayDisplay) {
-                        if (!waysPayDisplay.highlightSpinePrefab && smc?.highlightSpinePrefab) {
-                            waysPayDisplay.highlightSpinePrefab = smc.highlightSpinePrefab;
-                        }
-                        waysPayDisplay.prebuildPool();
-                    }
-                    if (smc) {
-                        smc.prebuildCreditLabels();
-                        Log.d('[LoadingController] SlotMachineController.prebuildCreditLabels() called early');
-                    }
                 }
-                // Đánh dấu prefab ready, nhưng phase vẫn chờ ENTER_SUCCESS + GPU
                 this._prefabReady = true;
                 this._applySymbolsIfReady();
                 this._tryFillToFull();
-                // Delay resolve để phase 3 không hoàn thành ngay — bar pause tại softTarget
-                this.scheduleOnce(() => {
-                    resolve();
-                    Log.d('[LoadingController] Phase 3 resolve after GPU delay');
-                }, 0.3);
+                resolve();
             });
         });
     }
 
     /** Fill bar từ 2% → 100% rồi complete */
     private _fillToFull(): void {
+        if (this._animatingToFull) return;
+        this._animatingToFull = true;
+
         if (!this.loadingBar) {
             this._hideHtmlOverlay();
-            this.node.active = false; // ★ Ẩn LoadingView ngay — tránh bar đầy vẫn hiện chồng GuideView
+            this.node.active = false;
             this._onLoadComplete();
             return;
         }
         tween(this.loadingBar)
-            .to(0.3, { progress: 1.0 })
+            .to(0.05, { progress: 1.0 })
             .call(() => {
                 this._hideHtmlOverlay();
-                this.node.active = false; // ★ Ẩn LoadingView ngay khi bar đầy
+                this.node.active = false;
                 EventBus.instance.emit(GameEvents.LOADING_BAR_100);
                 this._onLoadComplete();
             })
@@ -866,17 +873,9 @@ export class LoadingController extends Component {
             return;
         }
 
-        // Nếu prefab mode mà heavy init chưa xong (ENTER_SUCCESS chưa fire hoặc GPU chưa xử lý)
-        // → đợi thêm, KHÔNG emit LOADING_COMPLETE ngay để tránh GuideView show với symbols chưa sẵn sàng
+        // Prefab mode: đợi heavy init (symbols) xong trước khi emit LOADING_COMPLETE
         if (this.gamePrefabPath && !this._heavyInitDone) {
             this.scheduleOnce(() => this._onLoadComplete(), 0.05);
-            return;
-        }
-
-        // Bar đã 100% + heavy init xong → đợi 1s để GPU xử lý xong textures mới chạy tiếp
-        if (!this._loadingDelayScheduled) {
-            this._loadingDelayScheduled = true;
-            this.scheduleOnce(() => this._onLoadComplete(), 1);
             return;
         }
 

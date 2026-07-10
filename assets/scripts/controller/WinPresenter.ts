@@ -268,7 +268,7 @@ export class WinPresenter extends Component {
             `waysForCycle.length=${waysForCycle.length} matchedLinePays.length=${response.matchedLinePays?.length ?? 0} ` +
             `myGen=${myGen} showAllDuration=${showAllDuration}`
         );
-        if (shouldCycle && waysForCycle.length >= 1) {
+        if (shouldCycle && waysForCycle.length > 1) {
             Log.e(`[WinPresenter][CYCLE-DEBUG] Scheduling _startWaysCycle in ${showAllDuration}s`);
             this.scheduleOnce(() => {
                 if (this._generation !== myGen) {
@@ -277,7 +277,7 @@ export class WinPresenter extends Component {
                 }
                 this._startWaysCycle(waysForCycle, myGen);
             }, showAllDuration);
-        } else if (shouldCycle && response.matchedLinePays.length >= 1) {
+        } else if (shouldCycle && response.matchedLinePays.length > 1) {
             Log.e(`[WinPresenter][CYCLE-DEBUG] Scheduling _startLineCycle in ${showAllDuration}s`);
             this.scheduleOnce(() => {
                 if (this._generation !== myGen) {
@@ -297,6 +297,7 @@ export class WinPresenter extends Component {
      * Cycling từng combination của WaysPayWin — emit WIN_CYCLE_ONE_WAY mỗi `lineCycleDuration` giây.
      * Mỗi combination là 1 path cụ thể (1 row per reel), giống payline cycling.
      * Dùng cho Gold of Fortune (Ways Pay 243).
+     * Chỉ cycle khi có ≥ 2 combo — 1 combo giữ nguyên highlight show-all.
      */
     private _startWaysCycle(ways: WaysPayWin[], gen: number): void {
         this._stopCycling();
@@ -312,8 +313,8 @@ export class WinPresenter extends Component {
             }
         }
         Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: ways=${ways.length} allCombos=${allCombos.length} gen=${gen}`);
-        if (allCombos.length < 1) {
-            Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: EARLY RETURN because allCombos.length < 1`);
+        if (allCombos.length < 2) {
+            Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: skip cycle (need ≥2 combos)`);
             return;
         }
 
@@ -339,7 +340,7 @@ export class WinPresenter extends Component {
 
     private _startLineCycle(lines: SpinResponse['matchedLinePays'], gen: number): void {
         this._stopCycling();
-        if (lines.length < 1) return;
+        if (lines.length < 2) return;
         console.log(
             `%c[HighlightDebug][WinPresenter] _startLineCycle lines=${lines.length} gen=${gen}`,
             'color:#fa0;font-weight:bold'
@@ -516,13 +517,13 @@ export class WinPresenter extends Component {
             EventBus.instance.emit(GameEvents.WIN_SHOW_ALL_WAYS, ways, this.showAllHighlightDuration);
             this.scheduleOnce(() => {
                 if (this._generation !== gen || this._isAutoSpinMode) return;
-                this._startWaysCycle(ways, gen);
+                if (ways.length > 1) this._startWaysCycle(ways, gen);
             }, this.showAllHighlightDuration);
         } else {
             EventBus.instance.emit(GameEvents.WIN_SHOW_ALL_LINES, lines, this.showAllHighlightDuration);
             this.scheduleOnce(() => {
                 if (this._generation !== gen || this._isAutoSpinMode) return;
-                this._startLineCycle(lines, gen);
+                if (lines.length > 1) this._startLineCycle(lines, gen);
             }, this.showAllHighlightDuration);
         }
     }

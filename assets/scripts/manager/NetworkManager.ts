@@ -310,6 +310,37 @@ export interface INetworkAdapter {
     sendCashRaceMyRankGetFirst(): Promise<CashRaceMyRankGetFirstResponse | null>;
 }
 
+// ─── Gauge API field helpers (PotCount / WildCount) ─────────────────────────
+/** GFSpinResponse.Res + LastSpinResponse — backend Q&A: PotCount, WildCount (PascalCase). */
+const GAUGE_POT_COUNT_KEYS = ['PotCount', 'potCount', 'StickyAccumulated', 'stickyAccumulated'] as const;
+const GAUGE_WILD_COUNT_KEYS = ['WildCount', 'wildCount', 'StickyEarned', 'stickyEarned', 'StickyEarnedCount', 'stickyEarnedCount'] as const;
+
+function _pickGaugeNumber(src: any, keys: readonly string[]): number | undefined {
+    if (!src || typeof src !== 'object') return undefined;
+    for (const k of keys) {
+        const v = src[k];
+        if (typeof v === 'number' && Number.isFinite(v)) return v;
+        if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+    }
+    return undefined;
+}
+
+/** Ưu tiên nguồn đầu tiên có giá trị: Res → LastSpinResponse → Ack root. */
+function resolveGaugeApiFields(...sources: any[]): { potCount?: number; wildCount?: number } {
+    let potCount: number | undefined;
+    let wildCount: number | undefined;
+    for (const src of sources) {
+        if (potCount === undefined) potCount = _pickGaugeNumber(src, GAUGE_POT_COUNT_KEYS);
+        if (wildCount === undefined) wildCount = _pickGaugeNumber(src, GAUGE_WILD_COUNT_KEYS);
+        if (potCount !== undefined && wildCount !== undefined) break;
+    }
+    return { potCount, wildCount };
+}
+
+function logFeatureGauge(potCount?: number, wildCount?: number): void {
+    Log.e(`[FeatureGauge] PotCount=${potCount ?? 'n/a'} WildCount=${wildCount ?? 'n/a'}`);
+}
+
 // ═══════════════════════════════════════════════════════════
 //  MOCK ADAPTER (offline dev/test — dùng MockScenariosData)
 // ═══════════════════════════════════════════════════════════
@@ -327,6 +358,15 @@ class MockNetworkAdapter implements INetworkAdapter {
     private _buyQueue: SpinResponse[] = [];
     private _buyQueueIdx: number = 0;
     /** Backup queue state để restore sau khi buy free spin kết thúc */
+
+    /** Log gauge từ mock SpinResponse (client camelCase potCount/wildCount). */
+    private _finishMockSpin(resp: SpinResponse): SpinResponse {
+        if (GameData.instance.currentMode === 'normal' && (resp.reelIndex ?? 0) === 0) {
+            const g = resolveGaugeApiFields(resp);
+            logFeatureGauge(g.potCount, g.wildCount);
+        }
+        return resp;
+    }
     private _savedQueueIdx: number = 0;
 
     constructor() {
@@ -361,7 +401,8 @@ class MockNetworkAdapter implements INetworkAdapter {
     }
 
     async login(_params?: any): Promise<ServerSession> {
-        await this._delay(300);
+        // No artificial delay — keep mock boot fast
+        await this._delay(0);
 
         // Mock: ưu tiên TestLoginConfig.Currency nếu dev set rõ ràng.
         // Fallback theo URL gl để test đúng ký hiệu tiền tệ cho từng ngôn ngữ; cuối cùng là USD.
@@ -395,7 +436,7 @@ class MockNetworkAdapter implements INetworkAdapter {
     }
 
     async enterGame(): Promise<ServerEnterResponse> {
-        await this._delay(200);
+        await this._delay(0);
 
         // Giả lập lastSpinResponse theo MOCK_RESUME_SCENARIO để test resume logic
         let lastSpinResponse: any = null;
@@ -414,6 +455,10 @@ class MockNetworkAdapter implements INetworkAdapter {
         if (lastSpinResponse) {
             Log.d(`[MockAdapter] Resume scenario: "${MOCK_RESUME_SCENARIO}" — NextStage=${lastSpinResponse.NextStage}, remain=${lastSpinResponse.RemainFreeSpinCount ?? lastSpinResponse.RemainFeatureSpinCount}, totalWin=${lastSpinResponse.FeatureSpinTotalWin}`);
         }
+
+        const data = GameData.instance;
+        data.isEntered = true;
+        data.rawEnterLastSpinResponse = lastSpinResponse;
 
         return {
             cash: GameData.instance.player.balance,
@@ -477,7 +522,7 @@ class MockNetworkAdapter implements INetworkAdapter {
                     || resp.nextStage === SlotStageType.FREE_SPIN_RE_TRIGGER
                     || resp.nextStage === SlotStageType.FREE_SPIN_END
                     || resp.nextStage === SlotStageType.BUY_FREE_SPIN_END;
-                if (!isMidFreeSpin) return resp;
+                if (!isMidFreeSpin) return this._finishMockSpin(resp);
                 Log.d(`[MockAdapter] Queue skip FS-mid entry (nextStage=${resp.nextStage}) → advance`);
             }
             // Tất cả entries đều là free spin mid → fallback random
@@ -485,11 +530,11 @@ class MockNetworkAdapter implements INetworkAdapter {
 
         // ★ wild_trail: mỗi spin build fresh WILD_TRAIL_ONE (1 wild, nextStage=SPIN) để test tích lũy Pot
         if (MOCK_SPIN_SCENARIO === 'wild_trail') {
-            return MockDataProvider.buildScenario(TestScenario.WILD_TRAIL_ONE);
+            return this._finishMockSpin(MockDataProvider.buildScenario(TestScenario.WILD_TRAIL_ONE));
         }
 
         // Fallback: tạo ngẫu nhiên (MOCK_SPIN_SCENARIO = 'random')
-        return MockDataProvider.generateSpinResponse(false);
+        return this._finishMockSpin(MockDataProvider.generateSpinResponse(false));
     }
 
     async sendSelectFeature(nextStage: SlotStageType, reelIndex: number = 0): Promise<SelectFeatureResponse> {
@@ -880,12 +925,9 @@ class RealNetworkAdapter implements INetworkAdapter {
         // ─── ENTER RAW DUMP ───
         {
             const rawKeys = Object.keys(raw);
-            const psField = raw.PS ?? raw.Ps ?? raw.ps;
-            Log.e(
-                `[SV-ERR] ENTER raw keys: [${rawKeys.join(', ')}]\n` +
-                `  Cash=${raw.Cash} BetIndex=${raw.BetIndex} SlotName=${raw.SlotName}\n` +
-                `  PS field: key=PS→${raw.PS !== undefined ? 'exists' : 'MISSING'} | Ps→${raw.Ps !== undefined ? 'exists' : 'no'} | ps→${raw.ps !== undefined ? 'exists' : 'no'}\n` +
-                `  PS type=${typeof psField} | PS length=${psField?.length ?? 0} | PS first30=${typeof psField === 'string' ? psField.substring(0, 30) : JSON.stringify(psField)?.substring(0, 30)}`
+            Log.d(
+                `[Enter] keys=[${rawKeys.join(', ')}] Cash=${raw.Cash} BetIndex=${raw.BetIndex}` +
+                ` PS=${raw.PS != null || raw.Ps != null || raw.ps != null ? 'yes' : 'no'}`
             );
         }
 
@@ -911,35 +953,17 @@ class RealNetworkAdapter implements INetworkAdapter {
         // ─── SYNC POT + GAUGE từ Enter response ───
         const ls = raw.LastSpinResponse;
         const enterPotVisualLevel = (raw as any).PotVisualLevel ?? ls?.PotVisualLevel;
-        const enterPotCount = ls?.PotCount ?? (ls as any)?.potCount;
         const enterStickyAccumulated = ls?.StickyAccumulated ?? (ls as any)?.stickyAccumulated;
-        const enterStickyEarned = ls?.StickyEarned ?? (ls as any)?.stickyEarned ?? ls?.StickyEarnedCount ?? (ls as any)?.stickyEarnedCount;
-        Log.e(`[FeatureGauge] ENTER raw server fields — PotVisualLevel=${enterPotVisualLevel ?? 'n/a'} PotCount=${enterPotCount ?? 'n/a'} StickyAccumulated=${enterStickyAccumulated ?? 'n/a'} StickyEarned=${enterStickyEarned ?? 'n/a'}`);
+        const enterGauge = resolveGaugeApiFields(ls, raw);
+        logFeatureGauge(enterGauge.potCount, enterGauge.wildCount);
 
         if (enterPotVisualLevel != null) {
             data.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
         }
-        const enterAccumulated = enterStickyAccumulated ?? enterPotCount ?? null;
+        const enterAccumulated = enterGauge.potCount ?? enterStickyAccumulated ?? null;
         if (enterAccumulated != null) {
             data.featureGaugeAccumulated = enterAccumulated as number;
             data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
-            Log.e(`[FeatureGauge] ENTER sync → accumulated=${data.featureGaugeAccumulated} stage=${data.featureGaugeStage}`);
-        }
-        if (enterStickyEarned != null) {
-            Log.e(`[FeatureGauge] ENTER StickyEarned=${enterStickyEarned}`);
-        }
-
-        // ─── DUMP ALL KEYS + GUESS SIMILAR FIELDS để debug tên field đúng từ server ───
-        if (ls && typeof ls === 'object') {
-            const allKeys = Object.keys(ls);
-            Log.e(`[FeatureGauge] ENTER LastSpinResponse keys: [${allKeys.join(', ')}]`);
-            const candidates = allKeys.filter(k => /count|accum|earn|pot|sticky|trail|wild|light|gauge/i.test(k));
-            if (candidates.length > 0) {
-                const values = candidates.map(k => `${k}=${(ls as any)[k]}`).join(' | ');
-                Log.e(`[FeatureGauge] ENTER candidate fields: ${values}`);
-            }
-        } else {
-            Log.e(`[FeatureGauge] ENTER LastSpinResponse = null/undefined`);
         }
 
         // ─── Giải nén PS (ParSheet) và áp dụng config ───
@@ -949,18 +973,9 @@ class RealNetworkAdapter implements INetworkAdapter {
             this._applyPS(parsedPS);
         }
 
-        // ═══ LOG RESPONSE — Enter + PS decoded ═══
+        // ═══ LOG RESPONSE — Enter + PS decoded (ResponseLogger no-op in production) ═══
         ResponseLogger.log('Enter', raw, {
             ps: parsedPS,
-            reelStripsFromPS: parsedPS?.Reel?.Strips?.map((s: any) => ({
-                rawLength: (s.Symbols ?? s).length,
-                symbols: s.Symbols ?? s,
-            })),
-            clientReelStrips: data.config.reelStrips.map((s, i) => ({
-                index: i,
-                length: s.length,
-                symbols: [...s],
-            })),
         });
 
         if (enterResp.smm) {
@@ -2150,33 +2165,8 @@ class RealNetworkAdapter implements INetworkAdapter {
                 Log.e(`[StickyRoute] FALLBACK path → ${fallbackCells?.length ?? 'null'} cells (useTopup=${useTopup} ReelIndex=${res.ReelIndex} mode=${data.currentMode} TopupReel=${(res as any).TopupReel != null} NormalSpinLinkReel=${(res as any).NormalSpinLinkReel != null})`);
                 return fallbackCells;
             })(),
-            // ★ Log server WildCount / WildTrailCount để debug
-            wildTrailCount: (() => {
-                const wt = (res as any).WildTrailCount;
-                const wc = (res as any).WildCount;
-                Log.e(`[POT-DEBUG] Server Raw — PotVisualLevel=${(res as any).PotVisualLevel ?? 'undefined'} | WildCount=${wc ?? 'undefined'} | WildTrailCount=${wt ?? 'undefined'}`);
-                if (wt != null || wc != null) {
-                    Log.e(`[WILD-DEBUG] Server WildTrailCount=${wt} WildCount=${wc} → using=${wt ?? wc}`);
-                    if (wt === 0 || wc === 0) {
-                        const allKeys = Object.keys(res).sort();
-                        Log.e(`[WILD-DEBUG] ALL Res keys (${allKeys.length}): ${allKeys.join(', ')}`);
-                        const wildishKeys = allKeys.filter(k => /wild|trail|bat|peach/i.test(k));
-                        if (wildishKeys.length) {
-                            Log.e(`[WILD-DEBUG] Wild-ish keys: ${wildishKeys.map(k => `${k}=${JSON.stringify((res as any)[k])}`).join(' | ')}`);
-                        }
-                    }
-                }
-                return wt ?? wc ?? undefined;
-            })(),
-            potVisualLevel: (() => {
-                const pvl = (res as any).PotVisualLevel;
-                if (pvl != null) {
-                    Log.e(`[POT-DEBUG] Server PotVisualLevel=${pvl}`);
-                } else {
-                    Log.e(`[POT-DEBUG] Server PotVisualLevel=undefined`);
-                }
-                return pvl ?? undefined;
-            })(),
+            wildTrailCount: (res as any).WildTrailCount ?? (res as any).WildCount ?? undefined,
+            potVisualLevel: (res as any).PotVisualLevel ?? undefined,
             triggerPotWin: (res as any).TriggerPotWin ?? (res as any).IsPotWin ?? undefined,
             pickGame: this._parsePickGame((res as any).PickGame ?? (res as any).PickGameState),
             remainRespinCount: (res as any).RemainFeatureSpinCount ?? (res as any).RemainReSpinCount ?? (res as any).RemainRespinCount ?? undefined,
@@ -2184,7 +2174,7 @@ class RealNetworkAdapter implements INetworkAdapter {
         };
 
         // ★ FEATURE ENTRY LOGIC ADDED — phát hiện Force Feature Entry + cập nhật gauge
-        this._applyFeatureEntryLogic(spinResp, res, grid);
+        this._applyFeatureEntryLogic(spinResp, res, grid, raw);
 
         return spinResp;
     }
@@ -2198,10 +2188,16 @@ class RealNetworkAdapter implements INetworkAdapter {
      * - isForcedFeatureEntry: server flag, hoặc suy luận (nextStage=FEATURE_SELECT
      *   ở Normal Spin, naturalCount < 6, nhưng tổng stickyCells >= 6).
      * - forceFeatureEntry: chia existing (tự nhiên) / fill (đổ thêm) + gán credit.
-     * - gauge: PotVisualLevel (1–6) → map 10 UI đèn; PotCount = tích lũy; WildCount = earned/spin.
+     * - gauge: PotCount (= StickyAccumulated) → 10 UI đèn; WildCount (= StickyEarned/spin).
+     *   PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
      * - force entry: IsForceFeatureEnter; NoramlSpinLinkReel chứa đủ 6 ô + credit.
      */
-    private _applyFeatureEntryLogic(resp: SpinResponse, res: ServerSpinResponse['Res'], grid: number[][]): void {
+    private _applyFeatureEntryLogic(
+        resp: SpinResponse,
+        res: ServerSpinResponse['Res'],
+        grid: number[][],
+        rawOuter?: ServerSpinResponse,
+    ): void {
         const anyRes = res as any;
         const isNormalSpin = (resp.reelIndex ?? 0) === 0 && GameData.instance.currentMode === 'normal';
 
@@ -2219,34 +2215,26 @@ class RealNetworkAdapter implements INetworkAdapter {
         }
         resp.naturalStickyCount = naturalCount;
 
-        // 2) Gauge từ server API (StickyAccumulated / PotCount / StickyEarned / WildCount)
-        // ★ Gauge lighting stage dựa trên StickyAccumulated qty (10,20,40,60,80,100,120,140,160,200)
-        //   chứ không dựa trên PotVisualLevel.
-        const potVisualLevel = anyRes.PotVisualLevel;
-        const potCount = anyRes.PotCount;
-        const stickyAccumulated = anyRes.StickyAccumulated ?? potCount ?? null;
-        const stickyEarned = anyRes.StickyEarned ?? anyRes.StickyEarnedCount ?? null;
-        const wildCount = anyRes.WildCount;
-        Log.e(`[FeatureGauge] SPIN raw server fields — PotVisualLevel=${potVisualLevel ?? 'n/a'} PotCount=${potCount ?? 'n/a'} StickyAccumulated=${anyRes.StickyAccumulated ?? 'n/a'} StickyEarned=${stickyEarned ?? 'n/a'} WildCount=${wildCount ?? 'n/a'}`);
-        const spinKeys = anyRes && typeof anyRes === 'object' ? Object.keys(anyRes) : [];
-        Log.e(`[FeatureGauge] SPIN Res keys: [${spinKeys.join(', ')}]`);
-        const spinCandidates = spinKeys.filter(k => /count|accum|earn|pot|sticky|trail|wild|light|gauge/i.test(k));
-        if (spinCandidates.length > 0) {
-            Log.e(`[FeatureGauge] SPIN candidate fields: ${spinCandidates.map(k => `${k}=${anyRes[k]}`).join(' | ')}`);
+        // 2) Gauge: PotCount / WildCount từ GFSpinResponse.Res (AckSpin.Res), fallback Ack root.
+        // API doc: WildCount trong Res. PotCount theo backend Q&A (cùng Res / LastSpinResponse).
+        const potVisualLevel = anyRes.PotVisualLevel ?? anyRes.potVisualLevel;
+        const gauge = resolveGaugeApiFields(res, rawOuter);
+        const potCount = gauge.potCount;
+        const wildCount = gauge.wildCount;
+        if (isNormalSpin) {
+            logFeatureGauge(potCount, wildCount);
         }
         if (potVisualLevel != null) {
             resp.potVisualLevel = potVisualLevel;
         }
-        if (stickyAccumulated != null) {
-            resp.stickyAccumulated = stickyAccumulated;
-            resp.potCount = potCount ?? stickyAccumulated;
-            resp.lightingStage = gaugeStageFromAccumulated(stickyAccumulated);
+        if (potCount != null) {
+            resp.potCount = potCount;
+            resp.stickyAccumulated = potCount;
+            resp.lightingStage = gaugeStageFromAccumulated(potCount);
         }
-        resp.stickyEarnedThisSpin = stickyEarned ?? wildCount ?? naturalCount;
-
-        // Legacy field names (fallback)
-        if (resp.lightingStage == null && anyRes.LightingStage != null) {
-            resp.lightingStage = anyRes.LightingStage;
+        if (wildCount != null) {
+            resp.wildCount = wildCount;
+            resp.stickyEarnedThisSpin = wildCount;
         }
 
         // 3) Chỉ xét Force Feature Entry cho Normal Spin
@@ -2670,46 +2658,32 @@ class RealNetworkAdapter implements INetworkAdapter {
     private _applyPS(ps: any): void {
         const data = GameData.instance;
 
-        // ═══ DUMP TOÀN BỘ PS JSON — hiển trong cả Cocos Console và Browser DevTools ═══
-        // Mở F12 → Console tab trong Chrome/Edge để thấy log này.
-        try {
-            const _psJson = JSON.stringify(ps);
-            console.log('%c[GOF-PS] TOÀN BỘ PS JSON (lưu vào file: Ctrl+click → Save as)', 'color:#ff6600;font-weight:bold');
-            console.log('[GOF-PS] PS keys:', Object.keys(ps));
-            console.log('[GOF-PS] SymbolRates:', ps.SymbolRates);
-            console.log('[GOF-PS] Trail IDs: Trail01=', ps.Trail01symbolID,
-                'Trail02=', ps.Trail02symbolID, 'Trail03=', ps.Trail03symbolID,
-                'Trail04=', ps.Trail04symbolID, 'Trail05=', ps.Trail05symbolID,
-                'Trail06=', ps.Trail06symbolID);
-            console.log('[GOF-PS] Special IDs: Wild=', ps.WildSymbolID,
-                'FreeSpinTrail=', ps.FreeSpinTrailsymbolID,
-                'TopupYellow=', ps.TopupYellowSymbolID,
-                'TopupGreen=', ps.TopupGreenSymbolID,
-                'TopupSpinAdd=', ps.TopupSpinAddsymbolID);
-            if (ps.Reel?.Strips) {
-                ps.Reel.Strips.forEach((strip: any, i: number) => {
-                    const syms: number[] = strip.Symbols ?? strip;
-                    console.log(`[GOF-PS] Reel.Strips[${i}] len=${syms.length}:`, JSON.stringify(syms));
-                });
-            } else {
-                console.warn('[GOF-PS] ps.Reel.Strips KHÔNG TỒN TẠI! ps.Reel =', ps.Reel);
+        // PS dump chỉ khi whitelist 'ps' — tránh JSON.stringify toàn bộ PS trên mọi Enter
+        if (Log.isEnabled('ps')) {
+            try {
+                const _psJson = JSON.stringify(ps);
+                Log.e('[GOF-PS] keys:', Object.keys(ps));
+                Log.e('[GOF-PS] SymbolRates:', ps.SymbolRates);
+                if (ps.Reel?.Strips) {
+                    ps.Reel.Strips.forEach((strip: any, i: number) => {
+                        const syms: number[] = strip.Symbols ?? strip;
+                        Log.e(`[GOF-PS] Reel.Strips[${i}] len=${syms.length}`);
+                    });
+                }
+                Log.e('[GOF-PS] Full PS JSON (first 2000 chars):', _psJson.substring(0, 2000));
+            } catch (e) {
+                Log.e('[GOF-PS] dump error', e);
             }
-            console.log('[GOF-PS] Full PS JSON (first 2000 chars):', _psJson.substring(0, 2000));
-        } catch(e) { console.error('[GOF-PS] dump error', e); }
+        }
 
-        // ─── PS STRUCTURE DUMP (Cocos Log) ───
+        // ─── PS STRUCTURE (compact) ───
         {
-            const topKeys = Object.keys(ps || {});
-            const hasReel      = ps?.Reel?.Strips && Array.isArray(ps.Reel.Strips);
-            const hasReels     = ps?.Reels;
-            const hasFSReel    = ps?.FreeSpinReel?.Strips && Array.isArray(ps.FreeSpinReel.Strips);
-            const hasRespinReel = ps?.RespinReel?.Strips;
-            Log.e(
-                `[SV-ERR] PS STRUCTURE top-level keys: [${topKeys.join(', ')}]\n` +
-                `  Reel.Strips exists: ${hasReel} | FreeSpinReel.Strips: ${hasFSReel} | RespinReel: ${!!hasRespinReel}\n` +
-                `  Reel strip count: ${hasReel ? ps.Reel.Strips.length : 'N/A'} | Reels field: ${hasReels !== undefined ? JSON.stringify(hasReels).substring(0, 80) : 'none'}\n` +
-                `  Symbol fields: WildTrail=${ps.WildTrailSymbolID ?? 'n/a'} StickyRed=${ps.StickyRedSymbolID ?? 'n/a'} Empty=${ps.EmptySymbolID ?? 'n/a'}\n` +
-                `  Strip[0] sample: ${hasReel ? JSON.stringify(ps.Reel.Strips[0]).substring(0, 120) : 'NO REEL STRIPS'}`
+            const hasReel = ps?.Reel?.Strips && Array.isArray(ps.Reel.Strips);
+            const hasFSReel = ps?.FreeSpinReel?.Strips && Array.isArray(ps.FreeSpinReel.Strips);
+            Log.d(
+                `[PS] keys=${Object.keys(ps || {}).length}` +
+                ` Reel.Strips=${hasReel ? ps.Reel.Strips.length : 'n/a'}` +
+                ` FreeSpinReel=${hasFSReel ? 'yes' : 'no'}`
             );
         }
         if (ps.Bet && Array.isArray(ps.Bet)) {

@@ -17,8 +17,8 @@
  *      Nếu để trống → dùng hình chữ nhật vàng 20×20 tự tạo.
  *
  * LƯU Ý:
- *   - symbolNodes[2+(2-gridRow)] = node tương ứng gridRow (vì displayRow = 2 - gridRow,
- *     nodeIndex = 2 + displayRow = 2 + (2 - gridRow) = 4 - gridRow).
+ *   - symbolNodes[1+(2-gridRow)] = node tương ứng gridRow (vì displayRow = 2 - gridRow,
+ *     nodeIndex = 1 + displayRow = 1 + (2 - gridRow) = 3 - gridRow).
  *   - Sau này: thay zoom bằng spine animation trên symbol node.
  *   - Sau này: thay particle node bằng particle system / spine hiệu ứng bay.
  */
@@ -266,7 +266,7 @@ export class WildTrailController extends Component {
 
     private _onWildTrailOne(payload: { reel: number; row: number }): void {
         const { reel, row } = payload;
-        const nodeIdx    = 4 - row; // displayRow = 2 - gridRow, nodeIndex = 2 + displayRow
+        const nodeIdx    = 3 - row; // displayRow = 2 - gridRow, nodeIndex = 1 + displayRow
         const symbolNode = this.reels[reel]?.symbolNodes[nodeIdx];
         if (!symbolNode) return;
 

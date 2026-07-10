@@ -49,9 +49,18 @@ export class TopUpManager extends Component {
 
     @property({
         type: SlotMachineController,
-        tooltip: 'Tham chiếu SlotMachineController để lấy symbolFrames',
+        tooltip: 'Thường để trống trên Prefab — StickyOverlayLoader.bindSlotMachine() wire lúc runtime.',
     })
     slotMachine: SlotMachineController | null = null;
+
+    /**
+     * Wire SlotMachineController từ code (lazy Prefab không serialize cross-prefab refs).
+     * Phân phối lại symbolFrames nếu đã có.
+     */
+    bindSlotMachine(smc: SlotMachineController | null): void {
+        this.slotMachine = smc;
+        this._distributeFramesFromSlotMachine();
+    }
 
     @property({
         type: Node,
@@ -96,8 +105,28 @@ export class TopUpManager extends Component {
         // Row-major: 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14
         this._seqOrder = Array.from({ length: 15 }, (_, i) => i);
 
-        // Phân phối symbolFrames + reelIndex + rowIndex cho SymbolView
-        // Giống SlotMachineController._distributeFramesToSymbolViews()
+        this._distributeFramesFromSlotMachine();
+
+        EventBus.instance.on(GameEvents.REELS_START_SPIN, this._onReelsStartSpin, this);
+        EventBus.instance.on(GameEvents.SPIN_RESPONSE,     this._onSpinResponse,     this);
+        EventBus.instance.on(GameEvents.TOPUP_START,     this._onTopUpStart,       this);
+        EventBus.instance.on(GameEvents.TOPUP_END,       this._onTopUpEnd,         this);
+        EventBus.instance.on(GameEvents.FREE_SPIN_GOLD_END, this._onTopUpEnd,    this);
+        EventBus.instance.on(GameEvents.FREE_SPIN_END,       this._onTopUpEnd,    this);
+
+        // Nếu đang ở TopUp mode khi load scene → init ngay (symbols hiển thị tức thì)
+        if (GameData.instance.currentMode === 'respin') {
+            Log.d('[TopUpManager] onLoad — đang ở TopUp mode, init ngay');
+            this._onTopUpStart();
+        }
+    }
+
+    onDestroy(): void {
+        EventBus.instance.offTarget(this);
+    }
+
+    /** Phân phối symbolFrames / blurFrames / reelIndex / rowIndex từ SlotMachineController. */
+    private _distributeFramesFromSlotMachine(): void {
         if (this.slotMachine && this.slotMachine.symbolFrames.length > 0) {
             for (let i = 0; i < this.reels.length; i++) {
                 const reel = this.reels[i];
@@ -119,27 +148,10 @@ export class TopUpManager extends Component {
                     }
                 }
             }
-            Log.d(`[TopUpManager] onLoad — phân phối ${this.slotMachine.symbolFrames.length} symbolFrames + ${this.slotMachine.blurFrames.length} blurFrames cho ${this.reels.length} reels.`);
+            Log.d(`[TopUpManager] phân phối ${this.slotMachine.symbolFrames.length} symbolFrames + ${this.slotMachine.blurFrames.length} blurFrames cho ${this.reels.length} reels.`);
         } else {
-            Log.w(`[TopUpManager] onLoad — slotMachine=${this.slotMachine ? 'OK' : 'NULL'} symbolFrames=${this.slotMachine?.symbolFrames.length ?? 'N/A'}`);
+            Log.w(`[TopUpManager] slotMachine=${this.slotMachine ? 'OK' : 'NULL'} symbolFrames=${this.slotMachine?.symbolFrames.length ?? 'N/A'}`);
         }
-
-        EventBus.instance.on(GameEvents.REELS_START_SPIN, this._onReelsStartSpin, this);
-        EventBus.instance.on(GameEvents.SPIN_RESPONSE,     this._onSpinResponse,     this);
-        EventBus.instance.on(GameEvents.TOPUP_START,     this._onTopUpStart,       this);
-        EventBus.instance.on(GameEvents.TOPUP_END,       this._onTopUpEnd,         this);
-        EventBus.instance.on(GameEvents.FREE_SPIN_GOLD_END, this._onTopUpEnd,    this);
-        EventBus.instance.on(GameEvents.FREE_SPIN_END,       this._onTopUpEnd,    this);
-
-        // Nếu đang ở TopUp mode khi load scene → init ngay (symbols hiển thị tức thì)
-        if (GameData.instance.currentMode === 'respin') {
-            Log.d('[TopUpManager] onLoad — đang ở TopUp mode, init ngay');
-            this._onTopUpStart();
-        }
-    }
-
-    onDestroy(): void {
-        EventBus.instance.offTarget(this);
     }
 
     private _onReelsStartSpin(): void {

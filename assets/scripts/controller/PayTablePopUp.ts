@@ -2,8 +2,8 @@
  * PayTablePopUp - Popup bảng trả thưởng (Pay Table) gồm 7 trang.
  *
  * ── SETUP TRONG EDITOR ──
- *   1. Tạo Node "PayTablePopUp" con của Canvas, đặt trên cùng Hierarchy.
- *   2. Gắn component PayTablePopUp vào Node đó.
+ *   1. Prefab `PayTablePopUp` nằm trong MainBundle (assets/bundle/PayTablePopUp.prefab).
+ *   2. PopupLoader lazy-load prefab khi nhận PAY_TABLE_OPEN — không embed trong Base.
  *   3. Kéo popupNode vào slot (đặt active=false ban đầu).
  *   4. Kéo các Node/Label/Button vào đúng slot bên dưới.
  *
@@ -49,8 +49,9 @@
  *   Ví dụ: page1TitleKey = "paytable_page1_title"
  *
  * ── MỞ POPUP ──
- *   EventBus.instance.emit(GameEvents.PAY_TABLE_OPEN);
- *   hoặc gọi trực tiếp: PayTablePopUp.instance?.open();
+ *   EventBus.instance.emit(GameEvents.PAY_TABLE_OPEN);  // PopupLoader load prefab lần đầu
+ *   PopupLoader.instance?.openPayTable();
+ *   Sau khi đã instantiate: PayTablePopUp.instance?.open();
  */
 
 import { _decorator, Component, Node, Label, Button, RichText, Widget, UITransform, view, screen, tween, Vec3, director } from 'cc';

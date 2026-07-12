@@ -82,7 +82,7 @@ export class PopupLoader extends Component {
     onLoad(): void {
         EventBus.instance.on(GameEvents.JACKPOT_TRIGGER, this._onJackpotTrigger, this);
         EventBus.instance.on(GameEvents.PROGRESSIVE_WIN_SHOW, this._onProgressiveWinShow, this);
-      //  EventBus.instance.on(GameEvents.PAY_TABLE_OPEN, this._onPayTableOpen, this);
+        EventBus.instance.on(GameEvents.PAY_TABLE_OPEN, this._onPayTableOpen, this);
         EventBus.instance.on(GameEvents.FREE_SPIN_END_POPUP, this._onFreeSpinEndPopup, this);
         EventBus.instance.on(GameEvents.FREE_SPIN_POPUP, this._onFreeSpinPopup, this);
         EventBus.instance.on(GameEvents.SHOW_SYSTEM_POPUP, this._onShowSystemPopup, this);
@@ -99,8 +99,6 @@ export class PopupLoader extends Component {
         if (this.preloadAll) {
             this._preloadAllPrefabs();
         }
-        // Adopt an existing scene PayTablePopUp under this node and move to top once
-        this.scheduleOnce(() => this._ensurePayTableOnTop(), 0);
     }
 
     onDestroy(): void {
@@ -231,9 +229,13 @@ export class PopupLoader extends Component {
 
     private _onPayTableOpen(): void {
         if (this._payTablePopupNode) {
-            const popup = this._payTablePopupNode.getComponent(PayTablePopUp);
-            if (popup) popup.open();
-            return;
+            if (!this._payTablePopupNode.isValid) {
+                this._payTablePopupNode = null;
+            } else {
+                const popup = this._payTablePopupNode.getComponent(PayTablePopUp);
+                if (popup) popup.open();
+                return;
+            }
         }
         this._loadPrefab(PREFAB_NAMES.payTable, (node) => {
             this._payTablePopupNode = node;

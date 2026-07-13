@@ -181,12 +181,9 @@ export class SoundManager extends Component {
         SoundManager._instance = this;
         Log.enable('coinloop');
         this._loadMuteSettings();
-        const game = (window as any).cc?.game || (window as any).cc?.Game;
-        if (game?.addPersistRootNode) {
-            game.addPersistRootNode(this.node);
-        } else {
-            this.node.parent?.setParent(null);
-        }
+        // ★ Không addPersistRootNode(this.node): component đang gắn trên Base root.
+        //   Persist cả Base lúc attach sớm (loading) phá hierarchy → bar kẹt ~81%.
+        //   Instance sống theo Base shell; không cần cross-scene persist.
         this._bindEvents();
         // Warm feature/jackpot clips after first frame — không block boot
         this.scheduleOnce(() => this._kickDeferredAudioWarmup(), 0);

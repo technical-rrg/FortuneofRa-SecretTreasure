@@ -299,6 +299,15 @@ export class GameData {
      */
     isResumingFreeSpin: boolean = false;
     /**
+     * Flag: Guide đã hoàn tất (hoặc skip).
+     * Set trước khi activate GameRoot — GameManager dùng để biết không chờ GUIDE_COMPLETE nữa.
+     */
+    isGuideCompleted: boolean = false;
+    /**
+     * Flag: GuideView đang hiện — GameRoot có thể warm-init nền (opacity 0) nhưng chưa hiện.
+     */
+    isGuideShowing: boolean = false;
+    /**
      * Jackpot symbol PS IDs từ ParSheet — dùng để detect jackpot từ rawPsStrips.
      * Server dùng các ID này thay vì winGrade để biểu thị jackpot trên reel.
      * Default = PS.json SuperNova values (nếu chưa có PS → dùng giá trị này).

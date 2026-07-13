@@ -223,12 +223,16 @@ export class GameManager extends Component {
     private _skipTopUpAbsorb: boolean = false;
     /** Pick Game đang active — block các Progressive Win check khác */
     private _isPickGameActive: boolean = false;
+    /** Chờ TransitionPopup xong rồi mới đổi background Pick Game */
+    private _pickGameBgPending: boolean = false;
     /** Pot transition animation đang chạy — block spin cho đến khi POT_TRANSITION_END */
     private _isPotTransitioning: boolean = false;
     /** _afterWinProcessed bị defer vì pot transition chưa xong — sẽ gọi lại khi POT_TRANSITION_END */
     private _pendingAfterWinProcessed: boolean = false;
     /** Free Spin end pending sau khi Pick Game đóng */
     private _pendingFreeSpinEnd: boolean = false;
+    /** Cho phép lazy-load main BG — bật khi GuideView hiện (prefetch) hoặc vào game */
+    private _bgLoadAllowed: boolean = false;
 
     // ─── LIFECYCLE ───
 
@@ -253,9 +257,8 @@ export class GameManager extends Component {
         screen.on('orientation-change', this._updateBackgroundSprite, this);
         screen.on('window-resize', this._updateParticleRateOverTime, this);
         screen.on('orientation-change', this._updateParticleRateOverTime, this);
-        // Boot: chỉ lazy-load BG đúng orientation + mode hiện tại (không preload ngang/dọc cùng lúc)
+        // Không gán BG lúc onLoad — prefetch khi GuideView hiện (GameRoot warm)
         this._clearBackgroundSprite();
-        this._updateBackgroundSprite();
         this._updateParticleRateOverTime();
     }
 
@@ -466,6 +469,19 @@ export class GameManager extends Component {
         // đảm bảo TẤT CẢ start() trong scene đã chạy xong trước khi emit LOADING_COMPLETE.
         this.scheduleOnce(() => {
             this._emitInitialData();
+            // ★ GameRoot có thể activate SAU Guide (deferred) — nếu Guide đã xong thì GAME_READY ngay
+            if (data.isGuideCompleted || data.isResumingFreeSpin || this.skipIntroScreens) {
+                this._guideCompleteHandled = true;
+                this._allowBackgroundLoad();
+                EventBus.instance.emit(GameEvents.GAME_READY);
+                return;
+            }
+            // Guide đang hiện (warm path) hoặc chưa hiện — không re-emit LOADING_COMPLETE
+            // (LoadingController đã emit). Chỉ chờ GUIDE_COMPLETE.
+            if (data.isGuideShowing) {
+                this.prefetchBackground();
+                return;
+            }
             EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
             // Sau đó: GuideController show → GUIDE_COMPLETE → GAME_ENTRY_EFFECT → GAME_READY
         }, 0);
@@ -500,7 +516,9 @@ export class GameManager extends Component {
         bus.on(GameEvents.PROGRESSIVE_WIN_END,             this._onProgressiveWinEnd,      this);
         bus.on(GameEvents.POT_WIN_DONE,                    this._onPotWinDone,             this);
         bus.on(GameEvents.PICK_GAME_CLOSE,                 this._onPickGameClose,          this);
+        bus.on(GameEvents.PICK_GAME_ENTRY_DONE,            this._onPickGameEntryDone,      this);
         bus.on(GameEvents.PICK_GAME_NEED_CLAIM,            this._onPickGameNeedClaim,      this);
+        bus.on(GameEvents.TOPUP_TRANSITION_DONE,           this._onTopUpTransitionDone,    this);
         bus.on(GameEvents.FREE_SPIN_START,                 this._onFreeSpinStart,          this);
         bus.on(GameEvents.FREE_SPIN_END,                   this._onFreeSpinEnd,            this);
         bus.on(GameEvents.FREE_SPIN_END_POPUP_CLOSED,      this._onFreeSpinEndPopupClosed, this);
@@ -538,7 +556,8 @@ export class GameManager extends Component {
     private _onGuideComplete(): void {
         if (this._guideCompleteHandled) return;
         this._guideCompleteHandled = true;
-        // Log removed for performance
+        // ★ #5: Load BG sau khi Guide xong — không tranh I/O với guide slides
+        this._allowBackgroundLoad();
         this._emitInitialData();
         // GAME_ENTRY_EFFECT is now emitted by GameEntryController AFTER gameRoot.active=true,
         // ensuring SoundManager.onLoad() has already run before the event fires.
@@ -1817,7 +1836,7 @@ export class GameManager extends Component {
     private _onPotWinDone(): void {
         Log.e('[DEBUG-PICK] _onPotWinDone ENTER');
         this._isPickGameActive = true;
-        this._updateBackgroundSprite();
+        this._pickGameBgPending = true;
         Log.d('[POT-DEBUG] POT_WIN_DONE → opening PickGamePopup');
         const data = GameData.instance;
         const resp = data.lastSpinResponse;
@@ -1848,6 +1867,27 @@ export class GameManager extends Component {
     }
 
     /**
+     * TOPUP_TRANSITION_DONE: đổi background Pick Game sau khi TransitionPopup kết thúc.
+     */
+    private _onTopUpTransitionDone(): void {
+        if (!this._isPickGameActive) return;
+        this._applyPickGameBackgroundIfPending();
+    }
+
+    /** Fallback khi bỏ qua transition (useTopUpTransition=false). */
+    private _onPickGameEntryDone(): void {
+        if (!this._isPickGameActive) return;
+        this._applyPickGameBackgroundIfPending();
+    }
+
+    private _applyPickGameBackgroundIfPending(): void {
+        if (!this._pickGameBgPending) return;
+        this._pickGameBgPending = false;
+        this._updateBackgroundSprite();
+        Log.d('[GameManager] Pick Game background updated after transition done');
+    }
+
+    /**
      * PICK_GAME_CLOSE: PickGamePopup đóng xong.
      * Reset pot counter + restore game state (POPUP → IDLE), re-enable spin button.
      * Sau đó check progressive win nếu có.
@@ -1855,6 +1895,7 @@ export class GameManager extends Component {
     private _onPickGameClose(): void {
         Log.e(`[DEBUG-PICK] _onPickGameClose ENTER — checking progressive win now`);
         this._isPickGameActive = false;
+        this._pickGameBgPending = false;
         this._updateBackgroundSprite();
         const data = GameData.instance;
         data.wildTrailCount = 0;
@@ -2677,6 +2718,9 @@ export class GameManager extends Component {
     // ─── GAME READY → RESUME FREE SPIN NẾU CÓ ───
 
     private _onGameReady(): void {
+        // Resume / skipIntro có thể không đi qua GUIDE_COMPLETE trên GameManager
+        this._allowBackgroundLoad();
+
         if (this._pendingResume) {
             const r = this._pendingResume;
             Log.d(`[RESUME-DEBUG] _onGameReady() — _pendingResume: stage=${r.nextStage}, remainFS=${r.remainFreeSpinCount}, remainTopUp=${r.remainRespinCount ?? 0}, featureWin=${r.featureSpinTotalWin}, rands=${JSON.stringify(r.lastSpinRands)}, stickyCells=${r.stickyCells?.length ?? 0}, pickGame=${!!r.pickGame}`);
@@ -2923,7 +2967,7 @@ export class GameManager extends Component {
         this._currentStage = SlotStageType.POT_WIN;
         this._gameState = GameState.POPUP;
         this._isPickGameActive = true;
-        this._updateBackgroundSprite();
+        this._pickGameBgPending = true;
         this._updateDisplayVisibility();
         EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, false);
         // Mở thẳng Pick Game (bỏ qua hiệu ứng bat-fly POT_WIN_INTRO vì reel không hiển thị trail khi resume)
@@ -4039,8 +4083,10 @@ export class GameManager extends Component {
     /**
      * Cập nhật background sprite theo orientation + spin mode (Normal/Free Spin).
      * Chỉ load đúng 1 ảnh mỗi lần — portrait HOẶC landscape, normal HOẶC freespin.
+     * prefetchBackground() gọi khi GuideView hiện (GameRoot warm, opacity=0).
      */
     private _updateBackgroundSprite(): void {
+        if (!this._bgLoadAllowed) return;
         if (!this.backgroundNode) return;
 
         const isFeatureMode = this._isFreeSpin() || this._isTopUp() || this._isPickGameActive;
@@ -4063,6 +4109,25 @@ export class GameManager extends Component {
         }
 
         void this._loadBackgroundSprite(paths[idx], isFeatureMode, idx).then(apply);
+    }
+
+    /** ★ Prefetch BG khi GuideView hiện (GameRoot warm) — gán sprite trước khi user Continue. */
+    prefetchBackground(): void {
+        this._allowBackgroundLoad();
+        if (!this.backgroundNode) return;
+        for (let idx = 0; idx < NORMAL_BG_PATHS.length; idx++) {
+            void this._loadBackgroundSprite(NORMAL_BG_PATHS[idx], false, idx);
+        }
+    }
+
+    /** Mở khóa lazy-load BG (gọi sau Guide / khi vào game). */
+    private _allowBackgroundLoad(): void {
+        if (this._bgLoadAllowed) {
+            this._updateBackgroundSprite();
+            return;
+        }
+        this._bgLoadAllowed = true;
+        this._updateBackgroundSprite();
     }
 
     /** Xóa spriteFrame serialize cứng — tránh boot load landscape 3.3MB trước khi lazy-load */

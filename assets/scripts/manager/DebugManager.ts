@@ -1,8 +1,7 @@
 /**
  * DebugManager - Quản lý debug shortcuts và DEBUG_RANDS runtime.
  *
- * ⚠️ CHỈ HOẠT ĐỘNG TRONG EDITOR/DEBUG BUILD — Được kiểm soát bởi CC_DEBUG flag.
- * Không được compile vào production build.
+ * ⚠️ Chỉ hoạt động khi ENABLE_DEBUG_TOOLS + (Editor / Web preview / debug build).
  *
  * [TEST CASH RACE SCENARIO]
  *   7 → MockScenario: RANDOM
@@ -15,7 +14,7 @@
  */
 
 import { _decorator, input, Input, EventKeyboard, KeyCode } from 'cc';
-import { EDITOR } from 'cc/env';
+import { isDebugToolsEnabled } from '../core/DebugEnv';
 import { DEBUG_RANDS_PRESET } from '../data/ServerConfig';
 import { LocalizationManager, LanguageCode } from '../core/LocalizationManager';
 import { EventBus } from '../core/EventBus';
@@ -143,9 +142,7 @@ export class DebugManager {
     }
 
     private _setupKeyboardShortcuts(): void {
-        // ⚠️ Chỉ kích hoạt debug shortcuts trong Editor mode
-        // Không được compile/hoạt động trong production build
-        if (!EDITOR) {
+        if (!isDebugToolsEnabled()) {
             return;
         }
 
@@ -163,7 +160,7 @@ export class DebugManager {
             bus.on(GameEvents.SHOW_SYSTEM_POPUP,        () => this._openPopupCount++, this);
 
             Log.d(
-                '[DebugManager] 🔧 DEBUG SHORTCUTS ENABLED (EDITOR ONLY):' +
+                '[DebugManager] 🔧 DEBUG SHORTCUTS ENABLED:' +
                 ' 1=MINI_JACKPOT | 2=MINOR_JACKPOT | 3=MAJOR_JACKPOT | 4=GRAND_JACKPOT' +
                 ' | 7=SCENARIO:RANDOM | 8=SCENARIO:TOP3 | 9=SCENARIO:NEARBY' +
                 ' | F1=en | F2=ko | F3=zh-cn | F4=zh-tw | F5=fil | F6=ja | F7=th' +
@@ -179,8 +176,7 @@ export class DebugManager {
     private _onKeyDown(event: EventKeyboard): void {
         // ⚡ Nhanh chóng disable tất cả shortcuts
         if (!DebugManager._shortcutsEnabled) return;
-        // Chỉ xử lý phím trong Editor
-        if (!EDITOR) return;
+        if (!isDebugToolsEnabled()) return;
 
         if (this._openPopupCount > 0) return;
 

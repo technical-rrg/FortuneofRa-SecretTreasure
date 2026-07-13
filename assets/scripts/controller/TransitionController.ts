@@ -19,6 +19,8 @@ import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
 import { SoundManager } from '../manager/SoundManager';
+import { Log } from '../core/Logger';
+import { PotController } from './PotController';
 
 const { ccclass, property } = _decorator;
 
@@ -89,6 +91,12 @@ export class TransitionController extends Component {
         this.playIconFlyAnimation();
     }
 
+    /** Gọi từ TransitionLoader khi load muộn hoặc cần retry sau khi wire target. */
+    triggerGuideTransition(): void {
+        if (this._isPlaying) return;
+        this._onGuideComplete();
+    }
+
     /**
      * Flow:
      *   - Bắt đầu: play Idle_LV6 loop trên icon spine + effectNode particle
@@ -96,6 +104,27 @@ export class TransitionController extends Component {
      *   - Bắt đầu bay: stop effectNode + play LV6_transition_LV0
      *   - Bay vào target: effectNode2 particle → targetNode hiện
      */
+    /**
+     * Resume / không chạy fly: chuyển chest sang Pot anchor, không duplicate spine load.
+     * Gọi sau ensureLoaded() khi bỏ qua GUIDE_COMPLETE animation.
+     */
+    handoffChestToPot(pot: PotController): void {
+        if (!this.iconNode?.isValid || !pot?.isValid) return;
+        this.targetNode = pot.getTransitionTargetNode();
+        this._cleanupRunningTweens();
+
+        const skel = this.iconNode.getComponent(sp.Skeleton);
+        if (skel) {
+            const level = GameData.instance.potLevel ?? 0;
+            skel.setAnimation(0, `Idle_LV${level}`, true);
+        }
+
+        this._handoffChestToPot(pot);
+        this.node.active = false;
+        this._isPlaying = false;
+        Log.d('[TransitionController] handoffChestToPot (no fly)');
+    }
+
     playIconFlyAnimation(): void {
         if (!this.iconNode || !this.targetNode) {
             this._isPlaying = false;
@@ -103,8 +132,7 @@ export class TransitionController extends Component {
         }
         this._cleanupRunningTweens();
 
-        // targetNode ẩn đi, iconNode active nhưng scale=0 để ẩn (tween cần node active mới chạy)
-        this.targetNode.active = false;
+        // targetNode = Pot anchor (empty) — iconNode bay tới rồi reparent, không bật spine thứ hai
         this.iconNode.active = true;
         this.iconNode.setScale(new Vec3(0, 0, 0));
 
@@ -185,15 +213,12 @@ export class TransitionController extends Component {
                         ps.stop(); ps.play();
                     }
                 }
-                this.targetNode!.active = true;
-                // Giữ iconNode hiển thị ở vị trí đích cho đến khi node chính ẩn
-                // Delay ẩn icon + overlay để hiệu ứng kịp hiển thị
+                // Chuyển chest sang Pot.potSpine (dùng chung spine, không load 2 lần)
+                this._handoffChestToPot(this._findPotController());
                 this._finishCb = () => {
                     this._finishCb = null;
-                    this.iconNode!.active = false;
                     this.node.active = false;
                     this._isPlaying = false;
-                    // Emit TRANSITION_DONE sau khi transition mất hẳn — PotController mới bật spine
                     EventBus.instance.emit(GameEvents.TRANSITION_DONE);
                 };
                 this.scheduleOnce(this._finishCb, 1.5);
@@ -209,16 +234,49 @@ export class TransitionController extends Component {
         }
     }
 
+    private _findPotController(): PotController | null {
+        if (!this.targetNode?.isValid) return null;
+        return this.targetNode.getComponent(PotController)
+            ?? this.targetNode.parent?.getComponent(PotController)
+            ?? null;
+    }
+
+    /** Handoff chest → PotController.adoptChestFromTransition (potSpine). */
+    private _handoffChestToPot(pot: PotController | null): void {
+        if (!this.iconNode?.isValid) return;
+
+        const uiOpacity = this.iconNode.getComponent(UIOpacity);
+        if (uiOpacity) {
+            tween(uiOpacity).stop();
+            uiOpacity.opacity = 255;
+        }
+
+        if (pot?.isValid) {
+            pot.adoptChestFromTransition(this.iconNode);
+            Log.d('[TransitionController] chest handoff → Pot.potSpine');
+            return;
+        }
+
+        // Fallback nếu chưa wire PotController
+        if (this.targetNode?.isValid) {
+            this.iconNode.setParent(this.targetNode, true);
+            this.iconNode.active = true;
+            Log.w('[TransitionController] PotController not found — fallback reparent only');
+        }
+    }
+
     private _cleanupRunningTweens(): void {
         if (this._finishCb) {
             this.unschedule(this._finishCb);
             this._finishCb = null;
         }
-        if (this.iconNode) tween(this.iconNode).stop();
-        const uiOpacity = this.iconNode?.getComponent(UIOpacity);
-        if (uiOpacity) tween(uiOpacity).stop();
+        if (this.iconNode?.isValid) {
+            tween(this.iconNode).stop();
+            const uiOpacity = this.iconNode.getComponent(UIOpacity);
+            if (uiOpacity) tween(uiOpacity).stop();
+        }
         for (const fx of [this.effectNode, this.effectNode2]) {
-            if (!fx) continue;
+            if (!fx?.isValid) continue;
             for (const ps of fx.getComponentsInChildren(ParticleSystem)) {
                 ps.stop();
             }

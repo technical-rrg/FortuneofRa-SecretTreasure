@@ -14,6 +14,9 @@
 
 export const USE_REAL_API: boolean = true; // true = gọi API thật, false = dùng MockDataProvider (dev/test)
 
+/** Bật OpenDebug panel + DebugManager shortcuts (Editor / Web preview / debug build). Tắt trước release production. */
+export const ENABLE_DEBUG_TOOLS: boolean = true;
+
 // ═══════════════════════════════════════════════════════════
 //  Server endpoints
 // ═══════════════════════════════════════════════════════════

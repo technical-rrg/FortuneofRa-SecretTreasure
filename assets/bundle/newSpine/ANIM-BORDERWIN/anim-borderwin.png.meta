@@ -41,14 +41,14 @@
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": -1.5,
+        "offsetX": 0,
         "offsetY": 0,
         "trimX": 0,
         "trimY": 0,
-        "width": 1614,
-        "height": 924,
-        "rawWidth": 1617,
-        "rawHeight": 924,
+        "width": 485,
+        "height": 277,
+        "rawWidth": 485,
+        "rawHeight": 277,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -807,
-            -462,
+            -242.5,
+            -138.5,
             0,
-            807,
-            -462,
+            242.5,
+            -138.5,
             0,
-            -807,
-            462,
+            -242.5,
+            138.5,
             0,
-            807,
-            462,
+            242.5,
+            138.5,
             0
           ],
           "indexes": [
@@ -83,32 +83,32 @@
           ],
           "uv": [
             0,
-            924,
-            1614,
-            924,
+            277,
+            485,
+            277,
             0,
             0,
-            1614,
+            485,
             0
           ],
           "nuv": [
             0,
             0,
-            0.9981447124304267,
+            1,
             0,
             0,
             1,
-            0.9981447124304267,
+            1,
             1
           ],
           "minPos": [
-            -807,
-            -462,
+            -242.5,
+            -138.5,
             0
           ],
           "maxPos": [
-            807,
-            462,
+            242.5,
+            138.5,
             0
           ]
         },
@@ -129,6 +129,10 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "191576c7-724e-4190-a2ff-3f241cfcb8b2@6c48a"
+    "redirect": "191576c7-724e-4190-a2ff-3f241cfcb8b2@6c48a",
+    "compressSettings": {
+      "useCompressTexture": true,
+      "presetId": "e1dQ4fcpBFz7qqhgyYUmjY"
+    }
   }
 }

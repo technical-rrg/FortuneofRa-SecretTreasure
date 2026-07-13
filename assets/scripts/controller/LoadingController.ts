@@ -1,25 +1,14 @@
 /**
  * LoadingController - Màn hình tải game (Loading View).
  *
- * ★ PREFAB MODE (khuyến nghị cho super-html build — tránh mất font khi chuyển scene):
- *   1. Trong Cocos Editor, mở scene.scene → chọn tất cả children của Canvas
- *      (KHÔNG bao gồm Canvas node chính) → chuột phải → "Create Prefab from Selection"
- *      → lưu vào assets/prefabs/GameScene.prefab (trong assets folder để dùng resources.load)
- *   2. Điền "gamePrefabPath" = "prefabs/GameScene" (không cần .prefab extension)
- *   3. (Tuỳ chọn) Gắn Canvas node của loading.scene vào slot "Game Container"
- *   4. Bật handleServerLogin = true, xoá targetScene, tắt useScenePreload
- *   
- *   LỢI THẾ: Prefab KHÔNG được preload khi mở scene, chỉ load khi cần
- *           → tránh loading lâu ở lúc mở scene, và font không bị mất.
+ * ★ PREFAB MODE — boot tối ưu (Base download sớm, không chờ Login):
+ *   1. onLoad: CDN ∥ MainBundle → Bundle ready thì download Base asset ngay
+ *   2. start: Login ∥ Base instantiate (song song) + bar crawl; GuideFrames preload nền
+ *   3. Login+Base xong → bar 100% → GuideView (GameRoot inactive)
+ *   4. GUIDE_COMPLETE → activate GameRoot
  *
  * ★ TWO-SCENE MODE (legacy):
  *   - Điền targetScene, bật useScenePreload, bật handleServerLogin
- *
- * Flow:
- *   start() → animate loading bar song song với Login+Enter server
- *   Khi bar ĐẦY và login xong → fade out → load + instantiate gamePrefab (prefab mode)
- *                                         HOẶC director.loadScene (two-scene mode)
- *                                         HOẶC emit LOADING_COMPLETE (single-scene mode)
  */
 
 import { _decorator, Component, Node, ProgressBar, UIOpacity, tween, Tween, Vec3, Label, director, instantiate, assetManager, AssetManager, Prefab, game, UITransform, view } from 'cc';
@@ -34,7 +23,7 @@ import { CdnAssetManager } from '../core/CdnAssetManager';
 import { LocalizationManager } from '../core/LocalizationManager';
 import { FontManager } from '../manager/FontManager';
 import { Log } from '../core/Logger';
-import { SlotMachineController } from './SlotMachineController';
+import { GuideFrameLoader } from '../core/GuideFrameLoader';
 
 const { ccclass, property } = _decorator;
 
@@ -50,8 +39,8 @@ export class LoadingController extends Component {
     @property({ type: UIOpacity, tooltip: 'UIOpacity của LoadingView để fade-out khi xong' })
     uiOpacity: UIOpacity | null = null;
 
-    @property({ tooltip: 'Thời gian hiển thị 1% ban đầu (giây) — bar nhanh tới 1%, rồi tải prefab ngay' })
-    loadingDuration: number = 0.05;
+    @property({ tooltip: 'Thời gian hiển thị 1% ban đầu (giây). 0 = không chờ, load prefab ngay.' })
+    loadingDuration: number = 0;
 
     @property({ type: Label, tooltip: 'Note' })
     noteLabel: Label | null = null;
@@ -128,14 +117,24 @@ export class LoadingController extends Component {
     phaseBundleEnd: number = 0.66;
 
     @property({
-        tooltip: '[Three-phase] Bar crawl tới đây (0-1) TRƯỚC khi load Base prefab. Mặc định 0.99 = 99%'
+        tooltip: '[Three-phase] Bar crawl tới đây (0-1) trong lúc Login ∥ Base ∥ GuideFrames chạy song song. Mặc định 0.99'
     })
     prePrefabBarEnd: number = 1;
 
     @property({
-        tooltip: '[Three-phase] Giây crawl tối đa mỗi phase (bar luôn nhúc nhích dù operation chậm). Mặc định 10s'
+        tooltip: '[Three-phase] Giây crawl tối đa mỗi phase. 0 = không crawl, chờ Login+Base xong rồi fill ngay.'
     })
-    phaseCrawlSecs: number = 10;
+    phaseCrawlSecs: number = 0;
+
+    @property({
+        tooltip: 'Thời gian animate bar tới 100% (giây). 0 = snap ngay.'
+    })
+    barFillToFullSecs: number = 0;
+
+    @property({
+        tooltip: 'Giữ bar ở 100% (giây) trước GuideView. 0 = không chờ.'
+    })
+    barHoldAtFullSecs: number = 0;
 
     private _elapsed: number = 0;
     private _loadCb: (() => void) | null = null;
@@ -153,8 +152,6 @@ export class LoadingController extends Component {
     private _animatingToFull: boolean = false;
     /** Symbols đã apply và GPU đã xử lý xong textures */
     private _heavyInitDone: boolean = false;
-    /** Đã gọi applyInitialSymbols — tránh double-apply từ ENTER_SUCCESS race */
-    private _symbolsApplied: boolean = false;
     /** Node đã instantiate và ẩn sẵn — chỉ cần active=true khi bar 100% */
     private _instantiatedGameNode: Node | null = null;
 
@@ -164,8 +161,14 @@ export class LoadingController extends Component {
     private _cdnPromise: Promise<void> | null = null;
     /** Bundle kick-off sớm — chạy song song với login */
     private _bundlePromise: Promise<AssetManager.Bundle | null> | null = null;
+    /** Base.prefab asset download — kick ngay khi Bundle ready (chưa instantiate) */
+    private _baseAssetPromise: Promise<Prefab | null> | null = null;
+    /** Base instantiate + attach — chạy sau khi asset sẵn (và scene đã start) */
+    private _basePromise: Promise<void> | null = null;
     /** Guard: tránh fill bar 100% nhiều lần */
     private _fillStarted: boolean = false;
+    /** Three-phase boot: đang crawl 0→81% — hoãn _tryFillToFull đến khi crawl xong */
+    private _bootCrawlActive: boolean = false;
 
     /** Guard: _onLoadComplete đã chạy một lần rồi, không chạy lại */
     private _completed: boolean = false;
@@ -191,13 +194,20 @@ export class LoadingController extends Component {
         // ★ Bắt đầu tải font + CDN + MainBundle ngay — song song với login ở start().
         this._earlyLoadFont();
         this._cdnPromise = this._loadCdnAssets().catch((err) => {
-            Log.w('[LoadingController] Early CDN load failed (non-blocking):', err);
+            Log.w('[Loading] Early CDN load failed (non-blocking):', err);
         });
         if (this.gameBundleName) {
-            this._bundlePromise = this._loadBundleAsync().catch((err) => {
-                Log.e('[LoadingController] Early bundle load failed:', err);
-                return null;
-            });
+            this._bundlePromise = this._loadBundleAsync()
+                .catch((err) => {
+                    Log.e('[Loading] Early bundle load failed:', err);
+                    return null;
+                })
+                .then((bundle) => {
+                    if (bundle && this.gamePrefabPath && this.handleServerLogin) {
+                        void this._ensureBaseAssetLoad(bundle);
+                    }
+                    return bundle;
+                });
         }
 
         // Lắng nghe ENTER_SUCCESS từ server (hoặc mock) — điều kiện để unlock LOADING_COMPLETE
@@ -352,25 +362,15 @@ export class LoadingController extends Component {
     }
 
     /**
-     * Gọi applyInitialSymbols() khi CẢ prefab đã instantiate VÀ ENTER_SUCCESS đã fire.
-     * Đánh dấu heavy init xong ngay frame sau (không chờ delay cứng).
+     * ★ GameRoot inactive → KHÔNG gọi applyInitialSymbols ở đây.
+     * ReelController chưa onLoad → _restPositions undefined → crash setPosition.
+     * Symbols được apply bởi GameEntryController sau khi GameRoot.active = true.
      */
     private _applySymbolsIfReady(): void {
-        if (!this._instantiatedGameNode || this._heavyInitDone || this._symbolsApplied || !this._serverReady) return;
-        this._symbolsApplied = true;
-
-        const smc = this._instantiatedGameNode.getComponentInChildren(SlotMachineController);
-        if (smc) {
-            smc.applyInitialSymbols();
-            Log.d('[LoadingController] applyInitialSymbols() called with real data');
-        }
-
-        // 1 frame defer — đủ để GPU submit texture upload, không chờ 0.3s cứng
-        this.scheduleOnce(() => {
-            this._heavyInitDone = true;
-            this._tryFillToFull();
-            Log.d('[LoadingController] Heavy init done → bar allowed to reach 100%');
-        }, 0);
+        if (this._heavyInitDone || !this._instantiatedGameNode || !this._serverReady) return;
+        this._heavyInitDone = true;
+        this._tryFillToFull();
+        Log.d('[LoadingController] Heavy gate released — symbols deferred until GameRoot active');
     }
 
     // ─── LOADING BAR ───
@@ -380,7 +380,7 @@ export class LoadingController extends Component {
         if (this.useScenePreload && this.targetScene && !this.gamePrefabPath) {
             this._startScenePreload();
         } else if (this.handleServerLogin && this.gamePrefabPath) {
-            // ★ THREE-PHASE MODE: crawl 0→99% (Login ∥ Bundle), rồi load Base → 100%
+            // ★ THREE-PHASE MODE: Login ∥ Base ∥ GuideFrames song song → 100%
             this._runThreePhaseLoading();
         } else {
             this._startFakeTimer();
@@ -471,16 +471,6 @@ export class LoadingController extends Component {
 
         this._serverReady = true;
         this._tryFillToFull();
-    }
-
-    /** Đợi CDN xong (locale/font) trước khi cho phép hiện game UI */
-    private async _awaitCdnReady(): Promise<void> {
-        if (!this._cdnPromise) return;
-        try {
-            await this._cdnPromise;
-        } catch (err) {
-            Log.w('[LoadingController] CDN await error (non-blocking):', err);
-        }
     }
 
     // ─── CDN ASSETS ───
@@ -583,6 +573,12 @@ export class LoadingController extends Component {
     // ─── FAKE TIMER (single-scene mode, useScenePreload = false) ───
 
     private _startFakeTimer(): void {
+        if (this.loadingDuration <= 0) {
+            if (this.loadingBar) this.loadingBar.progress = this.prefabLoadPercent;
+            this._syncHtmlLoadingOverlay();
+            this._onBarReachedLimit();
+            return;
+        }
         this._elapsed = 0;
         const interval = 1 / 30;
         // Nhanh tới prefabLoadPercent% để hiển thị loading ngay, rồi load prefab
@@ -652,11 +648,7 @@ export class LoadingController extends Component {
                         // active=true NGAY ĐỂ LIFECYCLE CHẠY (onLoad/start của SMC, SymbolView...).
                         // Vô hình nhờ opacity=0 trong GameEntryController.onLoad().
                         const gameNode = instantiate(prefab);
-                        gameNode.active = true;
-                        const parent = this.gameContainer ?? director.getScene()!;
-                        parent.addChild(gameNode);
-                        this._instantiatedGameNode = gameNode;
-                        Log.d(`[LoadingController] Prefab instantiated (active=true, opacity=0): ${this.gameBundleName}/${this.gamePrefabPath}`);
+                        this._attachGamePrefab(gameNode);
                     }
                     // Prefab đã instantiate — đánh dấu ready, nhưng CHỜ ENTER_SUCCESS + GPU
                     // _applySymbolsIfReady() sẽ chạy khi ENTER_SUCCESS fire (hoặc đã fire)
@@ -700,6 +692,9 @@ export class LoadingController extends Component {
      */
     private _tryFillToFull(): void {
         if (this._fillStarted || this._animatingToFull) return;
+        // ★ Base/Login xong sớm trong lúc bar crawl → đợi crawl phase kết thúc.
+        //   Nếu fill sớm, _phaseWithCrawl.finish() stop tween 100% và kéo bar về ~81%.
+        if (this._bootCrawlActive) return;
         const prefabDone = !this.gamePrefabPath || this._prefabReady;
         const heavyDone  = !this.gamePrefabPath || this._heavyInitDone;
         // CDN không block bar 100% — locale/font apply nền khi xong
@@ -712,17 +707,24 @@ export class LoadingController extends Component {
     // ─── THREE-PHASE LOADING ───
 
     /**
-     * Bar crawl mượt 0→99% trong lúc Login ∥ Bundle (CDN nền).
-     * Đạt 99% xong mới load Base — tránh khựng ở ~90% khi Base nặng.
+     * Login ∥ Base — không crawl bar / không hold UX.
      */
     private async _runThreePhaseLoading(): Promise<void> {
+        this._bootCrawlActive = true;
         if (this.loadingBar) this.loadingBar.progress = 0;
 
         if (!this._bundlePromise) {
-            this._bundlePromise = this._loadBundleAsync().catch((err) => {
-                Log.e('[LoadingController] Bundle load failed:', err);
-                return null;
-            });
+            this._bundlePromise = this._loadBundleAsync()
+                .catch((err) => {
+                    Log.e('[LoadingController] Bundle load failed:', err);
+                    return null;
+                })
+                .then((bundle) => {
+                    if (bundle && this.gamePrefabPath) {
+                        void this._ensureBaseAssetLoad(bundle);
+                    }
+                    return bundle;
+                });
         }
         if (!this._cdnPromise) {
             this._cdnPromise = this._loadCdnAssets().catch((err) => {
@@ -730,67 +732,143 @@ export class LoadingController extends Component {
             });
         }
 
-        const barEnd = Math.min(0.995, Math.max(0.5, this.prePrefabBarEnd));
+        const loginPromise = this._doServerLogin();
+        const basePromise = (async () => {
+            try {
+                const bundle = await this._bundlePromise;
+                if (!bundle) {
+                    Log.e('[LoadingController] No bundle — cannot load Base');
+                    this._prefabReady = true;
+                    return;
+                }
+                void GuideFrameLoader.preload(bundle);
+                if (this.gamePrefabPath) {
+                    await this._ensureBaseReady(bundle);
+                } else {
+                    this._prefabReady = true;
+                }
+            } catch (err) {
+                Log.e('[LoadingController] Base load error (continue):', err);
+                this._prefabReady = true;
+            }
+        })();
 
-        Log.d(`[ThreePhase] Crawl 0→${(barEnd * 100).toFixed(0)}% (Login ∥ Bundle), then Base`);
-        let bundle: AssetManager.Bundle | null = null;
-        await this._phaseWithCrawl(0, barEnd, async () => {
-            const [, b] = await Promise.all([
-                this._doServerLogin(),
-                this._bundlePromise!,
-            ]);
-            bundle = b;
-        });
+        await Promise.all([loginPromise, basePromise]);
 
-        if (this.loadingBar) {
-            Tween.stopAllByTarget(this.loadingBar);
-            this.loadingBar.progress = barEnd;
-            this._syncHtmlLoadingOverlay();
+        this._heavyInitDone = true;
+        this._prefabReady = true;
+        this._serverReady = true;
+        this._bootCrawlActive = false;
+
+        if (this._fillStarted && this.loadingBar && this.loadingBar.progress < 0.99) {
+            this._fillStarted = false;
+            this._animatingToFull = false;
         }
 
-        Log.d('[ThreePhase] Load Base prefab at bar 99%');
-        if (bundle && this.gamePrefabPath) {
-            await this._loadAndInstantiatePrefab(bundle);
-        } else if (!bundle) {
-            Log.e('[LoadingController] No bundle — cannot instantiate prefab');
-            this._prefabReady = true;
-            this._heavyInitDone = true;
-        }
-
-        Log.d('[ThreePhase] Base done → fill bar to 100%');
         this._tryFillToFull();
     }
 
+    /** Idempotent: chỉ download Prefab asset (chưa instantiate). */
+    private _ensureBaseAssetLoad(bundle: AssetManager.Bundle): Promise<Prefab | null> {
+        if (this._baseAssetPromise) return this._baseAssetPromise;
+        if (this._loadedPrefab) {
+            this._baseAssetPromise = Promise.resolve(this._loadedPrefab as Prefab);
+            return this._baseAssetPromise;
+        }
+
+        Log.d(`[LoadingController] Download Base asset: ${this.gamePrefabPath}`);
+        this._baseAssetPromise = new Promise<Prefab | null>((resolve) => {
+            let settled = false;
+            const settle = (value: Prefab | null) => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+            };
+            const timer = setTimeout(() => {
+                Log.e('[LoadingController] Base asset load timeout 45s');
+                settle(null);
+            }, 45_000);
+
+            bundle.load(this.gamePrefabPath, Prefab, (err: Error | null, prefab: Prefab) => {
+                clearTimeout(timer);
+                if (err || !prefab) {
+                    Log.e(`[LoadingController] Prefab load failed: ${this.gamePrefabPath}`, err);
+                    settle(null);
+                    return;
+                }
+                this._loadedPrefab = prefab;
+                settle(prefab);
+            });
+        });
+        return this._baseAssetPromise;
+    }
+
     /**
-     * Bar crawl đều tới `to` trong khi operation chạy.
-     * Operation xong → snap/fill tới `to`, rồi resolve.
+     * Download (nếu chưa) + instantiate/attach Base.
+     * try/catch để Promise luôn resolve — tránh bar kẹt ~80%.
      */
-    private _phaseWithCrawl(from: number, to: number, operation: () => Promise<void>): Promise<void> {
-        this._syncHtmlLoadingOverlay();
-        return new Promise<void>((resolve) => {
-            if (!this.loadingBar) {
-                operation().then(resolve).catch((err) => {
-                    Log.e('[PhaseWithCrawl] Operation error (no bar):', err);
-                    resolve();
-                });
+    private _ensureBaseReady(bundle: AssetManager.Bundle): Promise<void> {
+        if (this._basePromise) return this._basePromise;
+
+        this._basePromise = (async () => {
+            const prefab = await this._ensureBaseAssetLoad(bundle);
+            if (!prefab) {
+                this._prefabReady = true;
                 return;
             }
+            if (this._instantiatedGameNode) {
+                this._prefabReady = true;
+                return;
+            }
+            try {
+                const gameNode = instantiate(prefab);
+                this._attachGamePrefab(gameNode);
+            } catch (err) {
+                Log.e('[LoadingController] Base instantiate failed:', err);
+            }
+            this._prefabReady = true;
+            this._applySymbolsIfReady();
+            this._tryFillToFull();
+        })();
 
+        return this._basePromise;
+    }
+
+    /**
+     * Bar crawl (legacy two-scene). phaseCrawlSecs=0 → await operation, không tween bar.
+     */
+    private _phaseWithCrawl(from: number, to: number, operation: () => Promise<void>): Promise<void> {
+        if (this.phaseCrawlSecs <= 0 || !this.loadingBar) {
+            return operation().catch((err) => {
+                Log.e('[PhaseWithCrawl] Operation error:', err);
+            });
+        }
+        this._syncHtmlLoadingOverlay();
+        return new Promise<void>((resolve) => {
             let resolved = false;
 
             const finish = () => {
                 if (resolved) return;
                 resolved = true;
+                if (this._fillStarted || this._animatingToFull) {
+                    resolve();
+                    return;
+                }
                 Tween.stopAllByTarget(this.loadingBar!);
                 const cur = this.loadingBar!.progress;
-                const fillSecs = Math.max(0.1, (to - cur) * 0.5);
+                const fillSecs = Math.max(0, (to - cur) * 0.5);
+                if (fillSecs <= 0) {
+                    this.loadingBar!.progress = to;
+                    resolve();
+                    return;
+                }
                 tween(this.loadingBar!)
                     .to(fillSecs, { progress: to }, { easing: 'sineOut' })
                     .call(() => resolve())
                     .start();
             };
 
-            const crawlSecs = Math.max(3, this.phaseCrawlSecs);
+            const crawlSecs = this.phaseCrawlSecs;
             tween(this.loadingBar)
                 .to(crawlSecs, { progress: to }, { easing: 'sineOut' })
                 .start();
@@ -822,6 +900,27 @@ export class LoadingController extends Component {
         });
     }
 
+    /** Tắt GameRoot + GuideView TRƯỚC addChild — tránh onLoad GameRoot chạy khi prefab mặc định active. */
+    private _prepareBootShell(gameNode: Node): void {
+        const gameRoot = gameNode.getChildByName('GameRoot');
+        if (gameRoot) {
+            gameRoot.active = false;
+            const op = gameRoot.getComponent(UIOpacity);
+            if (op) op.opacity = 0;
+        }
+        const guide = gameNode.getChildByName('GuideView');
+        if (guide) guide.active = false;
+    }
+
+    private _attachGamePrefab(gameNode: Node): void {
+        this._prepareBootShell(gameNode);
+        gameNode.active = true;
+        const parent = this.gameContainer ?? director.getScene()!;
+        parent.addChild(gameNode);
+        this._instantiatedGameNode = gameNode;
+        Log.d(`[LoadingController] Prefab attached (GameRoot inactive, GuideView off): ${this.gamePrefabPath}`);
+    }
+
     /** Load prefab asset từ bundle rồi instantiate (ẩn), lưu vào _instantiatedGameNode */
     private _loadAndInstantiatePrefab(bundle: AssetManager.Bundle): Promise<void> {
         return new Promise<void>((resolve) => {
@@ -830,11 +929,7 @@ export class LoadingController extends Component {
                     Log.e(`[LoadingController] Prefab load failed: ${this.gamePrefabPath}`, err);
                 } else {
                     const gameNode = instantiate(prefab);
-                    gameNode.active = true;
-                    const parent = this.gameContainer ?? director.getScene()!;
-                    parent.addChild(gameNode);
-                    this._instantiatedGameNode = gameNode;
-                    Log.d(`[LoadingController] Prefab instantiated (active=true, opacity=0): ${this.gamePrefabPath}`);
+                    this._attachGamePrefab(gameNode);
                 }
                 this._prefabReady = true;
                 this._applySymbolsIfReady();
@@ -844,25 +939,43 @@ export class LoadingController extends Component {
         });
     }
 
-    /** Fill bar từ 2% → 100% rồi complete */
+    /** Snap/fill 100% rồi emit LOADING_COMPLETE + LOADING_BAR_100. */
     private _fillToFull(): void {
         if (this._animatingToFull) return;
         this._animatingToFull = true;
 
-        if (!this.loadingBar) {
+        const completeBoot = () => {
+            if (this.loadingBar) {
+                Tween.stopAllByTarget(this.loadingBar);
+                this.loadingBar.progress = 1.0;
+                this._syncHtmlLoadingOverlay();
+            }
+            this._onLoadComplete();
+            EventBus.instance.emit(GameEvents.LOADING_BAR_100);
             this._hideHtmlOverlay();
             this.node.active = false;
-            this._onLoadComplete();
+        };
+
+        if (!this.loadingBar) {
+            completeBoot();
             return;
         }
+
+        this.node.active = true;
+        if (this.uiOpacity) this.uiOpacity.opacity = 255;
+
+        const fillSecs = this.barFillToFullSecs;
+        const holdSecs = this.barHoldAtFullSecs;
+        if (fillSecs <= 0 && holdSecs <= 0) {
+            completeBoot();
+            return;
+        }
+
+        Tween.stopAllByTarget(this.loadingBar);
         tween(this.loadingBar)
-            .to(0.05, { progress: 1.0 })
-            .call(() => {
-                this._hideHtmlOverlay();
-                this.node.active = false;
-                EventBus.instance.emit(GameEvents.LOADING_BAR_100);
-                this._onLoadComplete();
-            })
+            .to(Math.max(0, fillSecs), { progress: 1.0 }, { easing: 'sineOut' })
+            .delay(Math.max(0, holdSecs))
+            .call(completeBoot)
             .start();
     }
 
@@ -875,7 +988,7 @@ export class LoadingController extends Component {
 
         // Prefab mode: đợi heavy init (symbols) xong trước khi emit LOADING_COMPLETE
         if (this.gamePrefabPath && !this._heavyInitDone) {
-            this.scheduleOnce(() => this._onLoadComplete(), 0.05);
+            this.scheduleOnce(() => this._onLoadComplete(), 0);
             return;
         }
 
@@ -884,9 +997,8 @@ export class LoadingController extends Component {
         EventBus.instance.off(GameEvents.ENTER_SUCCESS, this._onServerReady, this);
 
         const doComplete = () => {
-            // ★ Ẩn HTML overlay NGAY TRƯỚC khi emit LOADING_COMPLETE / chuyển scene
-            // — tránh icons GIF/PNG hiện chồng lên GuideView / game scene.
-            this._hideHtmlOverlay();
+            // Không ẩn overlay/loading ở đây — _fillToFull đã hold 100% rồi mới gọi.
+            // Chỉ chuẩn bị data + emit LOADING_COMPLETE (Guide bật bởi LOADING_BAR_100 sau đó).
 
             if (this.gamePrefabPath) {
                 // ★ PREFAB MODE
@@ -923,16 +1035,11 @@ export class LoadingController extends Component {
                         Log.e(`[GAME-ENTER] LoadingController → NO rawEnterLastSpinResponse`);
                     }
                 }
-                // Bước 1: Ẩn LoadingView (đã fade xong, nền đen hiện ra)
                 GameData.instance.isFromLoadingScene = true;
-                this.node.active = false;
-                // Bước 2: gameNode đã active=true từ lúc instantiate (lifecycle đã chạy xong).
-                // Dòng này là no-op (guard). LOADING_COMPLETE sẽ trigger GameEntryController.
+                // Loading node vẫn visible — _fillToFull ẩn sau khi emit LOADING_BAR_100
                 if (this._instantiatedGameNode) {
                     this._instantiatedGameNode.active = true;
                 }
-                // Bước 3: Emit LOADING_COMPLETE → GameEntryController xử lý toàn bộ heavy init
-                //          đồng bộ (PRE-WARM gameRoot + GuideView activate).
                 EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
                 if (!this._instantiatedGameNode) {
                     Log.e('[LoadingController] Prefab not available — game may not display correctly');
@@ -940,6 +1047,8 @@ export class LoadingController extends Component {
             } else if (this.targetScene) {
                 // TWO-SCENE MODE: chuyển sang scene khác
                 GameData.instance.isFromLoadingScene = true;
+                this._hideHtmlOverlay();
+                this.node.active = false;
                 const doLoad = () => director.loadScene(this.targetScene!);
                 if (typeof document !== 'undefined' && document.fonts?.ready) {
                     document.fonts.ready.then(doLoad);
@@ -947,15 +1056,14 @@ export class LoadingController extends Component {
                     doLoad();
                 }
             } else {
-                // SINGLE-SCENE MODE: ẩn loading view, game view hiện ra trên cùng scene.
+                // SINGLE-SCENE MODE
+                this._hideHtmlOverlay();
                 this.node.active = false;
                 EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
             }
         };
 
         if (this.uiOpacity) {
-            // HTML overlay đang che toàn bộ canvas → không cần fade Cocos loading screen,
-            // gọi doComplete() ngay để game activate trước khi overlay ẩn.
             doComplete();
         } else {
             this.scheduleOnce(doComplete, 0);

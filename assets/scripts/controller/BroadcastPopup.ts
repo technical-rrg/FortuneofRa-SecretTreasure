@@ -123,7 +123,8 @@ export class BroadcastManager extends Component {
     onLoad(): void {
         this._broadcastEnabled = this._loadBroadcastEnabled();
         this._opacity = this.node.getComponent(UIOpacity);
-        this.node.active = false;
+        // Giữ active=true — node inactive sẽ không nhận schedule/tween, broadcast không hiện.
+        // Idle: đặt tại posFrom (ngoài màn hình) trong start().
         EventBus.instance.on(GameEvents.BROADCAST_WIN_MESSAGE, this._onBroadcastMessage, this);
         EventBus.instance.on(GameEvents.BROADCAST_SETTING_CHANGED, this._onBroadcastSettingChanged, this);
         EventBus.instance.on(GameEvents.JACKPOT_TRIGGER, this._onJackpotTrigger, this);
@@ -135,7 +136,30 @@ export class BroadcastManager extends Component {
     }
 
     start(): void {
-        // Sau khi layout đã ổn định, đặt popup về vị trí posFrom
+        this._snapToIdlePosition();
+    }
+
+    /** Wire PosFrom/PosTo từ Base root (marker nằm ngoài prefab sau khi tách). */
+    bindPositionMarkers(posFrom: Node | null, posTo: Node | null): void {
+        this.posFrom = posFrom;
+        this.posTo = posTo;
+        this._snapToIdlePosition();
+        Log.d(`[Broadcast] bindPositionMarkers — posFrom=${!!posFrom}, posTo=${!!posTo}`);
+    }
+
+    /** Loader gọi nếu GAME_READY đã fire trước khi prefab instantiate. */
+    syncGameReady(alreadyReady: boolean): void {
+        if (alreadyReady && !this._gameReady) {
+            this._onGameReady();
+        }
+    }
+
+    /** Loader replay message bị miss khi lazy-load chưa xong. */
+    deliverMessage(message: ServerWinBroadcast): void {
+        this._onBroadcastMessage(message);
+    }
+
+    private _snapToIdlePosition(): void {
         if (this.posFrom) {
             this.node.setPosition(this._nodeToParentLocal(this.posFrom));
         }
@@ -297,34 +321,11 @@ export class BroadcastManager extends Component {
         return local;
     }
 
-    /** Đảm bảo broadcast popup nằm TRÊN ProgressiveWinPopup nhưng BÊN DƯỚI GuideView */
+    /** Giữ BroadcastPopup ở sibling index cuối trên shell parent (Base root). */
     private _ensureOnTopOfProgressiveWin(): void {
         const parent = this.node.parent;
         if (!parent) return;
-        const children = parent.children;
-
-        // Tìm index của GuideView — broadcast phải nằm dưới nó
-        const guideIndex = children.findIndex(c => c.name === 'GuideView');
-
-        // Tìm index của ProgressiveWinPopup — broadcast phải nằm trên nó
-        const progressiveIndex = children.findIndex(c => c.name === 'ProgressiveWinPopup');
-
-        // Target: ngay trước GuideView (nếu có), nhưng sau ProgressiveWinPopup
-        let targetIndex: number;
-        if (guideIndex >= 0) {
-            // Chèn ngay bên dưới GuideView
-            targetIndex = guideIndex - 1;
-        } else {
-            // Không có GuideView → lên cao nhất
-            targetIndex = children.length - 1;
-        }
-
-        // Đảm bảo không tụt xuống dưới ProgressiveWinPopup
-        if (progressiveIndex >= 0) {
-            targetIndex = Math.max(targetIndex, progressiveIndex + 1);
-        }
-
-        this.node.setSiblingIndex(Math.max(0, targetIndex));
+        this.node.setSiblingIndex(parent.children.length - 1);
     }
 
     private _beginRest(): void {
@@ -338,7 +339,10 @@ export class BroadcastManager extends Component {
 
     private _hideImmediately(): void {
         tween(this.node).stop();
-        this.node.active = false;
+        if (this.posFrom) {
+            this.node.setPosition(this._nodeToParentLocal(this.posFrom));
+        }
+        if (this._opacity) this._opacity.opacity = 255;
         this._isShowing = false;
         this._isResting = false;
     }

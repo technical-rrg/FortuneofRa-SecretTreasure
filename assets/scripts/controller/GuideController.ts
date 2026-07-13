@@ -14,32 +14,16 @@
  *   → click continueArea → fade out → emit GUIDE_COMPLETE → deactivate
  */
 
-import { _decorator, Component, Node, UIOpacity, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween, assetManager } from 'cc';
+import { _decorator, Component, Node, UIOpacity, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
 import { SoundManager } from '../manager/SoundManager';
 import { SettingPopup } from './SettingPopup';
 import { Log } from '../core/Logger';
+import { GuideFrameLoader, GUIDE_PORTRAIT_PATHS, GUIDE_LANDSCAPE_PATHS } from '../core/GuideFrameLoader';
 
 const { ccclass, property } = _decorator;
-
-const GUIDE_BUNDLE = 'MainBundle';
-/** Portrait / landscape guide slides — lazy-loaded (nulled from Base.prefab). */
-const GUIDE_PORTRAIT_PATHS = [
-    'newTextures/guide/Verticle/Guide1/spriteFrame',
-    'newTextures/guide/Verticle/Guide2/spriteFrame',
-    'newTextures/guide/Verticle/Guide3/spriteFrame',
-    'newTextures/guide/Verticle/Guide4/spriteFrame',
-    'newTextures/guide/Verticle/Guide5/spriteFrame',
-] as const;
-const GUIDE_LANDSCAPE_PATHS = [
-    'newTextures/guide/Guide1/spriteFrame',
-    'newTextures/guide/Guide2/spriteFrame',
-    'newTextures/guide/Guide3/spriteFrame',
-    'newTextures/guide/Guide4/spriteFrame',
-    'newTextures/guide/Guide5/spriteFrame',
-] as const;
 
 @ccclass('GuideController')
 export class GuideController extends Component {
@@ -83,8 +67,8 @@ export class GuideController extends Component {
     @property({ tooltip: 'Thời gian transition slide (giây)' })
     slideDuration: number = 0.35;
 
-    @property({ tooltip: 'Delay (giây) sau khi fade-in xong mới bắt đầu carousel' })
-    carouselDelay: number = 1.0;
+    @property({ tooltip: 'Delay (giây) sau fade-in trước carousel. 0 = bắt đầu ngay.' })
+    carouselDelay: number = 0;
 
     @property({ type: Button, tooltip: 'Button "CLICK TO CONTINUE" ở dưới cùng màn hình' })
     continueArea: Button | null = null;
@@ -112,8 +96,8 @@ export class GuideController extends Component {
     @property({ type: Node, tooltip: 'Node chứa RandomParticleSpawner — sẽ ẩn khi click Continue' })
     randomParticleSpawnerNode: Node | null = null;
 
-    @property({ tooltip: 'Fade-in duration khi Guide xuất hiện (giây)' })
-    fadeInDuration: number = 0.4;
+    @property({ tooltip: 'Fade-in duration khi Guide xuất hiện (giây). 0 = hiện ngay.' })
+    fadeInDuration: number = 0;
 
     @property({ tooltip: 'Scale min cho zoom effect của continueArea' })
     zoomMinScale: number = 0.9;
@@ -141,7 +125,8 @@ export class GuideController extends Component {
         EventBus.instance.on(GameEvents.LANGUAGE_CHANGED, this._setGuideLabels, this);
         screen.on('window-resize', this._applyGuideLayout, this);
         screen.on('orientation-change', this._applyGuideLayout, this);
-        // Warm guide slides in background — không block Base boot
+        // Apply cache từ LoadingController preload (nếu đã sẵn)
+        this._applyCachedFrames();
         this._ensureGuideFrames();
     }
 
@@ -195,24 +180,35 @@ export class GuideController extends Component {
             Log.w('[GuideController] continueArea is NULL — chưa assign trong Editor!');
         }
 
-        // FadeOut: opacity 0→255 (GuideView hiện ra từ đen)
-        // Bind clicks SAU KHI fade xong
+        // Fade-in Guide (0 = hiện ngay)
         if (this.uiOpacity) {
-            // Play lại particles khi fade in bắt đầu
             for (const ps of this.particles) { if (ps) { ps.clear(); ps.play(); } }
-            tween(this.uiOpacity)
-                .to(this.fadeInDuration, { opacity: 255 })
-                .call(() => {
-                    Log.d('[GuideController] FadeOut complete → _bindClicks() + delay before carousel');
-                    this._bindClicks();
-                    this._bindTabIconClicks();
-                    this.scheduleOnce(this._delayedStartCarousel, this.carouselDelay);
-                })
-                .start();
+            if (this.fadeInDuration <= 0) {
+                this.uiOpacity.opacity = 255;
+                this._bindClicks();
+                this._bindTabIconClicks();
+                this._startCarouselAfterDelay();
+            } else {
+                tween(this.uiOpacity)
+                    .to(this.fadeInDuration, { opacity: 255 })
+                    .call(() => {
+                        this._bindClicks();
+                        this._bindTabIconClicks();
+                        this._startCarouselAfterDelay();
+                    })
+                    .start();
+            }
         } else {
-            Log.d('[GuideController] no uiOpacity → _bindClicks() + delay ' + this.carouselDelay + 's before carousel');
             this._bindClicks();
             this._bindTabIconClicks();
+            this._startCarouselAfterDelay();
+        }
+    }
+
+    private _startCarouselAfterDelay(): void {
+        if (this.carouselDelay <= 0) {
+            this._delayedStartCarousel();
+        } else {
             this.scheduleOnce(this._delayedStartCarousel, this.carouselDelay);
         }
     }
@@ -268,8 +264,17 @@ export class GuideController extends Component {
         }
     }
 
-    /** Lazy-load 10 guide slides from MainBundle (nulled out of Base.prefab). */
+    private _applyCachedFrames(): boolean {
+        const cached = GuideFrameLoader.cached;
+        if (!cached) return false;
+        this.bgPortraitFrames = cached.portrait.slice();
+        this.bgLandscapeFrames = cached.landscape.slice();
+        return true;
+    }
+
+    /** Reuse GuideFrameLoader cache — LoadingController preload trước bar 100%. */
     private _ensureGuideFrames(): Promise<void> {
+        if (this._applyCachedFrames()) return Promise.resolve();
         const needPortrait = !this.bgPortraitFrames || this.bgPortraitFrames.length < GUIDE_PORTRAIT_PATHS.length
             || this.bgPortraitFrames.some((f) => !f);
         const needLandscape = !this.bgLandscapeFrames || this.bgLandscapeFrames.length < GUIDE_LANDSCAPE_PATHS.length
@@ -277,26 +282,9 @@ export class GuideController extends Component {
         if (!needPortrait && !needLandscape) return Promise.resolve();
         if (this._guideFramesPromise) return this._guideFramesPromise;
 
-        this._guideFramesPromise = new Promise<void>((resolve) => {
-            const bundle = assetManager.getBundle(GUIDE_BUNDLE);
-            if (!bundle) {
-                Log.w(`[GuideController] Bundle '${GUIDE_BUNDLE}' missing — guide frames unavailable`);
-                resolve();
-                return;
-            }
-            const paths = [...GUIDE_PORTRAIT_PATHS, ...GUIDE_LANDSCAPE_PATHS];
-            bundle.load(paths as unknown as string[], SpriteFrame, (err, assets) => {
-                if (err || !assets) {
-                    Log.w('[GuideController] Guide frame load failed', err);
-                    resolve();
-                    return;
-                }
-                const list = assets as SpriteFrame[];
-                this.bgPortraitFrames = list.slice(0, GUIDE_PORTRAIT_PATHS.length);
-                this.bgLandscapeFrames = list.slice(GUIDE_PORTRAIT_PATHS.length);
-                Log.d(`[GuideController] Lazy-loaded guide frames P=${this.bgPortraitFrames.length} L=${this.bgLandscapeFrames.length}`);
-                resolve();
-            });
+        this._guideFramesPromise = GuideFrameLoader.preload().then((frames) => {
+            if (frames) this._applyCachedFrames();
+            else Log.w('[GuideController] Guide frame load failed');
         });
         return this._guideFramesPromise;
     }

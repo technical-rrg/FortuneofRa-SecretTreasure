@@ -265,6 +265,8 @@ export const GameEvents = {
     FEATURE_SELECT_CLOSE: 'feature:select:close',
     /** Tất cả STICKY_RED symbol trên màn hình nhún nhẹ cùng lúc (trước khi fly-in). No payload. */
     RED_SYMBOL_BOUNCE: 'feature:red:bounce',
+    /** Tất cả Sticky đỏ vừa land đã zoom/bounce xong — GameManager mới được highlight win. No payload. */
+    STICKY_RED_LAND_BOUNCE_DONE: 'feature:red:land:bounce:done',
 
     // ─── RED CREDIT (Đồng xu Đỏ) ───
     /**

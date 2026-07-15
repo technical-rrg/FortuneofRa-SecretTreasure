@@ -4,14 +4,15 @@
  * Setup trong Editor:
  *   1. Tạo Node "TransitionOverlay" (overlay toàn màn hình, ban đầu inactive).
  *   2. Gắn component này vào node đó.
- *   3. Node phải có UIOpacity component (để fade in/out).
+ *   3. overlayNode: Node nền tối (kéo Background/Overlay vào) — có UIOpacity để fade.
  *   4. Đặt node này trên cùng hierarchy (order cao nhất).
  *   5. iconNode: Spine với animation Idle_LV6 và LV6_transition_LV0.
  *   6. effectNode: Particle active khi bắt đầu (Idle_LV6).
  *   7. effectNode2: Particle active khi icon bay tới đích.
  *
  * Flow:
- *   GUIDE_COMPLETE → phát hiệu ứng transition → fade in/out → biến mất
+ *   GUIDE_COMPLETE → icon bay tới Pot → effect → overlay fade out → ẩn hẳn
+ *   → mới handoff chest sang Pot.potSpine → TRANSITION_DONE
  */
 
 import { _decorator, Component, UIOpacity, tween, Node, Vec3, ParticleSystem, easing, sp } from 'cc';
@@ -27,8 +28,14 @@ const { ccclass, property } = _decorator;
 @ccclass('TransitionController')
 export class TransitionController extends Component {
 
-    @property({ type: UIOpacity, tooltip: 'UIOpacity của TransitionOverlay để fade in/out' })
+    @property({ type: UIOpacity, tooltip: 'UIOpacity của root Transition (legacy / fallback fade)' })
     uiOpacity: UIOpacity | null = null;
+
+    @property({
+        type: Node,
+        tooltip: 'Overlay nền tối (kéo node Overlay/Background vào).\nCần có UIOpacity — nếu chưa có sẽ tự add lúc runtime.',
+    })
+    overlayNode: Node | null = null;
 
     @property({ type: Node, tooltip: 'Icon node để hiển thị hiệu ứng bay' })
     iconNode: Node | null = null;
@@ -54,20 +61,21 @@ export class TransitionController extends Component {
     @property({ tooltip: 'Thời gian zoom out của icon (giây)' })
     iconZoomOutDuration: number = 0.3;
 
-    @property({ tooltip: 'Thời gian fade in nhanh (giây)' })
+    @property({ tooltip: 'Thời gian fade in overlay khi mở (giây)' })
     fadeInDuration: number = 0.2;
 
-    @property({ tooltip: 'Thời gian giữ màn chắn (giây)' })
+    @property({ tooltip: 'Thời gian giữ sau khi icon tới đích, trước khi fade overlay (giây)' })
     holdDuration: number = 1.0;
 
-    @property({ tooltip: 'Thời gian fade out nhanh (giây)' })
-    fadeOutDuration: number = 0.2;
+    @property({ tooltip: 'Thời gian overlay fade out trước khi ẩn (giây)' })
+    fadeOutDuration: number = 0.35;
 
     @property({ type: Node, tooltip: 'Flash node' })
     flashNode: Node | null = null;
 
     private _isPlaying: boolean = false;
     private _finishCb: (() => void) | null = null;
+    private _pendingPot: PotController | null = null;
 
     // ─── LIFECYCLE ───
 
@@ -87,6 +95,7 @@ export class TransitionController extends Component {
         if (this._isPlaying) return;
         this._isPlaying = true;
         this.node.active = true;
+        this._resetOverlayOpacity(255);
         SoundManager.instance?.playNormalIntro();
         this.playIconFlyAnimation();
     }
@@ -97,13 +106,6 @@ export class TransitionController extends Component {
         this._onGuideComplete();
     }
 
-    /**
-     * Flow:
-     *   - Bắt đầu: play Idle_LV6 loop trên icon spine + effectNode particle
-     *   - delay → zoom 0→1.3→1 (bounce) → giữ
-     *   - Bắt đầu bay: stop effectNode + play LV6_transition_LV0
-     *   - Bay vào target: effectNode2 particle → targetNode hiện
-     */
     /**
      * Resume / không chạy fly: chuyển chest sang Pot anchor, không duplicate spine load.
      * Gọi sau ensureLoaded() khi bỏ qua GUIDE_COMPLETE animation.
@@ -131,8 +133,9 @@ export class TransitionController extends Component {
             return;
         }
         this._cleanupRunningTweens();
+        this._pendingPot = this._findPotController();
 
-        // targetNode = Pot anchor (empty) — iconNode bay tới rồi reparent, không bật spine thứ hai
+        // targetNode = Pot anchor (empty) — iconNode bay tới rồi reparent SAU khi overlay ẩn
         this.iconNode.active = true;
         this.iconNode.setScale(new Vec3(0, 0, 0));
 
@@ -176,13 +179,11 @@ export class TransitionController extends Component {
         );
 
         tween(this.iconNode)
-            // Delay 1 giây trước khi xuất hiện (scale=0 trong thời gian này)
-
             // Zoom nhanh ra 0 → 1.3
             .to(this.iconZoomInDuration, { scale: new Vec3(1.3, 1.3, 1.3) })
             // Bounce nhẹ nhảy về 1
             .to(this.iconZoomOutDuration, { scale: new Vec3(1, 1, 1) })
-            // Giữ yên 1 giây
+            // Giữ yên trước khi bay
             .delay(this.iconFlyDelay)
             // Vừa bắt đầu bay: stop effectNode + play LV6_transition_LV{potLevel}
             .call(() => {
@@ -205,7 +206,7 @@ export class TransitionController extends Component {
                 { easing: easing.cubicInOut }
             )
             .call(() => {
-                // Đến đích: play effectNode2 particle
+                // Đến đích: play effectNode2 — CHƯA handoff spine sang Pot
                 if (this.effectNode2 && this.targetNode) {
                     this.effectNode2.setWorldPosition(this.targetNode.getWorldPosition());
                     this.effectNode2.active = true;
@@ -213,24 +214,77 @@ export class TransitionController extends Component {
                         ps.stop(); ps.play();
                     }
                 }
-                // Chuyển chest sang Pot.potSpine (dùng chung spine, không load 2 lần)
-                this._handoffChestToPot(this._findPotController());
-                this._finishCb = () => {
-                    this._finishCb = null;
-                    this.node.active = false;
-                    this._isPlaying = false;
-                    EventBus.instance.emit(GameEvents.TRANSITION_DONE);
-                };
-                this.scheduleOnce(this._finishCb, 1.5);
+                this._beginHideSequence();
             })
             .start();
 
-        // Mờ dần khi bay (bắt đầu từ lúc zoom in + bounce + hold delay)
+        // Icon mờ dần khi bay
         if (uiOpacity) {
             tween(uiOpacity)
-                .delay(1.0 + this.iconZoomInDuration + this.iconZoomOutDuration + this.iconFlyDelay)
+                .delay(this.iconZoomInDuration + this.iconZoomOutDuration + this.iconFlyDelay)
                 .to(this.iconFlyDuration, { opacity: 0 })
                 .start();
+        }
+    }
+
+    /**
+     * Giữ effect → fade overlay → ẩn Transition → mới handoff Pot → TRANSITION_DONE.
+     */
+    private _beginHideSequence(): void {
+        this._finishCb = () => {
+            this._finishCb = null;
+            this._fadeOutOverlayThenHide();
+        };
+        this.scheduleOnce(this._finishCb, Math.max(0, this.holdDuration));
+    }
+
+    private _fadeOutOverlayThenHide(): void {
+        const overlayOpacity = this._ensureOverlayOpacity();
+        const duration = Math.max(0.05, this.fadeOutDuration);
+
+        const finishHide = () => {
+            // Ẩn Transition trước → rồi mới gán spine sang Pot (tránh Pot nhận spine quá sớm)
+            this.node.active = false;
+            this._isPlaying = false;
+            this._handoffChestToPot(this._pendingPot ?? this._findPotController());
+            this._pendingPot = null;
+            EventBus.instance.emit(GameEvents.TRANSITION_DONE);
+            Log.d('[TransitionController] overlay faded → hidden → chest handoff → TRANSITION_DONE');
+        };
+
+        if (!overlayOpacity) {
+            finishHide();
+            return;
+        }
+
+        tween(overlayOpacity).stop();
+        tween(overlayOpacity)
+            .to(duration, { opacity: 0 }, { easing: easing.sineIn })
+            .call(finishHide)
+            .start();
+    }
+
+    private _ensureOverlayOpacity(): UIOpacity | null {
+        const node = this.overlayNode?.isValid ? this.overlayNode : null;
+        if (!node) {
+            // Fallback: dùng uiOpacity root nếu chưa gán overlayNode
+            return this.uiOpacity?.isValid ? this.uiOpacity : this.node.getComponent(UIOpacity);
+        }
+        let op = node.getComponent(UIOpacity);
+        if (!op) {
+            op = node.addComponent(UIOpacity);
+        }
+        return op;
+    }
+
+    private _resetOverlayOpacity(value: number): void {
+        const op = this._ensureOverlayOpacity();
+        if (op) {
+            tween(op).stop();
+            op.opacity = value;
+        }
+        if (this.overlayNode?.isValid) {
+            this.overlayNode.active = true;
         }
     }
 
@@ -275,6 +329,10 @@ export class TransitionController extends Component {
             const uiOpacity = this.iconNode.getComponent(UIOpacity);
             if (uiOpacity) tween(uiOpacity).stop();
         }
+        const overlayOp = this.overlayNode?.isValid
+            ? this.overlayNode.getComponent(UIOpacity)
+            : (this.uiOpacity?.isValid ? this.uiOpacity : null);
+        if (overlayOp) tween(overlayOp).stop();
         for (const fx of [this.effectNode, this.effectNode2]) {
             if (!fx?.isValid) continue;
             for (const ps of fx.getComponentsInChildren(ParticleSystem)) {

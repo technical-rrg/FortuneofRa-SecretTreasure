@@ -58,7 +58,7 @@ import {
 import { MockDataProvider, TestScenario } from '../data/MockDataProvider';
 import { WaysPayCalculator } from '../data/WaysPayCalculator';
 import { GameData } from '../data/GameData';
-import { USE_REAL_API, ServerConfig, TestLoginConfig, MOCK_SPIN_SCENARIO, DEBUG_RANDS, MOCK_RESUME_SCENARIO } from '../data/ServerConfig';
+import { USE_REAL_API, ENABLE_DEBUG_TOOLS, ServerConfig, TestLoginConfig, MOCK_SPIN_SCENARIO, DEBUG_RANDS, MOCK_RESUME_SCENARIO } from '../data/ServerConfig';
 import {
     SCENARIO_NO_WIN, SCENARIO_NORMAL_WIN, SCENARIO_MULTI_LINE, SCENARIO_BIG_WIN,
     SCENARIO_LONG_SPIN, SCENARIO_JACKPOT, FULL_FREE_SEQUENCE, FULL_FREE_JACKPOT_SEQUENCE, FULL_FREE_RETRIGGER_SEQUENCE, DEFAULT_SEQUENCE,
@@ -2655,26 +2655,23 @@ class RealNetworkAdapter implements INetworkAdapter {
      * Reel.Strips[i].Symbols chứa PS Symbol IDs (1,2,3,4,11,12,...)
      * → cần convert sang Client SymbolId (0-8) qua psToClientSymbol().
      */
+    private _logWinPopupFromPS(ps: any): void {
+        if (!Log.isEnabled('winpopup')) return;
+        const wp = ps?.WinPopup;
+        if (!wp || typeof wp !== 'object') {
+            Log.e('[WinPopup] PS không có WinPopup');
+            return;
+        }
+        const grades = Object.keys(wp).sort((a, b) => (Number(wp[a]) || 0) - (Number(wp[b]) || 0));
+        const progressive = grades.filter((k) => k.toLowerCase() !== 'normal');
+        Log.e(`[WinPopup] ${progressive.length} cấp progressive: ${progressive.join(', ')}`);
+        for (const k of grades) {
+            Log.e(`[WinPopup]   ${k}: ≥ ${wp[k]}× totalBet`);
+        }
+    }
+
     private _applyPS(ps: any): void {
         const data = GameData.instance;
-
-        // PS dump chỉ khi whitelist 'ps' — tránh JSON.stringify toàn bộ PS trên mọi Enter
-        if (Log.isEnabled('ps')) {
-            try {
-                const _psJson = JSON.stringify(ps);
-                Log.e('[GOF-PS] keys:', Object.keys(ps));
-                Log.e('[GOF-PS] SymbolRates:', ps.SymbolRates);
-                if (ps.Reel?.Strips) {
-                    ps.Reel.Strips.forEach((strip: any, i: number) => {
-                        const syms: number[] = strip.Symbols ?? strip;
-                        Log.e(`[GOF-PS] Reel.Strips[${i}] len=${syms.length}`);
-                    });
-                }
-                Log.e('[GOF-PS] Full PS JSON (first 2000 chars):', _psJson.substring(0, 2000));
-            } catch (e) {
-                Log.e('[GOF-PS] dump error', e);
-            }
-        }
 
         // ─── PS STRUCTURE (compact) ───
         {
@@ -2706,6 +2703,7 @@ class RealNetworkAdapter implements INetworkAdapter {
             data.config.monsterWinThreshold = ps.WinPopup.Monster ?? data.config.monsterWinThreshold;
             data.config.maxWinThreshold     = ps.WinPopup.Max     ?? data.config.maxWinThreshold;
         }
+        this._logWinPopupFromPS(ps);
 
         // ═══ Build dynamic PS ID → Client SymbolId mapping từ PS JSON fields (Gold of Fortune) ═══
         const dynMap: Record<number, number> = {};
@@ -3302,6 +3300,10 @@ export class NetworkManager {
     private constructor() {
         // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — phải enable trước khi login/enter.
         Log.enable('featuregauge');
+        // ★ Log WinPopup tiers khi Enter (chỉ debug) — tag riêng 'winpopup' để không lẫn log PS khác.
+        if (ENABLE_DEBUG_TOOLS) {
+            Log.enable('winpopup');
+        }
 
         // ★ Chuyển đổi Mock ↔ Real dựa trên USE_REAL_API
         if (USE_REAL_API) {

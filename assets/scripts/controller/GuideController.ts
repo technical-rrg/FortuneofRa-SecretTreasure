@@ -3,18 +3,19 @@
  *
  * Setup trong Editor:
  *   1. Tạo Node "GuideView" (bắt đầu inactive).
- *   2. Gắn component này + UIOpacity component vào GuideView.
+ *   2. Gắn component này vào GuideView.
  *   3. Dưới GuideView tạo:
- *        - guidePanel  : Node chứa nội dung hướng dẫn (SPECIAL SYMBOLS hoặc BONUS FEATURE)
- *        - continueArea: Node / Label "CLICK TO CONTINUE" ở dưới cùng
+ *        - OverLay      : Sprite đen full màn (kéo vào overlayNode)
+ *        - guidePanel   : Node chứa nội dung hướng dẫn
+ *        - continueArea : Button "CLICK TO CONTINUE"
  *   4. Kéo các node vào slot tương ứng.
  *
  * Flow:
- *   LOADING_COMPLETE → fade in → hiện guidePanel
- *   → click continueArea → fade out → emit GUIDE_COMPLETE → deactivate
+ *   LOADING_BAR_100 → OverLay đen phủ màn → fade out dần → lộ Guide
+ *   → click continueArea → OverLay fade in → emit GUIDE_COMPLETE → deactivate
  */
 
-import { _decorator, Component, Node, UIOpacity, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween } from 'cc';
+import { _decorator, Component, Node, tween, Layout, screen, Label, Sprite, SpriteFrame, Vec3, CCString, Button, ParticleSystem, UITransform, Tween, Color } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
@@ -87,17 +88,23 @@ export class GuideController extends Component {
     })
     guideLabelKeys: string[] = [];
 
-    @property({ type: UIOpacity, tooltip: 'UIOpacity của GuideView để fade in/out' })
-    uiOpacity: UIOpacity | null = null;
+    @property({
+        type: Node,
+        tooltip: 'Overlay nền đen full màn (kéo node OverLay vào). Cần Sprite đen — fade out khi vào từ Loading.',
+    })
+    overlayNode: Node | null = null;
+
+    @property({ tooltip: 'Thời gian OverLay fade out khi vào từ Loading (giây). 0 = lộ Guide ngay.' })
+    overlayFadeDuration: number = 0.5;
+
+    @property({ tooltip: 'Thời gian OverLay fade in khi click Continue (giây). 0 = ẩn ngay.' })
+    overlayFadeOutDuration: number = 0.35;
 
     @property({ type: [ParticleSystem], tooltip: '2 Particle system trên Guide — sẽ dừng khi fade out và play lại khi fade in' })
     particles: ParticleSystem[] = [];
 
     @property({ type: Node, tooltip: 'Node chứa RandomParticleSpawner — sẽ ẩn khi click Continue' })
     randomParticleSpawnerNode: Node | null = null;
-
-    @property({ tooltip: 'Fade-in duration khi Guide xuất hiện (giây). 0 = hiện ngay.' })
-    fadeInDuration: number = 0;
 
     @property({ tooltip: 'Scale min cho zoom effect của continueArea' })
     zoomMinScale: number = 0.9;
@@ -118,6 +125,10 @@ export class GuideController extends Component {
     private _prevTween: Tween<Node> | null = null;
     private _nextTween: Tween<Node> | null = null;
     private _guideFramesPromise: Promise<void> | null = null;
+    private _overlayTween: Tween<Sprite> | null = null;
+
+    private static readonly _BLACK_OPAQUE = new Color(0, 0, 0, 255);
+    private static readonly _BLACK_CLEAR = new Color(0, 0, 0, 0);
 
     // ─── LIFECYCLE ───
 
@@ -147,31 +158,87 @@ export class GuideController extends Component {
             return;
         }
 
-        // Được gọi khi GameEntryController set gameGuide.active = true
-        // Lúc này nền đen đang hiện → FadeOut GuideView (0→255)
-        Log.d('[GuideController] onEnable — bắt đầu FadeOut GuideView (0→255)');
+        // Được gọi khi GameEntryController set gameGuide.active = true (sau Loading)
+        Log.d('[GuideController] onEnable — OverLay fade out → lộ Guide');
 
-        // ★ Pre-position backgrounds TRƯỚC khi fade-in bắt đầu
-        // (tránh 5 node overlap ở (0,0) trong suốt quá trình fade)
         this._setupBgNodes();
-
-        if (this.uiOpacity) {
-            tween(this.uiOpacity).stop();
-            this.uiOpacity.opacity = 0;  // đảm bảo bắt đầu từ 0 (transparent)
-        }
         if (this.guidePanel) this.guidePanel.active = true;
         this._setGuideLabels();
+        this._showOverlayOnTop(GuideController._BLACK_OPAQUE);
 
-        // Apply layout + sprites after frames ready (lazy-loaded)
         void this._ensureGuideFrames().then(() => {
             if (!this.node.active || this._dismissed) return;
             this._applyGuideLayout();
-            this._beginGuideFadeIn();
+        });
+
+        this._fadeOverlay(GuideController._BLACK_OPAQUE, GuideController._BLACK_CLEAR, this.overlayFadeDuration, () => {
+            if (!this.node.active || this._dismissed) return;
+            this._hideOverlay();
+            this._onGuideReady();
         });
     }
 
-    private _beginGuideFadeIn(): void {
-        // Debug: kiểm tra trạng thái continueArea
+    private _resolveOverlayNode(): Node | null {
+        if (this.overlayNode?.isValid) return this.overlayNode;
+        this.overlayNode = this.node.getChildByName('OverLay')
+            ?? this.node.getChildByName('Overlay');
+        return this.overlayNode;
+    }
+
+    private _overlaySprite(): Sprite | null {
+        const node = this._resolveOverlayNode();
+        if (!node) return null;
+        let sp = node.getComponent(Sprite);
+        if (!sp) {
+            Log.w('[GuideController] OverLay thiếu Sprite — không fade được');
+        }
+        return sp;
+    }
+
+    /** Đưa OverLay lên trên cùng + bật full màn đen che nội dung Guide. */
+    private _showOverlayOnTop(color: Color): void {
+        const node = this._resolveOverlayNode();
+        const sp = this._overlaySprite();
+        if (!node || !sp) return;
+        node.active = true;
+        node.setSiblingIndex(this.node.children.length - 1);
+        sp.color = color.clone();
+    }
+
+    private _hideOverlay(): void {
+        this._stopOverlayTween();
+        const node = this._resolveOverlayNode();
+        if (node) node.active = false;
+    }
+
+    private _stopOverlayTween(): void {
+        if (this._overlayTween) {
+            this._overlayTween.stop();
+            this._overlayTween = null;
+        }
+    }
+
+    private _fadeOverlay(from: Color, to: Color, duration: number, onDone: () => void): void {
+        const sp = this._overlaySprite();
+        if (!sp || duration <= 0) {
+            if (sp) sp.color = to.clone();
+            onDone();
+            return;
+        }
+
+        this._stopOverlayTween();
+        sp.color = new Color(from.r, from.g, from.b, from.a);
+        const target = new Color(to.r, to.g, to.b, to.a);
+        this._overlayTween = tween(sp)
+            .to(duration, { color: target })
+            .call(() => {
+                this._overlayTween = null;
+                onDone();
+            })
+            .start() as Tween<Sprite>;
+    }
+
+    private _onGuideReady(): void {
         if (this.continueArea) {
             Log.d('[GuideController] continueArea node active:', this.continueArea.node.active,
                 '| interactable:', this.continueArea.interactable,
@@ -180,29 +247,10 @@ export class GuideController extends Component {
             Log.w('[GuideController] continueArea is NULL — chưa assign trong Editor!');
         }
 
-        // Fade-in Guide (0 = hiện ngay)
-        if (this.uiOpacity) {
-            for (const ps of this.particles) { if (ps) { ps.clear(); ps.play(); } }
-            if (this.fadeInDuration <= 0) {
-                this.uiOpacity.opacity = 255;
-                this._bindClicks();
-                this._bindTabIconClicks();
-                this._startCarouselAfterDelay();
-            } else {
-                tween(this.uiOpacity)
-                    .to(this.fadeInDuration, { opacity: 255 })
-                    .call(() => {
-                        this._bindClicks();
-                        this._bindTabIconClicks();
-                        this._startCarouselAfterDelay();
-                    })
-                    .start();
-            }
-        } else {
-            this._bindClicks();
-            this._bindTabIconClicks();
-            this._startCarouselAfterDelay();
-        }
+        for (const ps of this.particles) { if (ps) { ps.clear(); ps.play(); } }
+        this._bindClicks();
+        this._bindTabIconClicks();
+        this._startCarouselAfterDelay();
     }
 
     private _startCarouselAfterDelay(): void {
@@ -214,6 +262,7 @@ export class GuideController extends Component {
     }
 
     onDisable(): void {
+        this._stopOverlayTween();
         Log.d('[GuideController] onDisable — node deactivated. _dismissed=' + this._dismissed);
     }
 
@@ -528,26 +577,27 @@ export class GuideController extends Component {
         }
 
         const finish = () => {
-            // Đảm bảo node này inactive TRƯỚC khi emit — tránh render chồng lên GameRoot
             this.node.active = false;
             EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
         };
 
-        if (this.uiOpacity) {
-            // Dừng particles ngay khi bắt đầu fade out — tránh vẽ xuyên qua nền đen
-            for (const ps of this.particles) { if (ps) ps.clear(); }
-            
-            // Ẩn RandomParticleSpawnerNode trước khi fade out
-            if (this.randomParticleSpawnerNode) {
-                this.randomParticleSpawnerNode.active = false;
-            }
-            
-            tween(this.uiOpacity)
-                .to(0.35, { opacity: 0 })
-                .call(finish)
-                .start();
-        } else {
-            finish();
+        for (const ps of this.particles) { if (ps) ps.clear(); }
+        if (this.randomParticleSpawnerNode) {
+            this.randomParticleSpawnerNode.active = false;
         }
+
+        const sp = this._overlaySprite();
+        if (!sp) {
+            finish();
+            return;
+        }
+
+        this._showOverlayOnTop(GuideController._BLACK_CLEAR);
+        this._fadeOverlay(
+            GuideController._BLACK_CLEAR,
+            GuideController._BLACK_OPAQUE,
+            this.overlayFadeOutDuration,
+            finish,
+        );
     }
 }

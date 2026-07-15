@@ -20,6 +20,8 @@ import { SymbolId } from '../data/SlotTypes';
 import { SpriteNumber } from '../core/SpriteNumber';
 import { GameData } from '../data/GameData';
 import { Log } from '../core/Logger';
+import { EventBus } from '../core/EventBus';
+import { GameEvents } from '../core/GameEvents';
 import { AutoSpinManager } from '../manager/AutoSpinManager';
 import { SoundManager } from '../manager/SoundManager';
 
@@ -72,6 +74,40 @@ export class SymbolView extends Component {
     static landBounceParent: Node | null = null;
     /** Track các symbol node đang trong land bounce để restore khi bị interrupt */
     private static _pendingLandBounces: Map<Node, { origParent: Node | null; origLocalPos: Vec3 }> = new Map();
+    /** Số Sticky đỏ đang zoom land-bounce — chờ về 0 mới highlight win. */
+    private static _activeRedLandBounces: number = 0;
+    private static _redLandBounceWaiters: Array<() => void> = [];
+
+    /** Thời lượng 1 lần land bounce (grow + hold + shrink), đã nhân speed mode. */
+    static getLandBounceDuration(): number {
+        const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
+        return (0.1 + 0.3 + 0.28) * m;
+    }
+
+    static hasActiveRedLandBounces(): boolean {
+        return SymbolView._activeRedLandBounces > 0;
+    }
+
+    /** Gọi cb ngay nếu không còn red bounce; ngược lại chờ bounce xong hết. */
+    static whenRedLandBouncesDone(cb: () => void): void {
+        if (SymbolView._activeRedLandBounces <= 0) {
+            cb();
+            return;
+        }
+        SymbolView._redLandBounceWaiters.push(cb);
+    }
+
+    private static _beginRedLandBounce(): void {
+        SymbolView._activeRedLandBounces++;
+    }
+
+    private static _endRedLandBounce(): void {
+        SymbolView._activeRedLandBounces = Math.max(0, SymbolView._activeRedLandBounces - 1);
+        if (SymbolView._activeRedLandBounces > 0) return;
+        const waiters = SymbolView._redLandBounceWaiters.splice(0);
+        for (const cb of waiters) cb();
+        EventBus.instance.emit(GameEvents.STICKY_RED_LAND_BOUNCE_DONE);
+    }
 
     // ─── INTERNAL ───
 
@@ -103,6 +139,9 @@ export class SymbolView extends Component {
             }
         }
         SymbolView._pendingLandBounces.clear();
+        SymbolView._activeRedLandBounces = 0;
+        const waiters = SymbolView._redLandBounceWaiters.splice(0);
+        for (const cb of waiters) cb();
     }
 
     /** Đặt node lên trên cùng trong parent — symbol bounce xong sau sẽ đè lên các symbol khác. */
@@ -352,10 +391,13 @@ export class SymbolView extends Component {
             SoundManager.instance?.playSfxByName('sxBonusStickyGoldLand');
         }
 
+        const isRedSticky = this._currentSymbolId === SymbolId.STICKY_RED;
+        if (isRedSticky) SymbolView._beginRedLandBounce();
+
         const origParent  = this.node.parent;
         const origLocalPos = this.node.position.clone();
         const topNode     = SymbolView.landBounceParent;
-        const m = AutoSpinManager.instance.getTimingMultiplier();
+        const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
 
         if (reparentToTop && topNode && topNode.isValid && origParent && origParent.isValid) {
             SymbolView._pendingLandBounces.set(this.node, {
@@ -377,6 +419,7 @@ export class SymbolView extends Component {
             .to(shrinkDur, { scale: new Vec3(s, s, 1) }, { easing: 'sineOut' })
             .call(() => {
                 SymbolView._pendingLandBounces.delete(this.node);
+                if (isRedSticky) SymbolView._endRedLandBounce();
                 if (!this.node || !this.node.isValid) return;
                 if (reparentToTop && origParent && origParent.isValid) {
                     SymbolView.restoreToReelParent(this.node, origParent, origLocalPos);

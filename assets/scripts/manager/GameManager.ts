@@ -26,6 +26,7 @@ import { TopUpManager } from '../controller/TopUpManager';
 import { SlotMachineController } from '../controller/SlotMachineController';
 import { StickyOverlayController } from '../controller/StickyOverlayController';
 import { StickyOverlayLoader } from '../controller/StickyOverlayLoader';
+import { SymbolView } from '../controller/SymbolView';
 
 const { ccclass, property } = _decorator;
 
@@ -1520,8 +1521,7 @@ export class GameManager extends Component {
         // (cả trường hợp có win lẫn không có win) — đảm bảo wild animation diễn xong toàn bộ.
         const _hasWildTrail = positions.length > 0 && !this._isFreeSpin();
 
-        // Normal mode: nếu có red sticky symbols → delay WIN_PRESENT_START cho land bounce xong
-        // (SymbolView._playLandBounce duration ~0.32s, delay 0.5s để chắc chắn)
+        // Normal mode: nếu có red sticky symbols → đợi TẤT CẢ land zoom/bounce xong mới highlight
         const hasRedSticky = !this._isFreeSpin() && (resp.stickyCells?.some((c: StickyCell) => c.symbolId === SymbolId.STICKY_RED) ?? false);
 
         // Feature Select (6+ Red): defer WIN_PRESENT_START cho đến sau CREDIT_FLY_IN_DONE
@@ -1554,16 +1554,7 @@ export class GameManager extends Component {
                 this.unschedule(this._spinCycleFallback);
                 this.unschedule(this._featureSelectWinPresentationFallback);
                 this.scheduleOnce(this._featureSelectWinPresentationFallback, 8.0);
-                if (hasRedSticky) {
-                    // Delay cho red symbol land bounce xong trước khi highlight line win
-                    this.scheduleOnce(() => {
-                        if (this._isSpinning) {
-                            EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
-                        }
-                    }, 0.5);
-                } else {
-                    EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
-                }
+                this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
             } else {
                 // Không có win → credit fly trước như cũ, WIN_PRESENT_START sau CREDIT_FLY_IN_DONE
                 this._pendingWinPresentRespFeature = resp;
@@ -1575,12 +1566,7 @@ export class GameManager extends Component {
                 }, fsDelay);
             }
         } else if (hasRedSticky) {
-            // Delay cho red symbol land bounce xong trước khi highlight line win
-            this.scheduleOnce(() => {
-                if (this._isSpinning) {
-                    EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
-                }
-            }, 0.5);
+            this._emitWinPresentAfterRedLandBounce(resp, true);
         } else {
             // Luôn emit WIN_PRESENT_START để UI cập nhật label (cả win lẫn no-win)
             EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
@@ -1708,6 +1694,46 @@ export class GameManager extends Component {
     }
 
     // ─── SAU KHI WIN PRESENTATION XONG ───
+
+    /**
+     * Đợi tất cả Sticky đỏ land-bounce (zoom) xong rồi mới emit WIN_PRESENT_START.
+     * Tránh highlight chạy song song với zoom của coin đỏ vừa land.
+     */
+    private _emitWinPresentAfterRedLandBounce(resp: SpinResponse, waitForRed: boolean): void {
+        const emit = () => {
+            if (!this._isSpinning) return;
+            EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
+        };
+
+        if (!waitForRed) {
+            emit();
+            return;
+        }
+
+        // 1 frame: đảm bảo reel-settled đã kick land-bounce trên mọi Sticky đỏ
+        this.scheduleOnce(() => {
+            if (!this._isSpinning) return;
+            if (!SymbolView.hasActiveRedLandBounces()) {
+                emit();
+                return;
+            }
+
+            let done = false;
+            const finish = () => {
+                if (done) return;
+                done = true;
+                this.unschedule(fallback);
+                EventBus.instance.off(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, finish, this);
+                emit();
+            };
+            const fallback = () => finish();
+
+            EventBus.instance.on(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, finish, this);
+            SymbolView.whenRedLandBouncesDone(finish);
+            // Safety: bounce duration + margin nếu event không tới
+            this.scheduleOnce(fallback, SymbolView.getLandBounceDuration() + 0.15);
+        }, 0);
+    }
 
     /** Tất cả đồng xu vàng đã fly + bounce xong → phát WIN_PRESENT_START đã bị defer */
     private _onGoldFlyDone(): void {

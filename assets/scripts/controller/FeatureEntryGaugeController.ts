@@ -98,10 +98,26 @@ export class FeatureEntryGaugeController extends Component {
     private _skipPotShake: boolean = false;
     /** Scale gốc từ Editor (uuid → scale) — lit overlay không bị ép về (1,1,1). */
     private _baseScales: Map<string, Vec3> = new Map();
+    /** Gauge bị ẩn vì đang trong feature (PickGame / TopUp / FreeSpin). */
+    private _hiddenForFeature: boolean = false;
+    private _wasActiveBeforeFeature: boolean = true;
+    /** Pick Game: PICK_GAME_OPEN chỉ đánh dấu — ẩn sau PICK_GAME_ENTRY_DONE. */
+    private _pendingPickGameHide: boolean = false;
 
     onLoad(): void {
         EventBus.instance.on(GameEvents.FEATURE_GAUGE_UPDATE, this._onUpdate, this);
         EventBus.instance.on(GameEvents.FEATURE_GAUGE_RESET,  this._onReset,  this);
+        // Pick Game — ẩn khi entry xong
+        EventBus.instance.on(GameEvents.PICK_GAME_OPEN,         this._onPickGameOpen,       this);
+        EventBus.instance.on(GameEvents.PICK_GAME_ENTRY_DONE,   this._onPickGameEntryDone,  this);
+        EventBus.instance.on(GameEvents.PICK_GAME_CLOSE,        this._onFeatureEnded,       this);
+        // TopUp / FreeSpin — ẩn khi đã vào mode (sau transition / popup)
+        EventBus.instance.on(GameEvents.TOPUP_START,            this._onFeatureEntered,     this);
+        EventBus.instance.on(GameEvents.FREE_SPIN_START,        this._onFeatureEntered,     this);
+        EventBus.instance.on(GameEvents.FREE_SPIN_GOLD_START,    this._onFeatureEntered,     this);
+        // Hiện lại khi thoát feature
+        EventBus.instance.on(GameEvents.TOPUP_END_POPUP_CLOSED, this._onFeatureEnded,       this);
+        EventBus.instance.on(GameEvents.FREE_SPIN_END,          this._onFeatureEnded,       this);
     }
 
     start(): void {
@@ -125,6 +141,42 @@ export class FeatureEntryGaugeController extends Component {
 
     private _onReset(): void {
         this._applyStage(0, true);
+    }
+
+    /** PICK_GAME_OPEN: chỉ đánh dấu — chưa ẩn (transition Pot→Pick Game vẫn thấy gauge). */
+    private _onPickGameOpen(): void {
+        this._wasActiveBeforeFeature = this.node.active;
+        this._pendingPickGameHide = true;
+    }
+
+    /** Đã vào Pick Game (entry xong) → mới ẩn gauge. */
+    private _onPickGameEntryDone(): void {
+        if (!this._pendingPickGameHide) return;
+        this._pendingPickGameHide = false;
+        this._hideForFeature();
+    }
+
+    /** Đã vào TopUp / FreeSpin (TOPUP_START, FREE_SPIN_START sau transition hoặc popup). */
+    private _onFeatureEntered(): void {
+        this._hideForFeature();
+    }
+
+    private _hideForFeature(): void {
+        if (this._hiddenForFeature) return;
+        this._wasActiveBeforeFeature = this.node.active;
+        this._hiddenForFeature = true;
+        this.node.active = false;
+    }
+
+    /** Thoát feature → hiện lại gauge (giữ / reset stage theo GameData). */
+    private _onFeatureEnded(): void {
+        this._pendingPickGameHide = false;
+        if (!this._hiddenForFeature) return;
+        this._hiddenForFeature = false;
+        if (this._wasActiveBeforeFeature) {
+            this.node.active = true;
+            this._applyStage(GameData.instance.featureGaugeStage, false);
+        }
     }
 
     // ─── CORE ───────────────────────────────────────────────────────────────

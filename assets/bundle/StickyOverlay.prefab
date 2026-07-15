@@ -19473,19 +19473,19 @@
     ],
     "coinFrames": [
       {
-        "__uuid__": "b7f3d50e-6ff3-4b56-8b1a-692e63178ec1@f9941",
+        "__uuid__": "13e12638-5b19-4696-923f-4bfc41e849dc@cdab0",
         "__expectedType__": "cc.SpriteFrame"
       },
       {
-        "__uuid__": "2ce111e3-a67f-4b01-a3d3-eee33a1d71d7@f9941",
+        "__uuid__": "13e12638-5b19-4696-923f-4bfc41e849dc@c10f9",
         "__expectedType__": "cc.SpriteFrame"
       },
       {
-        "__uuid__": "89ed0688-23c4-4e00-b8c4-022e06fd9337@f9941",
+        "__uuid__": "13e12638-5b19-4696-923f-4bfc41e849dc@a8656",
         "__expectedType__": "cc.SpriteFrame"
       },
       {
-        "__uuid__": "3a3b550b-6c65-46da-9c4a-aa637132a033@f9941",
+        "__uuid__": "13e12638-5b19-4696-923f-4bfc41e849dc@979f3",
         "__expectedType__": "cc.SpriteFrame"
       }
     ],

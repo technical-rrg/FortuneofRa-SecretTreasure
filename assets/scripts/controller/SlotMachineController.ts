@@ -316,6 +316,9 @@ export class SlotMachineController extends Component {
     private _isTopUp: boolean = false;
     /** PickGame mode: đổi slot background giống FreeSpin/TopUp */
     private _isPickGame: boolean = false;
+    /** Ẩn SlotMachine khi vào Pick Game; hiện lại khi PICK_GAME_CLOSE */
+    private _wasActiveBeforePickGame: boolean = true;
+    private _pendingPickGameHide: boolean = false;
     /** Danh sách {reelIndex, rowIndex} cần show hint khi long spin bắt đầu */
     private _hintPositions: { reelIndex: number; rowIndex: number }[] = [];
     private _hintBounceCb: (() => void) | null = null;
@@ -334,6 +337,8 @@ export class SlotMachineController extends Component {
         bus.on(GameEvents.TOPUP_START, this._onTopUpStart, this);
         bus.on(GameEvents.TOPUP_END, this._onTopUpEnd, this);
         bus.on(GameEvents.PICK_GAME_OPEN, this._onPickGameOpen, this);
+        bus.on(GameEvents.PICK_GAME_ENTRY_DONE, this._onPickGameEntryDone, this);
+        bus.on(GameEvents.TOPUP_TRANSITION_DONE, this._onPickGameTransitionDone, this);
         bus.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameClose, this);
         bus.on(GameEvents.REELS_QUICK_STOP, this._onQuickStop, this);
         bus.on(GameEvents.RESUME_NORMAL_SPIN, this._onResumeNormalSpin, this);
@@ -592,11 +597,39 @@ export class SlotMachineController extends Component {
 
     private _onPickGameOpen(): void {
         this._isPickGame = true;
+        this._wasActiveBeforePickGame = this.node.active;
+        this._pendingPickGameHide = true;
         this._updateSlotBackgroundSprite();
+        Log.d('[SlotMachineController] Pick Game open — hide deferred until entry/transition done');
+    }
+
+    /** TOPUP_TRANSITION_DONE: ẩn SlotMachine khi transition vào Pick Game xong */
+    private _onPickGameTransitionDone(): void {
+        if (!this._isPickGame) return;
+        this._hideForPickGameIfPending();
+    }
+
+    /** Fallback khi bỏ qua transition (useTopUpTransition=false) */
+    private _onPickGameEntryDone(): void {
+        this._hideForPickGameIfPending();
+    }
+
+    private _hideForPickGameIfPending(): void {
+        if (!this._pendingPickGameHide) return;
+        this._pendingPickGameHide = false;
+        if (this.node.active) {
+            this.node.active = false;
+            Log.d('[SlotMachineController] Hidden — Pick Game');
+        }
     }
 
     private _onPickGameClose(): void {
         this._isPickGame = false;
+        this._pendingPickGameHide = false;
+        if (this._wasActiveBeforePickGame && !this.node.active) {
+            this.node.active = true;
+            Log.d('[SlotMachineController] Shown — Pick Game close');
+        }
         this._updateSlotBackgroundSprite();
     }
 

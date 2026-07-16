@@ -9,7 +9,7 @@
  */
 
 import {
-    _decorator, Component, Node, Button, BlockInputEvents, Label,
+    _decorator, Component, Node, Button, BlockInputEvents, Label, UIOpacity, tween, Tween,
 } from 'cc';
 import { sp } from 'cc';
 import { EventBus }       from '../core/EventBus';
@@ -57,6 +57,9 @@ export class FeatureSelectionPopup extends Component {
     /** Label tùy chọn cho từng tier (cùng thứ tự với btnFreeSpinTiers). */
     @property({ type: [Label], tooltip: 'Label text cho 5 tier Free Spin (optional).' })
     labelFreeSpinTiers: Label[] = [];
+
+    @property({ tooltip: 'Thời gian fade out khi đóng popup (giây).' })
+    closeFadeDuration: number = 0.28;
 
     private _isOpen: boolean = false;
     private _payload: FeatureSelectPayload | null = null;
@@ -242,6 +245,11 @@ export class FeatureSelectionPopup extends Component {
 
     private _show(): void {
         this.node.active = true;
+        const rootOp = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
+        Tween.stopAllByTarget(rootOp);
+        rootOp.opacity = 0;
+        tween(rootOp).to(0.3, { opacity: 255 }, { easing: 'sineOut' }).start();
+
         this._setButtonsInteractable(false);
         if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = true;
 
@@ -274,17 +282,29 @@ export class FeatureSelectionPopup extends Component {
             this.spine.setCompleteListener(null);
         }
 
-        if (this._demoNode) {
-            this._demoNode.active = true;
-        }
+        const finishClose = () => {
+            if (this._demoNode) {
+                this._demoNode.active = true;
+            }
+            this.node.active = false;
+            if (this.spine) this.spine.node.active = false;
+            if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = false;
 
-        this.node.active = false;
-        if (this.spine) this.spine.node.active = false;
-        if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = false;
+            const rootOp = this.node.getComponent(UIOpacity);
+            if (rootOp) rootOp.opacity = 255;
 
-        this._payload = null;
-        EventBus.instance.emit(GameEvents.FEATURE_SELECT_CLOSE);
-        onDone?.();
+            this._payload = null;
+            EventBus.instance.emit(GameEvents.FEATURE_SELECT_CLOSE);
+            onDone?.();
+        };
+
+        const rootOp = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
+        Tween.stopAllByTarget(rootOp);
+        const fadeDur = Math.max(0.05, this.closeFadeDuration);
+        tween(rootOp)
+            .to(fadeDur, { opacity: 0 }, { easing: 'sineIn' })
+            .call(finishClose)
+            .start();
     }
 
     private _setButtonsInteractable(value: boolean): void {

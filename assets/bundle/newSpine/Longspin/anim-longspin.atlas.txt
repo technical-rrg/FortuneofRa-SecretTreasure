@@ -1,0 +1,146 @@
+
+anim-longspin.png
+size: 2016, 1784
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+Longspin_00
+  rotate: false
+  xy: 1153, 1182
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_01
+  rotate: false
+  xy: 1153, 579
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_02
+  rotate: false
+  xy: 1441, 1182
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_03
+  rotate: false
+  xy: 1441, 579
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_04
+  rotate: false
+  xy: 1, 1181
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_05
+  rotate: false
+  xy: 1, 577
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_06
+  rotate: false
+  xy: 289, 1181
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_07
+  rotate: false
+  xy: 289, 577
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_08
+  rotate: false
+  xy: 577, 1181
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_09
+  rotate: false
+  xy: 577, 577
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_10
+  rotate: true
+  xy: 1, 289
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_11
+  rotate: false
+  xy: 865, 1181
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_12
+  rotate: true
+  xy: 1, 1
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_13
+  rotate: false
+  xy: 1729, 1182
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 1
+  index: -1
+Longspin_14
+  rotate: false
+  xy: 865, 577
+  size: 286, 602
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_15
+  rotate: false
+  xy: 1729, 579
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_16
+  rotate: true
+  xy: 605, 289
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_17
+  rotate: true
+  xy: 605, 1
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_18
+  rotate: true
+  xy: 1208, 291
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1
+Longspin_19
+  rotate: true
+  xy: 1208, 3
+  size: 286, 601
+  orig: 286, 602
+  offset: 0, 0
+  index: -1

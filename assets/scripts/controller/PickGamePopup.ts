@@ -76,7 +76,7 @@
 
 import {
     _decorator, Component, Node, Label, tween, Vec3, Tween,
-    Sprite, SpriteFrame, sp,
+    Sprite, SpriteFrame, sp, Layout, Button,
 } from 'cc';
 import { EventBus }      from '../core/EventBus';
 import { GameEvents }    from '../core/GameEvents';
@@ -87,6 +87,7 @@ import { NetworkManager } from '../manager/NetworkManager';
 import { SoundManager }  from '../manager/SoundManager';
 import { USE_REAL_API }  from '../data/ServerConfig';
 import { Log }           from '../core/Logger';
+import { TransitionMode } from './TopUpTransitionPopup';
 
 const { ccclass, property } = _decorator;
 
@@ -238,6 +239,11 @@ export class PickGamePopup extends Component {
 
     // ── PUBLIC API ───────────────────────────────────────────────────────────
 
+    /** Index trong `coinNodes` của node được tap — nguồn sự thật duy nhất cho click→flip. */
+    public resolveCoinIndex(node: Node): number {
+        return this.coinNodes.indexOf(node);
+    }
+
     /**
      * Gọi từ CoinPickButton.ts (gắn trên mỗi coin) hoặc Button onClick.
      * Real API: gọi /Pick trước, dùng kết quả server để lật và kiểm tra match.
@@ -251,6 +257,7 @@ export class PickGamePopup extends Component {
         if (!this._pickState.grid) return;
         if (this._revealedSet.has(index)) return;
         if (index < 0 || index >= this._pickState.grid.length) return;
+        if (index >= this.coinNodes.length || !this.coinNodes[index]) return;
 
         if (USE_REAL_API) {
             this._setButtonsInteractable(false);
@@ -373,6 +380,11 @@ export class PickGamePopup extends Component {
             [JackpotType.NONE]: 0,
         };
 
+        // Layout GRID trên CoinGrid sẽ reflow khi setSiblingIndex → lệch click/index.
+        // Tắt Layout sau khi vị trí đã ổn định; wire lại coinIndex theo coinNodes[].
+        this._freezeCoinGridLayout();
+        this._wireCoinButtons();
+
         // Reset coins
         for (let i = 0; i < this.coinNodes.length; i++) {
             this._resetCoin(i);
@@ -398,7 +410,7 @@ export class PickGamePopup extends Component {
 
         // Phát transition popup trước; _onTransitionDone() sẽ gọi _onEntryDone()
         if (this.useTopUpTransition) {
-            EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW);
+            EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, TransitionMode.PickGame);
             // Fallback: nếu không có TopUpTransitionPopup nào trong scene, tự vào game sau 3s
             this.scheduleOnce(this._onEntryDone, 3.0);
         } else {
@@ -449,11 +461,52 @@ export class PickGamePopup extends Component {
 
     // ── PRIVATE: COINS ───────────────────────────────────────────────────────
 
+    /**
+     * CoinGrid có cc.Layout (GRID). Nếu để Layout bật, mọi setSiblingIndex
+     * (đưa coin lên trên khi flip) sẽ xếp lại vị trí → tap coin A lật coin B.
+     */
+    private _freezeCoinGridLayout(): void {
+        const grid = this.coinNodes[0]?.parent;
+        if (!grid?.isValid) return;
+        const layout = grid.getComponent(Layout);
+        if (layout) {
+            layout.enabled = false;
+            Log.d('[PickGamePopup] CoinGrid Layout disabled — keep fixed positions');
+        }
+    }
+
+    /** Đồng bộ CoinPickButton.coinIndex / pickGamePopup theo mảng coinNodes. */
+    private _wireCoinButtons(): void {
+        for (let i = 0; i < this.coinNodes.length; i++) {
+            const node = this.coinNodes[i];
+            if (!node?.isValid) continue;
+            // getComponent by name — tránh circular import với CoinPickButton.ts
+            const pickBtn = node.getComponent('CoinPickButton') as {
+                coinIndex: number;
+                pickGamePopup: PickGamePopup | null;
+            } | null;
+            if (pickBtn) {
+                pickBtn.coinIndex = i;
+                pickBtn.pickGamePopup = this;
+            }
+            const btn = node.getComponent(Button) ?? node.addComponent(Button);
+            btn.interactable = true;
+        }
+    }
+
+    private _setCoinInteractable(index: number, enabled: boolean): void {
+        const node = this.coinNodes[index];
+        if (!node) return;
+        const btn = node.getComponent(Button);
+        if (btn) btn.interactable = enabled;
+    }
+
     private _resetCoin(index: number): void {
         const node = this.coinNodes[index];
         if (!node) return;
         Tween.stopAllByTarget(node);
         node.setScale(1, 1, 1);
+        this._setCoinInteractable(index, true);
 
         const back  = node.getChildByName('CoinBack');
         const front = node.getChildByName('CoinFront');
@@ -507,8 +560,10 @@ export class PickGamePopup extends Component {
         }
         this._revealedSet.add(index);
         this._lastRevealedIndex = index;
+        this._setCoinInteractable(index, false);
 
-        // Đưa node lên trên cùng để flip animation không bị che
+        // Đưa node lên trên cùng để flip không bị che.
+        // An toàn vì Layout trên CoinGrid đã bị tắt trong openPickGame.
         if (node.parent) {
             node.setSiblingIndex(node.parent.children.length - 1);
         }

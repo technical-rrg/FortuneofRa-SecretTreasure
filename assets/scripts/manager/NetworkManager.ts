@@ -2303,7 +2303,9 @@ class RealNetworkAdapter implements INetworkAdapter {
             // typeof null === 'object' in JS — must guard against null explicitly
             const isObj = typeof item === 'object' && item !== null;
             const type = isObj ? item?.Type ?? item?.type ?? TopupReelType.NONE : TopupReelType.NONE;
-            const win = isObj ? item.Win ?? item.win ?? 0 : 0;
+            const win = isObj
+                ? (item.Win ?? item.win ?? item.Credit ?? item.credit ?? item.Val ?? item.val ?? item.Value ?? item.value ?? 0)
+                : 0;
             const index = isObj ? item.Index ?? item.index ?? i : (typeof item === 'number' ? item : i);
             slots.push({ type, win, index });
         }

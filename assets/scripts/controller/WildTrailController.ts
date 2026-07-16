@@ -273,7 +273,7 @@ export class WildTrailController extends Component {
         const tryStart = () => {
             this._flyingCount++;
             // Hit & fly-done are now handled internally at particle landing time
-            this._animateOne(symbolNode, () => { /* no-op: kept for cleanup sync */ });
+            this._animateOne(symbolNode, reel, () => { /* no-op: kept for cleanup sync */ });
         };
 
         // Nếu reel chưa settled (đang decel/bounce), đợi 'reel-settled' rồi mới bắn trail.
@@ -296,7 +296,19 @@ export class WildTrailController extends Component {
      * Gọi onDone() khi cả Impact spine và particle đều đã xong.
      * Impact là one-shot: animation xong phải return spine về pool và bật lại sprite Wild.
      */
-    private _animateOne(symbolNode: Node, onDone: () => void): void {
+    /**
+     * Hướng cong theo vị trí reel (world X): -1 = trái, +1 = phải.
+     * Reel trái → trái, reel phải → phải, reel giữa → random.
+     */
+    private _resolveFlySide(reelIndex: number): number {
+        const reelCount = this.reels.length > 0 ? this.reels.length : 5;
+        const center = Math.floor(reelCount / 2); // 5 reel → 2
+        if (reelIndex < center) return -1;
+        if (reelIndex > center) return 1;
+        return Math.random() < 0.5 ? -1 : 1;
+    }
+
+    private _animateOne(symbolNode: Node, reelIndex: number, onDone: () => void): void {
         let impactDone = !this.spinePrefab;
         let flyDone = false;
         let done = false;
@@ -421,17 +433,30 @@ export class WildTrailController extends Component {
         const endWorld = new Vec3();
         this.potNode.getWorldPosition(endWorld);
 
-        // ── Bezier curve: tính control point tạo đường cong ──
+        // ── Bezier curve: cong theo phía reel (trái/phải), reel giữa random ──
         const midX = (startWorld.x + endWorld.x) * 0.5;
         const midY = (startWorld.y + endWorld.y) * 0.5;
         const dx = endWorld.x - startWorld.x;
         const dy = endWorld.y - startWorld.y;
         const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        // Pháp tuyến đơn vị của hướng bay (vuông góc)
         const nx = -dy / dist;
         const ny =  dx / dist;
-        const offset = dist * this.flyCurvature;
-        const cpX = midX + nx * offset;
-        const cpY = midY + ny * offset;
+        const screenSide = this._resolveFlySide(reelIndex); // -1 trái, +1 phải (world X)
+        const offsetMag = dist * Math.abs(this.flyCurvature);
+        // Lật pháp tuyến sao cho control point lệch đúng phía mong muốn trên trục X
+        let ox = nx * offsetMag;
+        let oy = ny * offsetMag;
+        if (ox * screenSide < 0) {
+            ox = -ox;
+            oy = -oy;
+        }
+        // Bay gần thẳng đứng → pháp tuyến yếu trên X → ép offset ngang rõ hơn
+        if (Math.abs(ox) < offsetMag * 0.2) {
+            ox = screenSide * offsetMag;
+        }
+        const cpX = midX + ox;
+        const cpY = midY + oy;
 
         // Custom easing: nhanh ra từ nguồn → giảm tốc nhẹ về giữa (vẫn > 0) → tăng tốc về đích
         // position(t) = t + a*sin(2πt)/(2π)  →  v(t) = 1 + a*cos(2πt)

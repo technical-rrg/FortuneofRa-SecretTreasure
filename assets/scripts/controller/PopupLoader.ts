@@ -28,6 +28,7 @@ import { BetSettingsPopup } from './BetSettingsPopup';
 import { SettingPopup } from './SettingPopup';
 import { FeatureSelectPayload } from './FeatureSelectionPopup';
 import { TopUpEndPopup } from './TopUpEndPopup';
+import { TransitionMode } from './TopUpTransitionPopup';
 import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
@@ -337,11 +338,11 @@ export class PopupLoader extends Component {
         });
     }
 
-    private _onTopUpTransitionShow(): void {
+    private _onTopUpTransitionShow(mode: TransitionMode = TransitionMode.TopUp): void {
         if (this._topUpTransitionNode) return;
         this._loadPrefab(PREFAB_NAMES.topUpTransition, (node) => {
             this._topUpTransitionNode = node;
-            EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW);
+            EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, mode);
         });
     }
 

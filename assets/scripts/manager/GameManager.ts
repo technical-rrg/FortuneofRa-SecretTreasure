@@ -27,6 +27,7 @@ import { SlotMachineController } from '../controller/SlotMachineController';
 import { StickyOverlayController } from '../controller/StickyOverlayController';
 import { StickyOverlayLoader } from '../controller/StickyOverlayLoader';
 import { SymbolView } from '../controller/SymbolView';
+import { TransitionMode } from '../controller/TopUpTransitionPopup';
 
 const { ccclass, property } = _decorator;
 
@@ -186,6 +187,14 @@ export class GameManager extends Component {
     private _wildTrailFlyDoneFallback = () => {
         EventBus.instance.emit(GameEvents.WILD_TRAIL_FLY_DONE);
     };
+    /** Fallback: pot spine transition không emit POT_TRANSITION_END → force nhả spin */
+    private _potTransitionEndFallback = () => {
+        if (!this._isPotTransitioning) return;
+        Log.w('[GameManager] pot transition fallback — force POT_TRANSITION_END');
+        this._onPotTransitionEnd();
+    };
+    /** Đủ dài cho wild fly (~2s) + pot spine transition; chỉ là safety net cuối. */
+    private static readonly POT_TRANSITION_FALLBACK_SEC = 4.5;
     /** Resp đang chờ WILD_TRAIL_FLY_DONE trước khi emit WIN_PRESENT_START (no-win + wild trail case) */
     private _pendingWinPresentRespWild: typeof GameData.instance.lastSpinResponse | null = null;
     private _wildTrailFlyDoneReceivedThisSpin: boolean = false;
@@ -246,6 +255,8 @@ export class GameManager extends Component {
 
         // ★ Bật log tag để debug StickyAccumulated / StickyEarned từ server.
         Log.enable('featuregauge');
+        // ★ Debug sticky red land-bounce / WaysPayDisplay orphan cleanup.
+        Log.enable('lb-debug');
 
         this._bindEvents();
 
@@ -821,11 +832,24 @@ export class GameManager extends Component {
         this.unschedule(this._featureSelectWinPresentationFallback);
 
         Log.e(`[GOLD-FLY][FEATURE_SELECT] START CREDIT_FLY_IN | reason=${reason} cells=${cells.length} sumCredit=${sumCredit}`);
-        EventBus.instance.emit(GameEvents.RED_SYMBOL_BOUNCE);
+
+        // Flow bắt buộc khi 6+ Red + (có/không) line win trước credit fly:
+        //   1) Tắt hẳn highlight (cycling / fillBlack / sprite bounce)
+        //   2) Tất cả sticky đỏ nhún cùng lúc
+        //   3) Bounce xong → CREDIT_FLY_IN_START
+        EventBus.instance.emit(GameEvents.WIN_HIGHLIGHT_CLEAR);
+
+        const bounceDur = SymbolView.getLandBounceDuration();
         this.scheduleOnce(() => {
-            this._awaitingFeatureSelectCreditDone = true;
-            EventBus.instance.emit(GameEvents.CREDIT_FLY_IN_START, { sumCredit, stickyCells: cells });
-        }, 0.3);
+            if (this._featureSelectCreditFlyDone !== true) return;
+            Log.e('[GOLD-FLY][FEATURE_SELECT] highlight cleared → RED_SYMBOL_BOUNCE');
+            EventBus.instance.emit(GameEvents.RED_SYMBOL_BOUNCE);
+            this.scheduleOnce(() => {
+                this._awaitingFeatureSelectCreditDone = true;
+                Log.e('[GOLD-FLY][FEATURE_SELECT] red bounce done → CREDIT_FLY_IN_START');
+                EventBus.instance.emit(GameEvents.CREDIT_FLY_IN_START, { sumCredit, stickyCells: cells });
+            }, bounceDur);
+        }, 0.05);
     }
 
     private _shouldRetrySpinRequestAfterSettled(): boolean {
@@ -882,6 +906,7 @@ export class GameManager extends Component {
         }
 
         // Reset pot transition flags từ spin trước (safety)
+        this.unschedule(this._potTransitionEndFallback);
         this._isPotTransitioning = false;
         this._pendingAfterWinProcessed = false;
 
@@ -1080,7 +1105,9 @@ export class GameManager extends Component {
         if (this._pendingWinPresentRespWild) {
             const resp = this._pendingWinPresentRespWild;
             this._pendingWinPresentRespWild = null;
-            EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
+            const hasRedSticky = !this._isFreeSpin()
+                && (resp.stickyCells?.some((c: StickyCell) => c.symbolId === SymbolId.STICKY_RED) ?? false);
+            this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
         }
     }
 
@@ -1092,6 +1119,7 @@ export class GameManager extends Component {
      */
     private _onPotTransitionEnd(): void {
         Log.e(`[GameManager] POT_TRANSITION_END — _isPotTransitioning=${this._isPotTransitioning}, _pendingAfterWinProcessed=${this._pendingAfterWinProcessed}`);
+        this.unschedule(this._potTransitionEndFallback);
         this._isPotTransitioning = false;
         if (this._pendingAfterWinProcessed) {
             this._pendingAfterWinProcessed = false;
@@ -1425,6 +1453,9 @@ export class GameManager extends Component {
             if (newLevel !== oldLevel) {
                 potLevelChanged = true;
                 this._isPotTransitioning = true;
+                // Safety: spine null/thiếu anim/complete không fire → vẫn nhả spin
+                this.unschedule(this._potTransitionEndFallback);
+                this.scheduleOnce(this._potTransitionEndFallback, GameManager.POT_TRANSITION_FALLBACK_SEC);
             }
         }
 
@@ -1541,8 +1572,9 @@ export class GameManager extends Component {
 
         if (_hasWildTrail) {
             // Defer WIN_PRESENT_START — sẽ được emit trong _onWildTrailFlyDoneCancelFallback khi particle hạ cánh
+            // Vẫn phải chờ sticky red land-bounce xong (nếu có) trước khi highlight.
             if (this._wildTrailFlyDoneReceivedThisSpin) {
-                EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
+                this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
             } else {
                 this._pendingWinPresentRespWild = resp;
             }
@@ -1700,39 +1732,51 @@ export class GameManager extends Component {
      * Tránh highlight chạy song song với zoom của coin đỏ vừa land.
      */
     private _emitWinPresentAfterRedLandBounce(resp: SpinResponse, waitForRed: boolean): void {
-        const emit = () => {
+        const emitHighlight = () => {
             if (!this._isSpinning) return;
+            SymbolView.logLandBounceParentState('pre-highlight');
+            SymbolView.ensureRedLandBouncesRestored();
+            SymbolView.restoreAllLandBounces();
+            SymbolView.logLandBounceParentState('pre-WIN_PRESENT_START');
             EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
         };
 
         if (!waitForRed) {
-            emit();
+            emitHighlight();
             return;
         }
 
-        // 1 frame: đảm bảo reel-settled đã kick land-bounce trên mọi Sticky đỏ
+        // Đánh dấu toàn bộ reel đã dừng — từ đây mới check bounce đỏ settled
+        SymbolView.markRedLandBounceSessionReady();
+        Log.e(`[LB-DEBUG] wait-highlight ${SymbolView.getRedLandBounceDebugSummary()}`);
+
+        let done = false;
+        const finish = (force = false) => {
+            if (done || !this._isSpinning) return;
+            if (!force && !SymbolView.areAllRedLandBouncesSettled()) return;
+            done = true;
+            this.unschedule(fallback);
+            this.unschedule(poll);
+            EventBus.instance.off(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, onBounceDone, this);
+            emitHighlight();
+        };
+        const onBounceDone = () => finish(false);
+        const poll = () => finish(false);
+        const fallback = () => {
+            Log.e('[LB-DEBUG] wait-highlight FALLBACK — force cleanup + emit');
+            SymbolView.ensureRedLandBouncesRestored();
+            SymbolView.restoreAllLandBounces();
+            finish(true);
+        };
+
+        // Chờ reel cuối settle + kick land-bounce trước khi kiểm tra counter/clone
         this.scheduleOnce(() => {
             if (!this._isSpinning) return;
-            if (!SymbolView.hasActiveRedLandBounces()) {
-                emit();
-                return;
-            }
-
-            let done = false;
-            const finish = () => {
-                if (done) return;
-                done = true;
-                this.unschedule(fallback);
-                EventBus.instance.off(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, finish, this);
-                emit();
-            };
-            const fallback = () => finish();
-
-            EventBus.instance.on(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, finish, this);
-            SymbolView.whenRedLandBouncesDone(finish);
-            // Safety: bounce duration + margin nếu event không tới
-            this.scheduleOnce(fallback, SymbolView.getLandBounceDuration() + 0.15);
-        }, 0);
+            EventBus.instance.on(GameEvents.STICKY_RED_LAND_BOUNCE_DONE, onBounceDone, this);
+            this.schedule(poll, 0.05);
+            this.scheduleOnce(fallback, SymbolView.getLandBounceDuration() + 0.5);
+            finish(false);
+        }, 0.08);
     }
 
     /** Tất cả đồng xu vàng đã fly + bounce xong → phát WIN_PRESENT_START đã bị defer */
@@ -2492,7 +2536,7 @@ export class GameManager extends Component {
             this._enterTopUp(count);
         };
         EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
-        EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW);
+        EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, TransitionMode.TopUp);
         // Fallback: đủ lớn để transition popup tự emit TOPUP_TRANSITION_DONE trước
         this.scheduleOnce(enter, 3.0);
     }
@@ -2506,7 +2550,7 @@ export class GameManager extends Component {
             this._enterFreespinGold(count);
         };
         EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
-        EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW);
+        EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, TransitionMode.FreeSpin);
         // Fallback: đủ lớn để transition popup tự emit TOPUP_TRANSITION_DONE trước
         this.scheduleOnce(enter, 3.0);
     }
@@ -3382,6 +3426,11 @@ export class GameManager extends Component {
         // Điều này đảm bảo _handleTopUpReelsStopped so sánh đúng key khi detect new cells.
         const lastResp = data.lastSpinResponse;
         if (lastResp?.topupReel && lastResp.topupReel.length > 0) {
+            // Giữ credit đã tính từ normal spin — server TopupReel thường có Type/Index nhưng Win=0.
+            const prevCredits = new Map<string, number>();
+            for (const [key, cell] of data.stickyCells.entries()) {
+                if ((cell.credit ?? 0) > 0) prevCredits.set(key, cell.credit!);
+            }
             data.stickyCells.clear();
             for (let i = 0; i < Math.min(15, lastResp.topupReel.length); i++) {
                 const slot = lastResp.topupReel[i];
@@ -3397,7 +3446,9 @@ export class GameManager extends Component {
                     continue;
                 }
                 const symbolId = SymbolId.STICKY_RED;
-                data.stickyCells.set(`${reel}-${row}`, { reel, row, symbolId, credit: slot.win });
+                const key = `${reel}-${row}`;
+                const credit = (slot.win > 0 ? slot.win : prevCredits.get(key)) ?? slot.win ?? 0;
+                data.stickyCells.set(key, { reel, row, symbolId, credit });
             }
             Log.e(`[TopUp] _enterTopUp: rebuilt stickyCells from topupReel → ${data.stickyCells.size} cells (5-col coords)`);
         } else {
@@ -3436,7 +3487,17 @@ export class GameManager extends Component {
             totalWin: data.respinTotalWin,
         });
         EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, false);
-        this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), 0.4);
+        const redCount = data.stickyCells.size;
+        const enterAnimWait = this._topUpEnterAnimWait(redCount);
+        this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), enterAnimWait);
+    }
+
+    /** Chờ overlay fade + coin bounce stagger xong trước spin đầu TopUp. */
+    private _topUpEnterAnimWait(redCount: number): number {
+        const fade = 0.4;
+        const stagger = Math.max(0, redCount - 1) * 0.07;
+        const bounce = 0.22 + 0.32;
+        return fade + stagger + bounce + 0.15;
     }
 
     private _handleTopUpReelsStopped(resp: SpinResponse): void {
@@ -3484,7 +3545,7 @@ export class GameManager extends Component {
                     // Cập nhật credit nếu server gửi giá trị mới (Yellow/Green có thể thay đổi do absorb)
                     if (existingCell.symbolId === SymbolId.STICKY_YELLOW || existingCell.symbolId === SymbolId.STICKY_GREEN) {
                         existingCell.credit = existingCell.credit ?? 0;
-                    } else {
+                    } else if ((cell.credit ?? 0) > 0) {
                         existingCell.credit = cell.credit;
                     }
                     continue;

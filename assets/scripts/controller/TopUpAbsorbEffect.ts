@@ -41,7 +41,15 @@ import { SoundManager }            from '../manager/SoundManager';
 
 const { ccclass, property } = _decorator;
 
-const TOPUP_ABSORB_COIN_SCALE = 1.15;
+/** Khớp StickyOverlay: vàng 1.2, xanh 1. */
+const TOPUP_YELLOW_COIN_SCALE = 1.2;
+const TOPUP_GREEN_COIN_SCALE = 1;
+
+function topUpAbsorbCoinScale(symbolId: number): number {
+    if (symbolId === SymbolId.STICKY_YELLOW) return TOPUP_YELLOW_COIN_SCALE;
+    if (symbolId === SymbolId.STICKY_GREEN) return TOPUP_GREEN_COIN_SCALE;
+    return TOPUP_YELLOW_COIN_SCALE;
+}
 
 /** Payload tu GameManager khi emit TOPUP_ABSORB_START */
 export interface TopUpAbsorbPayload {
@@ -345,17 +353,18 @@ export class TopUpAbsorbEffect extends Component {
     ): Promise<void> {
         Log.d(`[TopUpAbsorb] absorb dst=${dstNode.name} target=${creditTarget} sources=${JSON.stringify(sources.map(s => ({ reel: s.reel, row: s.row, sym: s.symbolId, credit: s.credit ?? 0 })))}`);
 
-        // Coin vang/xanh da hien tren StickyOverlay o scale 1.15.
+        // Coin vang/xanh da hien tren StickyOverlay (vang 1.2 / xanh 1).
         // Stop landing bounce first so the absorb scale is not overwritten by a previous tween.
+        const absorbScale = topUpAbsorbCoinScale(dstSymbolId);
         Tween.stopAllByTarget(dstNode);
-        dstNode.setScale(TOPUP_ABSORB_COIN_SCALE, TOPUP_ABSORB_COIN_SCALE, dstNode.scale.z);
+        dstNode.setScale(absorbScale, absorbScale, dstNode.scale.z);
 
         // Bay tat ca effect song song (co stagger), moi lan 1 effect cham -> cong credit + zoom nhe
         await this._flyEffectsWithIncrementalCredit(sources, dstNode, dstSymbolId, creditTarget, dstCell);
 
         // Dam bao so cuoi cung chinh xac
         this._commitAbsorbCredit(dstCell, dstNode, creditTarget);
-        dstNode.setScale(TOPUP_ABSORB_COIN_SCALE, TOPUP_ABSORB_COIN_SCALE, dstNode.scale.z);
+        dstNode.setScale(absorbScale, absorbScale, dstNode.scale.z);
     }
 
     private _commitAbsorbCredit(dstCell: StickyCell, dstNode: Node, credit: number): void {
@@ -391,18 +400,19 @@ export class TopUpAbsorbEffect extends Component {
 
     /** Hien thi CreditLabel va set gia tri — giữ nguyên scale node để SpriteNumber tự quản lý. */
     private _ensureCreditLabel(slotNode: Node, value: number): void {
-        const labelNode = slotNode.getChildByName('CreditLabel');
-        if (!labelNode) {
-            Log.e(`[TopUpAbsorb] Missing CreditLabel on ${slotNode.name}`);
-            return;
-        }
-        const sn = labelNode.getComponent(SpriteNumber);
+        let labelNode = slotNode.getChildByName('CreditLabel');
+        let sn = labelNode?.getComponent(SpriteNumber) ?? null;
         if (!sn) {
-            Log.e(`[TopUpAbsorb] Missing SpriteNumber on ${slotNode.name}/CreditLabel`);
+            sn = slotNode.getComponentInChildren(SpriteNumber);
+            if (sn) labelNode = sn.node;
+        }
+        if (!labelNode || !sn) {
+            Log.e(`[TopUpAbsorb] Missing CreditLabel/SpriteNumber on ${slotNode.name}`);
             return;
         }
-        labelNode.active = value > 0;
-        sn.setData(value, -1, 0);
+        const safeValue = Math.max(0, value);
+        labelNode.active = safeValue > 0;
+        sn.setData(safeValue, -1, 0);
     }
 
     // -- Bay nhieu effect voi stagger, moi effect cham -> cong credit cua source --

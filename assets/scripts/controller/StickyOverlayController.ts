@@ -38,7 +38,9 @@ import { TopUpManager } from './TopUpManager';
 
 const { ccclass, property } = _decorator;
 
-const TOPUP_ABSORB_COIN_SCALE = 1.15;
+/** Base scale khi sticky vàng/xanh nằm trên overlay (đồng đỏ = 1). */
+const TOPUP_YELLOW_COIN_SCALE = 1.2;
+const TOPUP_GREEN_COIN_SCALE = 1;
 
 @ccclass('StickyOverlayController')
 export class StickyOverlayController extends Component {
@@ -64,8 +66,38 @@ export class StickyOverlayController extends Component {
     @property({ tooltip: 'Thời gian fade-in khi coin mới xuất hiện (giây). 0 = không fade.' })
     coinFadeInDuration: number = 0.2;
 
+    @property({ tooltip: 'Fade-in khi đồng vàng/xanh mới land trên StickyOverlay (giây).' })
+    goldCoinFadeInDuration: number = 0.35;
+
+    @property({ tooltip: 'Scale bắt đầu khi đồng vàng/xanh pop-in (nhỏ → to).' })
+    goldCoinPopStartScale: number = 0.35;
+
+    @property({ tooltip: 'Overshoot scale khi đồng vàng/xanh nhún xuất hiện (nhân với base).' })
+    goldCoinBounceOvershoot: number = 1.12;
+
+    @property({ tooltip: 'Thời gian scale UP khi đồng vàng/xanh xuất hiện (giây).' })
+    goldCoinBounceUpDuration: number = 0.28;
+
+    @property({ tooltip: 'Thời gian scale DOWN settle khi đồng vàng/xanh xuất hiện (giây).' })
+    goldCoinBounceDownDuration: number = 0.36;
+
+    @property({ tooltip: 'Fade-in toàn overlay khi vừa vào TopUp (giây).' })
+    topUpEnterFadeDuration: number = 0.4;
+
+    @property({ tooltip: 'Fade-in coin lần đầu vào TopUp (giây) — thường dài hơn coinFadeInDuration.' })
+    topUpEnterCoinFadeDuration: number = 0.35;
+
     @property({ tooltip: 'Bounce scale khi coin mới xuất hiện (1.0 = no bounce, 1.12 = 12% bigger).' })
     coinBounceScale: number = 1.12;
+
+    @property({ tooltip: 'Thời gian scale UP khi coin vào TopUp lần đầu (giây).' })
+    coinEnterBounceUpDuration: number = 0.22;
+
+    @property({ tooltip: 'Thời gian scale DOWN khi coin vào TopUp lần đầu (giây).' })
+    coinEnterBounceDownDuration: number = 0.32;
+
+    @property({ tooltip: 'Delay giữa từng coin khi nhún lần đầu vào TopUp (giây).' })
+    coinEnterBounceStagger: number = 0.07;
 
     @property({
         type: SlotMachineController,
@@ -95,6 +127,9 @@ export class StickyOverlayController extends Component {
     private _coinSlotOriginalParents: Map<Node, { parent: Node | null; siblingIndex: number; spinCounter: number }> = new Map();
 
     private _topUpSpinCounter: number = 0;
+
+    /** true trong _refreshAll lần đầu sau TOPUP_START — nhún chậm + stagger. */
+    private _isEnteringTopUp: boolean = false;
 
     // ── LIFECYCLE ──────────────────────────────────────────────────────────────
 
@@ -135,7 +170,19 @@ export class StickyOverlayController extends Component {
         this.clearTempPlusOne('topup-start');
         this.alignPositionsFromTopUpManager();
         this._previouslyActiveSlots.clear();
+        this._fadeInOverlay();
+        this._isEnteringTopUp = true;
         this._refreshAll(false /* first show — fade in tất cả */);
+        this._isEnteringTopUp = false;
+    }
+
+    /** Fade in toàn StickyOverlay sau TransitionPopup fade out. */
+    private _fadeInOverlay(): void {
+        const fadeDur = Math.max(0.05, this.topUpEnterFadeDuration);
+        const op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
+        Tween.stopAllByTarget(op);
+        op.opacity = 0;
+        tween(op).to(fadeDur, { opacity: 255 }, { easing: 'sineOut' }).start();
     }
 
     private _onTopUpUpdated(): void {
@@ -180,6 +227,8 @@ export class StickyOverlayController extends Component {
         Log.e(`[SOC-DEBUG] _refreshAll(fadeOnlyNew=${fadeOnlyNew}) — stickyCells.size=${cells.size} coinSlots.length=${this.coinSlots.length} node.active=${this.node.active}`);
         Log.e(`[SOC-DEBUG] stickyCells: ${cells.size === 0 ? '(empty)' : Array.from(cells.entries()).map(([k, c]) => `${k}=${c.symbolId === SymbolId.STICKY_YELLOW ? 'YELLOW' : c.symbolId === SymbolId.STICKY_GREEN ? 'GREEN' : c.symbolId === SymbolId.STICKY_RED ? 'RED' : c.symbolId}($${c.credit})`).join(', ')}`);
         // ═══ END DEBUG ═══
+
+        const isEnter = this._isEnteringTopUp;
 
         for (let reel = 0; reel < 5; reel++) {
             for (let row = 0; row < 3; row++) {
@@ -247,16 +296,27 @@ export class StickyOverlayController extends Component {
 
                 // Fade in + Bounce: chỉ cho coin MỚI hoặc lần đầu mở (fadeOnlyNew=false)
                 if (!fadeOnlyNew || isNewCoin) {
-                    // Fade in
-                    if (this.coinFadeInDuration > 0) {
-                        const op = slotNode.getComponent(UIOpacity);
-                        if (op) {
-                            op.opacity = 0;
-                            tween(op).to(this.coinFadeInDuration, { opacity: 255 }).start();
-                        }
+                    const isGoldCoin = cell.symbolId === SymbolId.STICKY_YELLOW
+                        || cell.symbolId === SymbolId.STICKY_GREEN;
+                    const fadeDur = isEnter
+                        ? this.topUpEnterCoinFadeDuration
+                        : (isGoldCoin ? this.goldCoinFadeInDuration : this.coinFadeInDuration);
+                    if (fadeDur > 0) {
+                        const op = slotNode.getComponent(UIOpacity)
+                            ?? slotNode.addComponent(UIOpacity);
+                        Tween.stopAllByTarget(op);
+                        op.opacity = 0;
+                        tween(op).to(fadeDur, { opacity: 255 }, { easing: 'sineOut' }).start();
                     }
-                    // Bounce nhẹ cho coin mới (bao gồm Yellow/Green) để pop-in mượt
-                    this._playCoinBounce(slotNode, cell.symbolId);
+                    const stagger = isEnter ? idx * this.coinEnterBounceStagger : 0;
+                    if (stagger > 0) {
+                        this.scheduleOnce(
+                            () => this._playCoinBounce(slotNode, cell.symbolId, isEnter),
+                            stagger,
+                        );
+                    } else {
+                        this._playCoinBounce(slotNode, cell.symbolId, isEnter);
+                    }
                 }
             }
         }
@@ -470,14 +530,32 @@ export class StickyOverlayController extends Component {
         slotNode.active = false;
     }
 
+    /** Tìm CreditLabel child — fallback getComponentInChildren(SpriteNumber) cho nested prefab. */
+    private _resolveCreditLabel(slotNode: Node): { labelNode: Node | null; sn: SpriteNumber | null } {
+        let labelNode = slotNode.getChildByName('CreditLabel');
+        let sn = labelNode?.getComponent(SpriteNumber) ?? null;
+        if (!sn) {
+            sn = slotNode.getComponentInChildren(SpriteNumber);
+            if (sn) labelNode = sn.node;
+        }
+        return { labelNode, sn };
+    }
+
+    /** Red luôn hiện label; Yellow/Green chỉ hiện khi đã có credit (sau absorb). */
+    private _shouldShowCreditLabel(symbolId: number, credit: number): boolean {
+        if (symbolId === SymbolId.STICKY_RED) return true;
+        return credit > 0;
+    }
+
     /**
      * Áp dụng loại coin + credit value lên 1 slotNode.
      * @param symbolId  SymbolId.STICKY_RED / YELLOW / GREEN
      * @param credit    Giá trị credit (>= 0, luôn hiển thị CreditLabel)
      */
     private _applyCoin(slotNode: Node, symbolId: number, credit: number): void {
-        const lastCredit = this._slotCreditMap.get(slotNode) ?? -1;
-        const creditChanged = credit !== lastCredit;
+        const lastCredit = this._slotCreditMap.get(slotNode);
+        const safeLastCredit = lastCredit != null && lastCredit >= 0 ? lastCredit : 0;
+        const creditChanged = credit !== safeLastCredit;
 
         // ── Sprite ──
         const frameIdx = this._symbolToFrameIndex(symbolId);
@@ -489,17 +567,15 @@ export class StickyOverlayController extends Component {
         // ★ Giữ nguyên scale cho coin đã có (existing) — new coin set base scale qua _playCoinBounce.
 
         // ── Credit label (SpriteNumber trên child "CreditLabel") ──
-        // TopUp Yellow/Green bắt đầu credit = 0 → ẩn label, chỉ hiện khi được hút tiền vào.
-        // Giữ hiển thị nếu đã từng có credit > 0 (tránh GameData chưa cập nhật làm ẩn label sau absorb).
-        const displayCredit = credit > 0 ? credit : lastCredit;
-        const shouldActive  = displayCredit > 0;
-        const labelNode = slotNode.getChildByName('CreditLabel');
+        // Red: luôn hiện label (kể cả credit=0). Yellow/Green: ẩn cho đến khi absorb xong.
+        const displayCredit = credit > 0 ? credit : safeLastCredit;
+        const shouldActive  = this._shouldShowCreditLabel(symbolId, displayCredit);
+        const { labelNode, sn } = this._resolveCreditLabel(slotNode);
         if (labelNode) {
-            const sn = labelNode.getComponent(SpriteNumber);
             if (sn) {
-                if (creditChanged || (credit === 0 && lastCredit > 0)) {
-                    Log.e(`[STICKY-LABEL] _applyCoin ${slotNode.name} setData(${displayCredit}) sn=${sn ? 'OK' : 'MISS'}`);
-                    sn.setData(displayCredit);
+                if (creditChanged || shouldActive) {
+                    Log.e(`[STICKY-LABEL] _applyCoin ${slotNode.name} setData(${displayCredit}) sn=OK`);
+                    sn.setData(Math.max(0, displayCredit));
                     Log.d(`[StickyOverlay] apply ${slotNode.name} symbol=${symbolId} credit=${displayCredit}`);
                 }
             } else {
@@ -508,13 +584,13 @@ export class StickyOverlayController extends Component {
             if (creditChanged) {
                 labelNode.setRotationFromEuler(0, 0, 0);
             }
-            Log.e(`[STICKY-LABEL] _applyCoin ${slotNode.name} credit=${credit} lastCredit=${lastCredit} active→${shouldActive} (was=${labelNode.active})`);
+            Log.e(`[STICKY-LABEL] _applyCoin ${slotNode.name} credit=${credit} lastCredit=${safeLastCredit} active→${shouldActive} (was=${labelNode.active})`);
             labelNode.active = shouldActive;
         } else {
             Log.e(`[StickyOverlay] Missing CreditLabel on ${slotNode.name}`);
         }
 
-        this._slotCreditMap.set(slotNode, displayCredit);
+        this._slotCreditMap.set(slotNode, Math.max(0, displayCredit));
     }
 
     /**
@@ -532,9 +608,9 @@ export class StickyOverlayController extends Component {
     }
 
     private _getBaseScale(symbolId: number): number {
-        return (symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN)
-            ? TOPUP_ABSORB_COIN_SCALE
-            : 1;
+        if (symbolId === SymbolId.STICKY_YELLOW) return TOPUP_YELLOW_COIN_SCALE;
+        if (symbolId === SymbolId.STICKY_GREEN) return TOPUP_GREEN_COIN_SCALE;
+        return 1;
     }
 
     private _applyBaseScale(slotNode: Node, symbolId: number): void {
@@ -610,36 +686,67 @@ export class StickyOverlayController extends Component {
      * Giữ label active và cập nhật _slotCreditMap để _refreshAll sau không ẩn label.
      */
     setSlotCredit(slotNode: Node, credit: number): void {
-        this._slotCreditMap.set(slotNode, credit);
-        const labelNode = slotNode.getChildByName('CreditLabel');
+        const safeCredit = Math.max(0, credit);
+        this._slotCreditMap.set(slotNode, safeCredit);
+        const cellKey = this._coinSlotKey(slotNode);
+        const cell = cellKey ? GameData.instance.stickyCells.get(cellKey) : undefined;
+        const symbolId = cell?.symbolId ?? SymbolId.STICKY_YELLOW;
+        const { labelNode, sn } = this._resolveCreditLabel(slotNode);
         if (labelNode) {
-            const sn = labelNode.getComponent(SpriteNumber);
             if (sn) {
-                sn.setData(credit);
+                sn.setData(safeCredit);
             }
-            labelNode.active = credit > 0;
+            labelNode.active = this._shouldShowCreditLabel(symbolId, safeCredit);
         }
     }
 
-    /**
-     * Bounce animation when a new coin lands — same as SymbolView._playLandBounce.
-     * Scale up → overshoot nhỏ → về lại base scale.
-     */
-    private _playCoinBounce(slotNode: Node, symbolId: number): void {
-        const baseScale = this._getBaseScale(symbolId);
-        const bounceScale = baseScale * Math.min(this.coinBounceScale, 1.12);
-        Tween.stopAllByTarget(slotNode);
-        slotNode.setScale(baseScale, baseScale, 1);
+    /** Map coin slot node → stickyCells key `${reel}-${row}`. */
+    private _coinSlotKey(slotNode: Node): string | null {
+        const idx = this.coinSlots.indexOf(slotNode);
+        if (idx < 0) return null;
+        const reel = Math.floor(idx / 3);
+        const row = idx % 3;
+        return `${reel}-${row}`;
+    }
 
-        // In TopUp mode, play gold-land sound when yellow/green coins pop onto StickyOverlay
-        if (GameData.instance.currentMode === 'respin' &&
-            (symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN)) {
+    /**
+     * Bounce khi coin mới xuất hiện trên StickyOverlay.
+     * Vàng/xanh: pop từ nhỏ → overshoot → settle base (mượt, không snap).
+     * @param isEnter  true = lần đầu vào TopUp (chậm + mượt hơn)
+     */
+    private _playCoinBounce(slotNode: Node, symbolId: number, isEnter: boolean = false): void {
+        const baseScale = this._getBaseScale(symbolId);
+        const isGoldCoin = symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN;
+
+        Tween.stopAllByTarget(slotNode);
+
+        if (GameData.instance.currentMode === 'respin' && isGoldCoin) {
             SoundManager.instance?.playSfxByName('sxBonusStickyGoldLand');
         }
 
+        if (isGoldCoin) {
+            // Pop-in: bắt đầu nhỏ → phóng lên overshoot → settle về base (1.2 vàng / 1 xanh)
+            const startS = baseScale * Math.max(0.05, this.goldCoinPopStartScale);
+            const overshoot = baseScale * this.goldCoinBounceOvershoot;
+            const upDur = this.goldCoinBounceUpDuration;
+            const downDur = this.goldCoinBounceDownDuration;
+            slotNode.setScale(startS, startS, 1);
+            tween(slotNode)
+                .to(upDur, { scale: new Vec3(overshoot, overshoot, 1) }, { easing: 'sineOut' })
+                .to(downDur, { scale: new Vec3(baseScale, baseScale, 1) }, { easing: 'sineInOut' })
+                .start();
+            return;
+        }
+
+        // Đỏ / khác: bounce nhẹ quanh base
+        const maxBounce = isEnter ? 1.1 : Math.min(this.coinBounceScale, 1.12);
+        const bounceScale = baseScale * maxBounce;
+        const upDur = isEnter ? this.coinEnterBounceUpDuration : 0.12;
+        const downDur = isEnter ? this.coinEnterBounceDownDuration : 0.16;
+        slotNode.setScale(baseScale, baseScale, 1);
         tween(slotNode)
-            .to(0.1, { scale: new Vec3(bounceScale, bounceScale, 1) })
-            .to(0.1, { scale: new Vec3(baseScale, baseScale, 1) })
+            .to(upDur, { scale: new Vec3(bounceScale, bounceScale, 1) }, { easing: 'sineOut' })
+            .to(downDur, { scale: new Vec3(baseScale, baseScale, 1) }, { easing: 'sineInOut' })
             .start();
     }
 

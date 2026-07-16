@@ -82,6 +82,9 @@ export class CreditFlyInEffect extends Component {
     @property({ tooltip: 'Thời gian tween bay 1 label từ symbol đến EachWin (giây).' })
     flyDuration: number = 1;
 
+    @property({ tooltip: 'Độ cao cung bay (px) — tạo đường cong tự nhiên thay vì bay thẳng.' })
+    flyArcHeight: number = 55;
+
     @property({
         type: Node,
         tooltip: 'Node mẫu (active=false) chứa ParticleSystem2D — sẽ được clone ra khi cần, dùng pool tái sử dụng.',
@@ -99,7 +102,10 @@ export class CreditFlyInEffect extends Component {
     private _runningTotal: number = 0;
     private _isPlaying: boolean = false;
     private _eachWinBaseScale: Vec3 = new Vec3(1, 1, 1);
+    private _eachWinNodeBaseScale: Vec3 = new Vec3(1, 1, 1);
     private _particlePool: NodePool = new NodePool();
+    /** Active fly tweens — stop khi cancel */
+    private _activeFlyTweens: Array<{ stop: () => void }> = [];
 
     /** Hệ số tốc độ dựa trên speed mode (NORMAL=1, QUICK=0.5, TURBO=0.33) */
     private get _tm(): number {
@@ -169,10 +175,18 @@ export class CreditFlyInEffect extends Component {
         }
         this._pendingCreditReparents.clear();
 
+        for (const tw of this._activeFlyTweens) tw.stop();
+        this._activeFlyTweens.length = 0;
+
         if (this.eachWinSpriteNumber?.node) {
             Tween.stopAllByTarget(this.eachWinSpriteNumber.node);
+            this.eachWinSpriteNumber.node.setScale(this._eachWinBaseScale);
         }
-        if (this.eachWinNode) this.eachWinNode.active = false;
+        if (this.eachWinNode) {
+            Tween.stopAllByTarget(this.eachWinNode);
+            this.eachWinNode.setScale(this._eachWinNodeBaseScale);
+            this.eachWinNode.active = false;
+        }
         this.node.active = false;
     }
 
@@ -194,7 +208,10 @@ export class CreditFlyInEffect extends Component {
             this.eachWinSpriteNumber.setData(0);
             this.eachWinSpriteNumber.node.active = true;
         }
-        if (this.eachWinNode) this.eachWinNode.active = true;
+        if (this.eachWinNode) {
+            this._eachWinNodeBaseScale = this.eachWinNode.scale.clone();
+            this.eachWinNode.active = true;
+        }
 
         const payloadReds = payload.stickyCells
             .filter(c => c.symbolId === SymbolId.STICKY_RED)
@@ -287,59 +304,153 @@ export class CreditFlyInEffect extends Component {
 
         const dstWorldPos = this.eachWinNode.worldPosition.clone();
         const dstLocal    = this._worldToLocal(dstWorldPos);
+        const startLocal  = creditNode.position.clone();
+        const startScale  = creditNode.scale.clone();
+        const mergeScale  = this._computeMergeScale(creditNode);
 
         Tween.stopAllByTarget(creditNode);
-        creditNode.setScale(1, 1, 1);
+        creditNode.setScale(startScale);
 
-        // Phase 1: bay đến đích, giữ nguyên scale
-        // Phase 2: đến nơi mới thu nhỏ về 0.15
-        const flyTime    = this.flyDuration * 0.9 * this._tm;
-        const shrinkTime = this.flyDuration * 0.1 * this._tm;
-        tween(creditNode)
-            .to(flyTime, {
-                position: new Vec3(dstLocal.x, dstLocal.y, 0),
-            }, { easing: 'sineIn' })
-            .to(shrinkTime, {
-                scale: new Vec3(0.15, 0.15, 1),
-            }, { easing: 'sineIn' })
+        const flyTime = this.flyDuration * this._tm;
+        this._tweenCreditArc(
+            creditNode,
+            startLocal,
+            dstLocal,
+            startScale.x,
+            mergeScale.x,
+            flyTime,
+            () => {
+                this._onCreditArrived(creditNode, cell, originalParent, originalLocalPos, isLast);
+            },
+        );
+    }
+
+    /** Bay theo cung quadratic bezier + scale thu dần — khớp kích thước EachWin khi chạm đích. */
+    private _tweenCreditArc(
+        creditNode: Node,
+        start: Vec3,
+        end: Vec3,
+        startScale: number,
+        endScale: number,
+        duration: number,
+        onComplete: () => void,
+    ): void {
+        const ctrl = new Vec3(
+            (start.x + end.x) * 0.5,
+            Math.max(start.y, end.y) + this.flyArcHeight,
+            0,
+        );
+        const driver = { t: 0 };
+        let stopped = false;
+        const tw = tween(driver)
+            .to(duration, { t: 1 }, {
+                easing: 'sineIn',
+                onUpdate: () => {
+                    if (!isValid(creditNode)) return;
+                    const t = driver.t;
+                    const u = 1 - t;
+                    const x = u * u * start.x + 2 * u * t * ctrl.x + t * t * end.x;
+                    const y = u * u * start.y + 2 * u * t * ctrl.y + t * t * end.y;
+                    creditNode.setPosition(x, y, 0);
+                    const s = startScale + (endScale - startScale) * t;
+                    creditNode.setScale(s, s, 1);
+                },
+            })
             .call(() => {
-                this._runningTotal += cell.credit;
-                SoundManager.instance?.playBonusTrail();
-                if (this.eachWinSpriteNumber) {
-                    this.eachWinSpriteNumber.setData(this._runningTotal);
-                    const sn  = this.eachWinSpriteNumber.node;
-                    const bs  = sn.scale.clone(); // scale hiện tại sau shrinkToFit, không cứng về 1
-                    const bp  = sn.position.clone();
-                    Tween.stopAllByTarget(sn);
-                    sn.setScale(bs.x, bs.y, bs.z);
-                    sn.setPosition(bp);
-                    tween(sn)
-                        .to(0.14 * this._tm, { scale: new Vec3(bs.x * 0.7, bs.y * 0.7, bs.z) })
-                        .to(0.08 * this._tm, { scale: bs.clone() }, { easing: 'backOut' })
-                        .start();
-                }
-                // Play particle if assigned
-                if (this.eachWinParticle) {
-                    this.eachWinParticle.active = true;
-                    for (const ps of this.eachWinParticle.getComponentsInChildren(ParticleSystem)) {
-                        ps.stop();
-                        ps.play();
-                    }
-                }
-                // Không destroy node của SymbolView — re-parent về chỗ cũ và ẩn đi
-                Tween.stopAllByTarget(creditNode);
-                if (isValid(originalParent)) {
-                    creditNode.setParent(originalParent);
-                    creditNode.setPosition(originalLocalPos);
-                    creditNode.setScale(1, 1, 1);
-                }
-                creditNode.active = false;
-                this._pendingCreditReparents.delete(creditNode);
-                if (isLast) {
-                    this.scheduleOnce(() => this._finish(), 0.35 * this._tm);
-                }
+                if (stopped) return;
+                this._activeFlyTweens = this._activeFlyTweens.filter(item => item.stop !== stop);
+                onComplete();
             })
             .start();
+
+        const stop = () => {
+            if (stopped) return;
+            stopped = true;
+            tw.stop();
+            Tween.stopAllByTarget(driver);
+        };
+        this._activeFlyTweens.push({ stop });
+    }
+
+    /** Scale đích sao cho label bay khớp kích thước EachWin khi chạm — không thu nhỏ đột ngột. */
+    private _computeMergeScale(flyNode: Node): Vec3 {
+        const dstNode = this.eachWinSpriteNumber?.node;
+        if (!dstNode) return new Vec3(0.45, 0.45, 1);
+
+        const flyUT = flyNode.getComponent(UITransform);
+        const dstUT = dstNode.getComponent(UITransform);
+        if (!flyUT || !dstUT) return new Vec3(0.45, 0.45, 1);
+
+        const flyWorldW = flyUT.contentSize.width * Math.abs(flyNode.worldScale.x);
+        const dstWorldW = dstUT.contentSize.width * Math.abs(dstNode.worldScale.x);
+        if (flyWorldW <= 0 || dstWorldW <= 0) return new Vec3(0.45, 0.45, 1);
+
+        const ratio = dstWorldW / flyWorldW;
+        const s = Math.max(0.28, Math.min(ratio * 0.95, 1));
+        return new Vec3(s, s, 1);
+    }
+
+    /** Credit chạm EachWin — cộng tổng + pulse nhẹ đồng bộ (không co rồi bật). */
+    private _onCreditArrived(
+        creditNode: Node,
+        cell: StickyCell,
+        originalParent: Node | null,
+        originalLocalPos: Vec3,
+        isLast: boolean,
+    ): void {
+        this._runningTotal += cell.credit;
+        SoundManager.instance?.playBonusTrail();
+
+        if (this.eachWinSpriteNumber) {
+            this.eachWinSpriteNumber.setData(this._runningTotal);
+            this._pulseEachWinOnHit();
+        }
+
+        if (this.eachWinParticle) {
+            this.eachWinParticle.active = true;
+            for (const ps of this.eachWinParticle.getComponentsInChildren(ParticleSystem)) {
+                ps.stop();
+                ps.play();
+            }
+        }
+
+        Tween.stopAllByTarget(creditNode);
+        if (isValid(originalParent)) {
+            creditNode.setParent(originalParent);
+            creditNode.setPosition(originalLocalPos);
+            creditNode.setScale(1, 1, 1);
+        }
+        creditNode.active = false;
+        this._pendingCreditReparents.delete(creditNode);
+
+        if (isLast) {
+            this.scheduleOnce(() => this._finish(), 0.3 * this._tm);
+        }
+    }
+
+    /** Nhún nhẹ khi credit chạm — phình to rồi về base (không squish xuống 0.7). */
+    private _pulseEachWinOnHit(): void {
+        const sn = this.eachWinSpriteNumber?.node;
+        if (sn) {
+            const bs = this._eachWinBaseScale;
+            Tween.stopAllByTarget(sn);
+            sn.setScale(bs);
+            tween(sn)
+                .to(0.07 * this._tm, { scale: new Vec3(bs.x * 1.08, bs.y * 1.08, bs.z) }, { easing: 'sineOut' })
+                .to(0.13 * this._tm, { scale: bs.clone() }, { easing: 'sineInOut' })
+                .start();
+        }
+
+        if (this.eachWinNode) {
+            const en = this.eachWinNode;
+            const ebs = this._eachWinNodeBaseScale;
+            Tween.stopAllByTarget(en);
+            en.setScale(ebs);
+            tween(en)
+                .to(0.07 * this._tm, { scale: new Vec3(ebs.x * 1.04, ebs.y * 1.04, ebs.z) }, { easing: 'sineOut' })
+                .to(0.13 * this._tm, { scale: ebs.clone() }, { easing: 'sineInOut' })
+                .start();
+        }
     }
 
     // ── HELPERS ───────────────────────────────────────────────────────────────

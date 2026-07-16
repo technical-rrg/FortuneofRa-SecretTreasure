@@ -32,6 +32,8 @@ export const GameEvents = {
     WIN_PRESENT_START: 'win:present:start',
     /** Kết thúc trình diễn win */
     WIN_PRESENT_END: 'win:present:end',
+    /** Tắt hoàn toàn win highlight (fillBlack / bounce / cycling) — dùng trước feature red bounce. */
+    WIN_HIGHLIGHT_CLEAR: 'win:highlight:clear',
     /** Show popup BigWin / MegaWin */
     WIN_POPUP: 'win:popup',
     /** Count-up tiền thắng hoàn tất */
@@ -290,6 +292,7 @@ export const GameEvents = {
     CREDIT_FLY_IN_DONE: 'feature:credit:fly:done',
 
     // ─── TOPUP GAME ───
+    /** Hiện transition popup. Payload: TransitionMode (FreeSpin | TopUp | PickGame). */
     TOPUP_TRANSITION_SHOW: 'topup:transition:show',
     TOPUP_TRANSITION_DONE: 'topup:transition:done',
     TOPUP_START: 'topup:start',

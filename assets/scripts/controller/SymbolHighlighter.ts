@@ -209,6 +209,8 @@ export class SymbolHighlighter extends Component {
     /** FreeMode STICKY_YELLOW: clone node đang hiển thị trên paylineManagerNode (symbolNode gốc -> clone) */
     private _yellowClones: Map<Node, Node> = new Map();
     private _yellowCloneTweens: Map<Node, Tween> = new Map();
+    /** Sprite bounce highlight: clone trên WaysPayDisplay (symbolNode gốc -> clone bounce) */
+    private _spriteBounceClones: Map<Node, Node> = new Map();
     private _currentLineWinCount: number = 0;
 
     /** Prefab đã lazy-load theo SymbolId — không serialize trên Base. */
@@ -229,6 +231,7 @@ export class SymbolHighlighter extends Component {
         bus.on(GameEvents.WIN_SHOW_ALL_LINES,      this._onShowAllLines,     this);
         bus.on(GameEvents.WIN_SHOW_ALL_WAYS,       this._onShowAllWays,      this);
         bus.on(GameEvents.WIN_CYCLE_ONE_WAY,       this._onCycleOneWay,      this);
+        bus.on(GameEvents.WIN_HIGHLIGHT_CLEAR,     this._onWinHighlightClear, this);
         bus.on(GameEvents.JACKPOT_END,         this._onJackpotEndHighlight, this);
         bus.on(GameEvents.REELS_START_SPIN,    this._onReelsStartSpin, this);
         // Cập nhật highlight frame mode khi vào/thoát Feature game
@@ -530,6 +533,7 @@ export class SymbolHighlighter extends Component {
         this._resetHighlights();
         this._restoreReparentedSymbolNodes();
         this._restoreCreditLabels();
+        SymbolView.beginRedLandBounceSession();
         SymbolView.restoreAllLandBounces();
         //Log.e(`[HighlightDebug #${this._spinCount}] ═══ REELS_START_SPIN — kept ${this._pendingListeners.length} pending spine(s) for scroll-out cleanup ═══`);
     }
@@ -935,6 +939,58 @@ export class SymbolHighlighter extends Component {
         }
     }
 
+    /**
+     * Clone symbol lên WaysPayDisplay để bounce nằm trên fillBlack.
+     * Symbol gốc trên reel được ẩn sprite trong lúc clone đang chạy.
+     *
+     * STICKY_RED: KHÔNG clone lên WaysPayDisplay — bounce tại reel.
+     * Lý do: land-bounce cũng dùng WaysPayDisplay; clone highlight đỏ dễ bị nhầm là
+     * land-bounce chưa restore. Sticky đỏ đã nổi sau land bounce, bounce tại chỗ đủ rõ.
+     */
+    private _ensureSpriteBounceClone(symbolNode: Node, view: SymbolView | null): Node {
+        // Nếu symbol đang land-bounce trên WaysPayDisplay → kéo về reel / destroy clone trước
+        SymbolView.restoreLandBounceIfNeeded(symbolNode);
+
+        const symId = view?.symbolId ?? -1;
+        if (symId === SymbolId.STICKY_RED) {
+            Log.e(`[LB-DEBUG] highlight bounce STICKY_RED on-reel (no WaysPayDisplay clone) r${view?.reelIndex}row${view?.rowIndex}`);
+            view?.setSpriteVisible(true);
+            return symbolNode;
+        }
+
+        if (!this.paylineManagerNode?.isValid) return symbolNode;
+
+        let clone = this._spriteBounceClones.get(symbolNode);
+        if (!clone || !isValid(clone)) {
+            clone = instantiate(symbolNode);
+            clone.name = `__HLClone_r${view?.reelIndex ?? '?'}_row${view?.rowIndex ?? '?'}`;
+            this._spriteBounceClones.set(symbolNode, clone);
+        }
+
+        const baseScale = view?.defaultScale ?? this._getDefaultScale(symbolNode);
+        clone.setScale(baseScale, baseScale, 1);
+        clone.setParent(this.paylineManagerNode, true);
+        clone.setWorldPosition(symbolNode.getWorldPosition());
+        clone.setSiblingIndex(this.paylineManagerNode.children.length - 1);
+        clone.active = true;
+        view?.setSpriteVisible(false);
+        return clone;
+    }
+
+    private _destroySpriteBounceClone(symbolNode: Node): void {
+        const clone = this._spriteBounceClones.get(symbolNode);
+        if (clone && isValid(clone)) {
+            Tween.stopAllByTarget(clone);
+            this._bounceOrigPos.delete(clone);
+            if (clone.parent) clone.removeFromParent();
+            clone.destroy();
+        }
+        this._spriteBounceClones.delete(symbolNode);
+        if (symbolNode?.isValid) {
+            symbolNode.getComponent(SymbolView)?.setSpriteVisible(true);
+        }
+    }
+
     /** Sprite bounce thay spine khi USE_SPINE_WIN_HIGHLIGHT=false. */
     private _activateSpriteBounceForCell(
         symbolNode: Node,
@@ -986,22 +1042,25 @@ export class SymbolHighlighter extends Component {
     }
 
     private _startSpriteBounce(entry: ActiveSpineEntry, highlightDuration: number): void {
-        const node = entry.symbolNode;
-        if (!node?.isValid) return;
+        const symbolNode = entry.symbolNode;
+        if (!symbolNode?.isValid) return;
 
-        Tween.stopAllByTarget(node);
-        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(node);
-        node.setScale(baseScale, baseScale, 1);
+        const bounceNode = this._ensureSpriteBounceClone(symbolNode, entry.view);
+        entry.spineNode = bounceNode;
 
-        if (!this._bounceOrigPos.has(node)) {
-            this._bounceOrigPos.set(node, node.position.clone());
+        Tween.stopAllByTarget(bounceNode);
+        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
+        bounceNode.setScale(baseScale, baseScale, 1);
+
+        if (!this._bounceOrigPos.has(bounceNode)) {
+            this._bounceOrigPos.set(bounceNode, bounceNode.position.clone());
         }
-        const origPos = this._bounceOrigPos.get(node)!;
-        node.setPosition(origPos);
+        const origPos = this._bounceOrigPos.get(bounceNode)!;
+        bounceNode.setPosition(origPos);
 
         const dur = Math.max(0.18, Math.min(0.32, highlightDuration * 0.12));
         const liftY = 10;
-        const bounceOnce = tween(node)
+        const bounceOnce = tween(bounceNode)
             .to(dur, {
                 position: new Vec3(origPos.x, origPos.y + liftY, origPos.z),
                 scale: new Vec3(baseScale * 1.05, baseScale * 1.05, 1),
@@ -1021,16 +1080,21 @@ export class SymbolHighlighter extends Component {
     }
 
     private _stopSpriteBounce(entry: ActiveSpineEntry): void {
-        const node = entry.symbolNode;
-        if (!node?.isValid) return;
-        Tween.stopAllByTarget(node);
-        const origPos = this._bounceOrigPos.get(node);
-        if (origPos) {
-            node.setPosition(origPos);
-            this._bounceOrigPos.delete(node);
+        const symbolNode = entry.symbolNode;
+        if (!symbolNode?.isValid) return;
+
+        const bounceNode = entry.spineNode;
+        if (bounceNode?.isValid && bounceNode !== symbolNode) {
+            Tween.stopAllByTarget(bounceNode);
+        } else {
+            Tween.stopAllByTarget(symbolNode);
         }
-        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(node);
-        node.setScale(baseScale, baseScale, 1);
+
+        this._destroySpriteBounceClone(symbolNode);
+
+        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
+        symbolNode.setScale(baseScale, baseScale, 1);
+        entry.spineNode = symbolNode;
     }
 
     private _onSpriteBounceComplete(entry: ActiveSpineEntry, gen: number): void {
@@ -1291,6 +1355,7 @@ export class SymbolHighlighter extends Component {
         }
         // Dừng zoom cũ — reset về defaultScale
         for (const n of this._zoomedNodes) {
+            SymbolView.restoreLandBounceIfNeeded(n);
             Tween.stopAllByTarget(n);
             const baseScale = this._getDefaultScale(n);
             n.setScale(baseScale, baseScale, 1);
@@ -1306,6 +1371,7 @@ export class SymbolHighlighter extends Component {
             const node = reel.symbolNodes[row + 1] as Node | undefined;
             if (!node) continue;
 
+            SymbolView.restoreLandBounceIfNeeded(node);
             this._zoomedNodes.push(node);
             const baseScale = this._getDefaultScale(node);
             node.setScale(baseScale, baseScale, 1);
@@ -1348,16 +1414,15 @@ export class SymbolHighlighter extends Component {
 
     /** Popup Select Feature hiện lên → cleanup spine/credit labels ngay (sớm hơn FREE_SPIN_START) */
     private _onFeatureSelectOpen(): void {
-        this._deactivateAllSpines();
-        this._resetHighlights();
-        this._restoreReparentedSymbolNodes();
-        this._restoreCreditLabels();
-        SymbolView.restoreAllLandBounces();
-        this._jackpotCells = [];
+        this._clearAllWinHighlightRuntime();
     }
 
-    /** PickGame can interrupt normal win cycling; clear all line highlight runtime state. */
-    private _onPickGameBoundary(): void {
+    /** Tắt hẳn highlight trước khi feature red bounce / credit fly. */
+    private _onWinHighlightClear(): void {
+        this._clearAllWinHighlightRuntime();
+    }
+
+    private _clearAllWinHighlightRuntime(): void {
         this._watchingHighlightDone = false;
         this._stopJackpotCycle();
         this._deactivateAllSpines();
@@ -1368,15 +1433,36 @@ export class SymbolHighlighter extends Component {
         this._jackpotCells = [];
     }
 
+    /** PickGame can interrupt normal win cycling; clear all line highlight runtime state. */
+    private _onPickGameBoundary(): void {
+        this._clearAllWinHighlightRuntime();
+    }
+
     // ── RED SYMBOL BOUNCE (trước khi vào feature) ─────────────────────────────
 
     /**
      * Tất cả STICKY_RED symbol trên màn hình nhún nhẹ lên cùng lúc.
      * Gọi khi đủ >= 6 Red → trước khi fly-in animation bắt đầu.
+     * Timing/easing giống land-bounce khi reel dừng (mượt, không backOut).
      */
     private _onRedSymbolBounce(): void {
-        const bounceScale = 1.18;
-        const dur = 0.15;
+        // Bounce hint stop tween — restore từng Sticky Red đang land-bounce
+        // (không dùng restoreAllLandBounces để tránh fire sớm WIN_PRESENT waiters).
+        for (const reel of this.reels) {
+            for (let ni = 1; ni <= 3; ni++) {
+                const node = reel.symbolNodes[ni] as Node | undefined;
+                if (node) SymbolView.restoreLandBounceIfNeeded(node);
+            }
+        }
+
+        // Khớp SymbolView._playLandBounce: đẩy nhanh → hold ngắn → rơi chậm + nhảy Y
+        const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
+        const growDur = 0.12 * m;
+        const holdDur = 0.05 * m;
+        const shrinkDur = 0.32 * m;
+        const bounceScale = 1.12;
+        const jumpY = 14;
+        const topNode = SymbolView.landBounceParent;
 
         for (const reel of this.reels) {
             // symbolNodes[1]=Top, [2]=Mid, [3]=Bot (visible rows)
@@ -1389,10 +1475,42 @@ export class SymbolHighlighter extends Component {
                 const base = this._getDefaultScale(node);
                 Tween.stopAllByTarget(node);
                 node.setScale(base, base, 1);
-                tween(node)
-                    .to(dur, { scale: new Vec3(bounceScale * base, bounceScale * base, 1) }, { easing: 'backOut' })
-                    .to(dur, { scale: new Vec3(base, base, 1) }, { easing: 'sineOut' })
-                    .call(() => node.setScale(base, base, 1))
+
+                // Clone lên layer trên (như land-bounce) để không bị mask reel cắt → mượt hơn
+                let bounceTarget: Node = node;
+                let clone: Node | null = null;
+                if (topNode?.isValid) {
+                    clone = instantiate(node);
+                    clone.name = `__FSRedBounce_r${view.reelIndex}_row${view.rowIndex}`;
+                    clone.setParent(topNode, true);
+                    clone.setWorldPosition(node.getWorldPosition());
+                    clone.setSiblingIndex(topNode.children.length - 1);
+                    clone.active = true;
+                    bounceTarget = clone;
+                }
+
+                bounceTarget.setScale(base, base, 1);
+                const basePos = bounceTarget.position.clone();
+                const peakPos = new Vec3(basePos.x, basePos.y + jumpY, basePos.z);
+
+                tween(bounceTarget)
+                    .to(growDur, {
+                        scale: new Vec3(bounceScale * base, bounceScale * base, 1),
+                        position: peakPos,
+                    }, { easing: 'sineOut' })
+                    .delay(holdDur)
+                    .to(shrinkDur, {
+                        scale: new Vec3(base, base, 1),
+                        position: basePos.clone(),
+                    }, { easing: 'sineIn' })
+                    .call(() => {
+                        if (clone?.isValid) {
+                            clone.destroy();
+                        } else if (node?.isValid) {
+                            node.setScale(base, base, 1);
+                            node.setPosition(basePos);
+                        }
+                    })
                     .start();
             }
         }
@@ -1587,7 +1705,7 @@ export class SymbolHighlighter extends Component {
         this._creditLabelRestoreData.clear();
     }
 
-    /** Destroy tất cả clone STICKY_YELLOW trên paylineManagerNode (freemode) */
+    /** Destroy tất cả clone trên paylineManagerNode (STICKY_YELLOW freemode + sprite bounce highlight) */
     private _restoreReparentedSymbolNodes(): void {
         if (this._yellowClones.size > 0) {
             Log.e(`[FreeYellow] _restoreReparentedSymbolNodes: destroy ${this._yellowClones.size} clones`);
@@ -1601,6 +1719,18 @@ export class SymbolHighlighter extends Component {
         }
         this._yellowClones.clear();
         this._yellowCloneTweens.clear();
+
+        for (const [symNode, clone] of this._spriteBounceClones) {
+            if (isValid(clone)) {
+                Tween.stopAllByTarget(clone);
+                this._bounceOrigPos.delete(clone);
+                clone.destroy();
+            }
+            if (symNode?.isValid) {
+                symNode.getComponent(SymbolView)?.setSpriteVisible(true);
+            }
+        }
+        this._spriteBounceClones.clear();
     }
 
     /** Lấy defaultScale từ SymbolView component của symbol node. Mặc định = 1 nếu không tìm thấy. */

@@ -81,6 +81,7 @@ export class WaysPayDisplay extends Component {
         bus.on(GameEvents.WIN_SHOW_ALL_WAYS,  this._onShowAllWays,  this);
         bus.on(GameEvents.WIN_CYCLE_ONE_WAY,  this._onCycleOneWay,  this);
         bus.on(GameEvents.REELS_START_SPIN,   this._onSpinStart,    this);
+        bus.on(GameEvents.WIN_HIGHLIGHT_CLEAR, this._onSpinStart,   this);
         bus.on(GameEvents.FREE_SPIN_START,    this._onFeatureStart, this);
         bus.on(GameEvents.FREE_SPIN_GOLD_START, this._onFeatureStart, this);
         bus.on(GameEvents.TOPUP_START,         this._onFeatureStart, this);

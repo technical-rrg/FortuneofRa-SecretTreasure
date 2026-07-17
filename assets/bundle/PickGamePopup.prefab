@@ -350,7 +350,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079,
+      "width": 1078,
       "height": 832
     },
     "_anchorPoint": {
@@ -418,6 +418,8 @@
       "__id__": 0
     },
     "fileId": "adi9O9kSVIGaVA8sIgPfSk",
+    "instance": null,
+    "targetOverrides": null,
     "nestedPrefabInstanceRoots": null
   },
   {
@@ -565,7 +567,7 @@
       "__id__": 2
     },
     "_children": [],
-    "_active": false,
+    "_active": true,
     "_components": [
       {
         "__id__": 24
@@ -583,7 +585,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": 311.802,
+      "y": 363.66,
       "z": 0
     },
     "_lrot": {
@@ -624,7 +626,7 @@
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 566.6596069335938,
-      "height": 76.83999999999999
+      "height": 54.239999999999995
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -654,9 +656,9 @@
     "_dstBlendFactor": 4,
     "_color": {
       "__type__": "cc.Color",
-      "r": 255,
-      "g": 255,
-      "b": 255,
+      "r": 75,
+      "g": 9,
+      "b": 9,
       "a": 255
     },
     "_string": "PRESS COIN TO REVEAL LUCKY SYMBOL\nMATCH 3 LUCKY SYMBOLS TO AWARD JACKPOT / BONUS.",
@@ -665,7 +667,7 @@
     "_actualFontSize": 20,
     "_fontSize": 20,
     "_fontFamily": "Arial",
-    "_lineHeight": 34,
+    "_lineHeight": 24,
     "_overflow": 0,
     "_enableWrapText": true,
     "_font": {

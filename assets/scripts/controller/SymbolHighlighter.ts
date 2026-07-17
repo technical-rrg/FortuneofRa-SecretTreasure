@@ -1486,7 +1486,10 @@ export class SymbolHighlighter extends Component {
                     clone.setWorldPosition(node.getWorldPosition());
                     clone.setSiblingIndex(topNode.children.length - 1);
                     clone.active = true;
+                    clone.getComponent(SymbolView)?.setSpriteVisible(true);
                     bounceTarget = clone;
+                    // Ẩn sprite gốc trong lúc clone nhún
+                    view.setSpriteVisible(false);
                 }
 
                 bounceTarget.setScale(base, base, 1);
@@ -1505,10 +1508,16 @@ export class SymbolHighlighter extends Component {
                     }, { easing: 'sineIn' })
                     .call(() => {
                         if (clone?.isValid) {
+                            Tween.stopAllByTarget(clone);
+                            if (clone.parent) clone.removeFromParent();
                             clone.destroy();
                         } else if (node?.isValid) {
                             node.setScale(base, base, 1);
                             node.setPosition(basePos);
+                        }
+                        if (node?.isValid) {
+                            node.getComponent(SymbolView)?.setSpriteVisible(true);
+                            node.setScale(base, base, 1);
                         }
                     })
                     .start();

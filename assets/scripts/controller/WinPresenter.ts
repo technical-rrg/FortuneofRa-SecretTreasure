@@ -84,6 +84,7 @@ export class WinPresenter extends Component {
         EventBus.instance.on(GameEvents.WIN_PRESENT_START, this._onWinStart, this);
         EventBus.instance.on(GameEvents.REELS_START_SPIN,  this._onReelsStartSpin, this);
         EventBus.instance.on(GameEvents.WIN_HIGHLIGHT_ANIM_DONE, this._onHighlightAnimDone, this);
+        EventBus.instance.on(GameEvents.WIN_HIGHLIGHT_CLEAR, this._onWinHighlightClear, this);
         EventBus.instance.on(GameEvents.JACKPOT_END, this._onJackpotEndForCycle, this);
         EventBus.instance.on(GameEvents.AUTO_SPIN_CHANGED, this._onAutoSpinChanged, this);
         EventBus.instance.on(GameEvents.WILD_TRAIL_START, this._onWildTrailStart, this);
@@ -474,6 +475,16 @@ export class WinPresenter extends Component {
 
     private _onCreditFlyInStart(): void {
         this._stopCycling();
+    }
+
+    /** Feature select: tắt cycling trước khi red bounce / credit fly. */
+    private _onWinHighlightClear(): void {
+        this._generation++;
+        this._stopCycling();
+        this.unscheduleAllCallbacks();
+        this._isPresenting = false;
+        this._highlightAnimDone = false;
+        this._pendingPresentEndGen = -1;
     }
 
     private _onPickGameOpen(): void {

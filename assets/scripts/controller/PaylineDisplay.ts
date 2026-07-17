@@ -73,6 +73,7 @@ export class PaylineDisplay extends Component {
         bus.on(GameEvents.WIN_SHOW_ALL_LINES,   this._onShowAllLines,  this);
         bus.on(GameEvents.REELS_START_SPIN,     this._clearLines,      this);
         bus.on(GameEvents.WIN_PRESENT_END,      this._clearLines,      this);
+        bus.on(GameEvents.WIN_HIGHLIGHT_CLEAR,  this._clearLines,      this);
         bus.on(GameEvents.PICK_GAME_OPEN,       this._clearLines,      this);
         bus.on(GameEvents.PICK_GAME_CLOSE,      this._clearLines,      this);
     }

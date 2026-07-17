@@ -338,6 +338,7 @@ export class SlotMachineController extends Component {
         bus.on(GameEvents.TOPUP_END, this._onTopUpEnd, this);
         bus.on(GameEvents.PICK_GAME_OPEN, this._onPickGameOpen, this);
         bus.on(GameEvents.PICK_GAME_ENTRY_DONE, this._onPickGameEntryDone, this);
+        bus.on(GameEvents.TOPUP_TRANSITION_READY, this._onPickGameTransitionReady, this);
         bus.on(GameEvents.TOPUP_TRANSITION_DONE, this._onPickGameTransitionDone, this);
         bus.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameClose, this);
         bus.on(GameEvents.REELS_QUICK_STOP, this._onQuickStop, this);
@@ -600,10 +601,19 @@ export class SlotMachineController extends Component {
         this._wasActiveBeforePickGame = this.node.active;
         this._pendingPickGameHide = true;
         this._updateSlotBackgroundSprite();
-        Log.d('[SlotMachineController] Pick Game open — hide deferred until entry/transition done');
+        Log.d('[SlotMachineController] Pick Game open — hide when TransitionPopup READY (fade-in full)');
     }
 
-    /** TOPUP_TRANSITION_DONE: ẩn SlotMachine khi transition vào Pick Game xong */
+    /**
+     * TOPUP_TRANSITION_READY: overlay đã phủ kín → mới ẩn SlotMachine.
+     * Trước READY (FeatureSelect / đang fade-in): UI giữ nguyên.
+     */
+    private _onPickGameTransitionReady(): void {
+        if (!this._isPickGame) return;
+        this._hideForPickGameIfPending();
+    }
+
+    /** Fallback nếu READY bị miss */
     private _onPickGameTransitionDone(): void {
         if (!this._isPickGame) return;
         this._hideForPickGameIfPending();

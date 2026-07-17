@@ -233,8 +233,15 @@ export class GameManager extends Component {
     private _skipTopUpAbsorb: boolean = false;
     /** Pick Game đang active — block các Progressive Win check khác */
     private _isPickGameActive: boolean = false;
-    /** Chờ TransitionPopup xong rồi mới đổi background Pick Game */
+    /** Chờ TransitionPopup SHOW rồi mới đổi background Pick Game (dưới overlay) */
     private _pickGameBgPending: boolean = false;
+    /** TopUp: UI đã prepare dưới TransitionPopup; gameplay (SPIN) chờ DONE */
+    private _topUpUiPrepared: boolean = false;
+    private _topUpStartGameplayPending: boolean = false;
+    private _topUpFirstSpinDelay: number = 0.4;
+    /** Count chờ prepare khi Transition fade-in xong (READY) */
+    private _pendingTopUpPrepareCount: number | null = null;
+    private _pendingFreespinPrepareCount: number | null = null;
     /** Pot transition animation đang chạy — block spin cho đến khi POT_TRANSITION_END */
     private _isPotTransitioning: boolean = false;
     /** _afterWinProcessed bị defer vì pot transition chưa xong — sẽ gọi lại khi POT_TRANSITION_END */
@@ -530,6 +537,7 @@ export class GameManager extends Component {
         bus.on(GameEvents.PICK_GAME_CLOSE,                 this._onPickGameClose,          this);
         bus.on(GameEvents.PICK_GAME_ENTRY_DONE,            this._onPickGameEntryDone,      this);
         bus.on(GameEvents.PICK_GAME_NEED_CLAIM,            this._onPickGameNeedClaim,      this);
+        bus.on(GameEvents.TOPUP_TRANSITION_READY,          this._onTopUpTransitionReady,   this);
         bus.on(GameEvents.TOPUP_TRANSITION_DONE,           this._onTopUpTransitionDone,    this);
         bus.on(GameEvents.FREE_SPIN_START,                 this._onFreeSpinStart,          this);
         bus.on(GameEvents.FREE_SPIN_END,                   this._onFreeSpinEnd,            this);
@@ -1937,7 +1945,27 @@ export class GameManager extends Component {
     }
 
     /**
-     * TOPUP_TRANSITION_DONE: đổi background Pick Game sau khi TransitionPopup kết thúc.
+     * TOPUP_TRANSITION_READY: overlay đã fade-in full → mới đổi UI mode.
+     * FeatureSelect / trước fade-in: UI vẫn giữ nguyên Normal.
+     */
+    private _onTopUpTransitionReady(mode?: TransitionMode): void {
+        if (mode === TransitionMode.TopUp && this._pendingTopUpPrepareCount != null) {
+            const count = this._pendingTopUpPrepareCount;
+            this._pendingTopUpPrepareCount = null;
+            void this._prepareTopUpUI(count);
+        } else if (mode === TransitionMode.FreeSpin && this._pendingFreespinPrepareCount != null) {
+            const count = this._pendingFreespinPrepareCount;
+            this._pendingFreespinPrepareCount = null;
+            this._prepareFreespinGoldUI(count);
+        }
+
+        if (mode === TransitionMode.PickGame || this._isPickGameActive) {
+            this._applyPickGameBackgroundIfPending();
+        }
+    }
+
+    /**
+     * TOPUP_TRANSITION_DONE: fallback đổi BG Pick Game nếu READY bị miss.
      */
     private _onTopUpTransitionDone(): void {
         if (!this._isPickGameActive) return;
@@ -1954,7 +1982,7 @@ export class GameManager extends Component {
         if (!this._pickGameBgPending) return;
         this._pickGameBgPending = false;
         this._updateBackgroundSprite();
-        Log.d('[GameManager] Pick Game background updated after transition done');
+        Log.d('[GameManager] Pick Game background updated under TransitionPopup');
     }
 
     /**
@@ -2510,7 +2538,7 @@ export class GameManager extends Component {
             }
 
             const count = ack.remainFeatureSpinCount > 0 ? ack.remainFeatureSpinCount : 8;
-            GameData.instance.currentMode = 'freespin_gold';
+            // currentMode / UI chỉ đổi sau Transition READY — giữ Normal đến khi overlay phủ kín
             this._freeSpinGoldCoinTotal = 0;
             this._freeSpinGoldServerTotalWin = null;
             this._freeSpinGoldCountedKeys.clear();
@@ -2527,32 +2555,50 @@ export class GameManager extends Component {
         }
     }
 
+    /**
+     * FeatureSelect → TopUp:
+     * 1) SHOW TransitionPopup (UI Normal vẫn giữ nguyên lúc fade-in)
+     * 2) READY (fade-in full) → prepare UI TopUp dưới overlay
+     * 3) DONE → sticky bounce + bắt đầu spin
+     */
     private _showTopUpTransitionThenEnter(count: number): void {
+        this._topUpUiPrepared = false;
+        this._topUpStartGameplayPending = false;
+        this._pendingTopUpPrepareCount = count;
+        this._pendingFreespinPrepareCount = null;
+
         let done = false;
-        const enter = () => {
+        const startGameplay = () => {
             if (done) return;
             done = true;
-            EventBus.instance.off(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
-            this._enterTopUp(count);
+            EventBus.instance.off(GameEvents.TOPUP_TRANSITION_DONE, startGameplay, this);
+            this.unschedule(startGameplay);
+            this._startTopUpGameplayAfterTransition();
         };
-        EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
+        EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, startGameplay, this);
         EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, TransitionMode.TopUp);
-        // Fallback: đủ lớn để transition popup tự emit TOPUP_TRANSITION_DONE trước
-        this.scheduleOnce(enter, 3.0);
+        // Fallback DONE
+        this.scheduleOnce(startGameplay, 4.0);
     }
 
+    /**
+     * FeatureSelect → FreeSpin Gold: UI đổi ở READY, spin ở DONE.
+     */
     private _showTopUpTransitionThenEnterFreespin(count: number): void {
+        this._pendingFreespinPrepareCount = count;
+        this._pendingTopUpPrepareCount = null;
+
         let done = false;
-        const enter = () => {
+        const startGameplay = () => {
             if (done) return;
             done = true;
-            EventBus.instance.off(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
-            this._enterFreespinGold(count);
+            EventBus.instance.off(GameEvents.TOPUP_TRANSITION_DONE, startGameplay, this);
+            this.unschedule(startGameplay);
+            this._startFreespinGoldGameplayAfterTransition();
         };
-        EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, enter, this);
+        EventBus.instance.once(GameEvents.TOPUP_TRANSITION_DONE, startGameplay, this);
         EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_SHOW, TransitionMode.FreeSpin);
-        // Fallback: đủ lớn để transition popup tự emit TOPUP_TRANSITION_DONE trước
-        this.scheduleOnce(enter, 3.0);
+        this.scheduleOnce(startGameplay, 4.0);
     }
 
     private _buildPendingResume(raw: any, source: string): PendingResumeData | null {
@@ -3367,11 +3413,12 @@ export class GameManager extends Component {
     }
 
     /**
-     * Vào chế độ FreeSpin Gold: bypass FREE_SPIN_POPUP (SuperNova popup),
-     * transition trực tiếp tương tự TopUp — không có popup, nền đổi, Gold UI hiện, auto-spin.
+     * Prepare FreeSpin Gold UI ngay khi TransitionPopup SHOW (dưới overlay).
+     * Spin chỉ gọi ở _startFreespinGoldGameplayAfterTransition (DONE).
      */
-    private _enterFreespinGold(count: number): void {
+    private _prepareFreespinGoldUI(count: number): void {
         const data = GameData.instance;
+        data.currentMode = 'freespin_gold';
         data.freeSpinRemaining      = count;
         data.freeSpinGoldRemaining  = count;
         data.freeSpinGoldTotalWin   = 0;
@@ -3399,18 +3446,37 @@ export class GameManager extends Component {
             baseCredit:     data.featureBaseCredit ?? 0,
         });
         EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, false);
-        // Auto-spin sau delay transition (tương tự TopUp 0.4s)
+        Log.d(`[FreespinGold] UI prepared under TransitionPopup → count=${count}`);
+    }
+
+    private _startFreespinGoldGameplayAfterTransition(): void {
         this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), 0.4);
+        Log.d('[FreespinGold] Transition DONE → auto-spin in 0.4s');
+    }
 
-
-        Log.d(`[FreespinGold] _enterFreespinGold → count=${count}, stage=FREE_SPIN, auto-spin in 0.4s`);
+    /** Legacy entry — prepare UI + start gameplay (resume / path không qua Transition). */
+    private _enterFreespinGold(count: number): void {
+        this._prepareFreespinGoldUI(count);
+        this._startFreespinGoldGameplayAfterTransition();
     }
 
     private _enterTopUp(count: number): void {
         void this._enterTopUpAsync(count);
     }
 
+    /** Legacy entry — prepare + gameplay (resume / path không qua Transition). */
     private async _enterTopUpAsync(count: number): Promise<void> {
+        this._topUpUiPrepared = false;
+        this._topUpStartGameplayPending = false;
+        await this._prepareTopUpUI(count);
+        this._startTopUpGameplayAfterTransition();
+    }
+
+    /**
+     * Prepare toàn bộ TopUp UI ngay dưới TransitionPopup (SHOW).
+     * StickyOverlay load + TOPUP_START chạy ở đây để khi DONE tắt overlay thì UI đã sẵn.
+     */
+    private async _prepareTopUpUI(count: number): Promise<void> {
         const data = GameData.instance;
         data.currentMode = 'respin';
         data.respinRemaining = count > 0 ? count : 6;
@@ -3450,9 +3516,9 @@ export class GameManager extends Component {
                 const credit = (slot.win > 0 ? slot.win : prevCredits.get(key)) ?? slot.win ?? 0;
                 data.stickyCells.set(key, { reel, row, symbolId, credit });
             }
-            Log.e(`[TopUp] _enterTopUp: rebuilt stickyCells from topupReel → ${data.stickyCells.size} cells (5-col coords)`);
+            Log.e(`[TopUp] _prepareTopUpUI: rebuilt stickyCells from topupReel → ${data.stickyCells.size} cells (5-col coords)`);
         } else {
-            Log.e(`[TopUp] _enterTopUp: no topupReel in lastSpinResponse — keeping existing stickyCells (${data.stickyCells.size})`);
+            Log.e(`[TopUp] _prepareTopUpUI: no topupReel in lastSpinResponse — keeping existing stickyCells (${data.stickyCells.size})`);
         }
 
         for (const [key, cell] of Array.from(data.stickyCells.entries())) {
@@ -3470,7 +3536,7 @@ export class GameManager extends Component {
 
         data.featureBaseCredit = this._sumTopUpBaseCredit(Array.from(data.stickyCells.values()));
         data.respinTotalWin = data.featureBaseCredit;
-        Log.e(`[TOPUP-CREDIT][GM] enterTopUp baseCredit=${data.featureBaseCredit} initialTotal=${data.respinTotalWin} cells=${data.stickyCells.size}`);
+        Log.e(`[TOPUP-CREDIT][GM] prepareTopUpUI baseCredit=${data.featureBaseCredit} initialTotal=${data.respinTotalWin} cells=${data.stickyCells.size}`);
 
         // Lazy-load StickyOverlay (+ TopUpManager) trước khi emit TOPUP_START
         await this._ensureStickyOverlayLoaded();
@@ -3487,9 +3553,31 @@ export class GameManager extends Component {
             totalWin: data.respinTotalWin,
         });
         EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, false);
-        const redCount = data.stickyCells.size;
-        const enterAnimWait = this._topUpEnterAnimWait(redCount);
-        this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), enterAnimWait);
+
+        this._topUpFirstSpinDelay = this._topUpEnterAnimWait(data.stickyCells.size);
+        this._topUpUiPrepared = true;
+        Log.d(`[TopUp] UI prepared under TransitionPopup — firstSpinDelay=${this._topUpFirstSpinDelay}`);
+
+        // DONE đã tới trước khi prepare xong → start gameplay ngay
+        if (this._topUpStartGameplayPending) {
+            this._topUpStartGameplayPending = false;
+            this._scheduleTopUpFirstSpin();
+        }
+    }
+
+    private _startTopUpGameplayAfterTransition(): void {
+        if (!this._topUpUiPrepared) {
+            this._topUpStartGameplayPending = true;
+            Log.d('[TopUp] Transition DONE nhưng UI chưa prepared — chờ _prepareTopUpUI');
+            return;
+        }
+        this._scheduleTopUpFirstSpin();
+    }
+
+    private _scheduleTopUpFirstSpin(): void {
+        const delay = this._topUpFirstSpinDelay;
+        this.scheduleOnce(() => EventBus.instance.emit(GameEvents.SPIN_REQUEST), delay);
+        Log.d(`[TopUp] Transition DONE → first SPIN_REQUEST in ${delay}s`);
     }
 
     /** Chờ overlay fade + coin bounce stagger xong trước spin đầu TopUp. */

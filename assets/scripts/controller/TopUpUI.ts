@@ -11,13 +11,14 @@
  *   • topUpAccumulatedSpriteNumber — Tổng tiền đang kiếm được trong Top Up.
  */
 
-import { _decorator, Component } from 'cc';
+import { _decorator, Component, Node, Widget, screen } from 'cc';
 import { EventBus }              from '../core/EventBus';
 import { GameEvents }            from '../core/GameEvents';
 import { GameData }              from '../data/GameData';
 import { SymbolId }              from '../data/SlotTypes';
 import { SpriteNumber }          from '../core/SpriteNumber';
 import { Log }                   from '../core/Logger';
+import { OrientationLayout }     from './OrientationLayout';
 
 const { ccclass, property } = _decorator;
 
@@ -55,6 +56,9 @@ export class TopUpUI extends Component {
     /** Tổng credit đang hiển thị — cộng dồn qua từng coin absorb */
     private _accumulated: number = 0;
 
+    /** Baseline worldY lần đầu vào TopUp */
+    private _remainBaselineWorldY: number | null = null;
+
     // ── LIFECYCLE ──────────────────────────────────────────────────────────────
 
     onLoad(): void {
@@ -75,7 +79,6 @@ export class TopUpUI extends Component {
     private _onTopUpStart(payload: { spinsRemaining: number; baseCredit: number; totalWin: number }): void {
         // EachWin/NextWin is the TopUp win amount; base red credit is displayed separately.
         this._accumulated = Math.max(0, payload.totalWin ?? 0);
-        Log.e(`[TOPUP-CREDIT][UI] start spins=${payload.spinsRemaining} baseCredit=${payload.baseCredit} serverTotal=${payload.totalWin} display=${this._accumulated}`);
         this._showAccumulated();
         this._onTopUpCountUpdated(payload.spinsRemaining);
         if (this.topUpBaseCreditSpriteNumber) {
@@ -83,17 +86,70 @@ export class TopUpUI extends Component {
             this.topUpBaseCreditSpriteNumber.setData(payload.baseCredit, -1, 0, true);
         }
         this._showTotalCoinCount();
+        // 1 log sau khi layout ổn định
+        this.scheduleOnce(() => this._logRemainPos('TOPUP'), 0.5);
     }
 
     private _onTopUpCountUpdated(count: number): void {
-        Log.e(`[TOPUP-PLUS] UI count updated=${count}`);
         if (!this.spinsRemainingSpriteNumber) return;
         this.spinsRemainingSpriteNumber.node.active = true;
         this.spinsRemainingSpriteNumber.setData(count);
     }
 
+    // ── REMAIN POS DEBUG (1 dòng / lần) ────────────────────────────────────────
+
+    private _findRemainNode(): Node | null {
+        return this.node.getChildByName('Remain')
+            ?? this.spinsRemainingSpriteNumber?.node?.parent?.parent
+            ?? null;
+    }
+
+    /** In 1 dòng vị trí Remain + Number; chỉ thêm dòng ★ nếu worldY lệch so baseline. */
+    private _logRemainPos(phase: string): void {
+        const remain = this._findRemainNode();
+        if (!remain) {
+            Log.e(`[REMAIN-POS] ${phase} Remain=<missing>`);
+            return;
+        }
+
+        const number = this.spinsRemainingSpriteNumber?.node
+            ?? remain.getChildByName('Panel')?.getChildByName('Number')
+            ?? null;
+        const parent = this.node;
+        const w = remain.getComponent(Widget);
+        const ol = remain.getComponent(OrientationLayout);
+        const isPortrait = screen.windowSize.height > screen.windowSize.width;
+        const olData = ol ? (isPortrait ? ol.portrait : ol.landscape) : null;
+
+        const remainLocalY = remain.position.y;
+        const remainWorldY = remain.worldPosition.y;
+        const parentWorldY = parent.worldPosition.y;
+        const numberWorldY = number?.worldPosition.y ?? NaN;
+
+        if (this._remainBaselineWorldY == null) {
+            this._remainBaselineWorldY = remainWorldY;
+        }
+        const delta = remainWorldY - this._remainBaselineWorldY;
+
+        Log.e(
+            `[REMAIN-POS] ${phase} ` +
+            `Remain localY=${remainLocalY.toFixed(1)} worldY=${remainWorldY.toFixed(1)} ` +
+            `Number worldY=${Number.isFinite(numberWorldY) ? numberWorldY.toFixed(1) : 'n/a'} ` +
+            `TopUpUI worldY=${parentWorldY.toFixed(1)} ` +
+            (w ? `Widget(T=${w.isAlignTop}/${w.top.toFixed(0)},VC=${w.isAlignVerticalCenter}/${w.verticalCenter.toFixed(0)}) ` : '') +
+            (olData ? `OL posY=${olData.posY.toFixed(1)} alignTop=${olData.isAlignTop} ` : '') +
+            `ΔworldY=${delta.toFixed(1)}`
+        );
+
+        if (Math.abs(delta) > 0.5) {
+            Log.e(
+                `[REMAIN-POS] ★ ${phase} Remain worldY lệch ${delta.toFixed(1)}px so với lần đầu ` +
+                `(localY=${remainLocalY.toFixed(1)} parentWorldY=${parentWorldY.toFixed(1)})`
+            );
+        }
+    }
+
     private _onTopUpTotalUpdated(payload: { baseCredit?: number; totalWin?: number; deferEachWin?: boolean }): void {
-        const before = this._accumulated;
         if (this.topUpBaseCreditSpriteNumber && payload.baseCredit != null) {
             this.topUpBaseCreditSpriteNumber.node.active = true;
             this.topUpBaseCreditSpriteNumber.setData(payload.baseCredit, -1, 0, true);
@@ -102,37 +158,18 @@ export class TopUpUI extends Component {
             this._accumulated = Math.max(0, payload.totalWin);
             this._showAccumulated();
         }
-        Log.e(`[TOPUP-CREDIT][UI] totalUpdated baseCredit=${payload.baseCredit ?? 'n/a'} serverTotal=${payload.totalWin ?? 'n/a'} deferEachWin=${payload.deferEachWin ? 1 : 0} beforeDisplay=${before} afterDisplay=${this._accumulated}`);
         this._showTotalCoinCount();
     }
 
     /** Sau khi 1 dong Vang/Xanh hut xong → cong credit cua no vao tong */
     private _onAbsorbCredit(payload: { credit: number; visualCredit?: number; totalWin?: number }): void {
-        const before = this._accumulated;
         if (payload.totalWin != null) {
             this._accumulated = Math.max(0, payload.totalWin);
         } else {
             this._accumulated += payload.credit;
         }
-        Log.e(`[TOPUP-CREDIT][UI] absorbCredit serverDelta=${payload.credit} visualCredit=${payload.visualCredit ?? 'n/a'} serverTotal=${payload.totalWin ?? 'n/a'} beforeDisplay=${before} afterDisplay=${this._accumulated}`);
         this._showAccumulated();
         this._showTotalCoinCount();
-        const stickyValues = Array.from(GameData.instance.stickyCells.values());
-        const redSum = stickyValues
-            .filter(c => c.symbolId === SymbolId.STICKY_RED)
-            .reduce((sum, c) => sum + (c.credit ?? 0), 0);
-        const yellowSum = stickyValues
-            .filter(c => c.symbolId === SymbolId.STICKY_YELLOW)
-            .reduce((sum, c) => sum + (c.credit ?? 0), 0);
-        const greenSum = stickyValues
-            .filter(c => c.symbolId === SymbolId.STICKY_GREEN)
-            .reduce((sum, c) => sum + (c.credit ?? 0), 0);
-        const coinTotal = redSum + yellowSum + greenSum;
-        Log.e(`` +
-            `[TOPUP-CREDIT][UI][SPIN_SUMMARY] ` +
-            `deltaAbsorb=${payload.credit} visualCredit=${payload.visualCredit ?? 'n/a'} serverTotal=${payload.totalWin ?? 'n/a'} ` +
-            `redSum=${redSum} yellowSum=${yellowSum} greenSum=${greenSum} coinTotal=${coinTotal}`);
-        Log.e(`[TOPUP-CREDIT][UI][COINS_ON_SCREEN] ${stickyValues.map(c => `${c.reel}-${c.row}:${SymbolId[c.symbolId] ?? c.symbolId}=${c.credit ?? 0}`).join('|')}`);
     }
 
     private _onTopUpNextWinUpdated(_value: number): void {
@@ -141,7 +178,6 @@ export class TopUpUI extends Component {
 
     private _showAccumulated(): void {
         GameData.instance.topUpDisplayedEachWin = this._accumulated;
-        Log.e(`[TOPUP-CREDIT][UI] showEachWin display=${this._accumulated} gameDataEachWin=${GameData.instance.topUpDisplayedEachWin}`);
         if (!this.topUpAccumulatedSpriteNumber) return;
         this.topUpAccumulatedSpriteNumber.node.active = true;
         this.topUpAccumulatedSpriteNumber.setData(this._accumulated, -1, 0, true);
@@ -174,5 +210,6 @@ export class TopUpUI extends Component {
         if (this.topUpAccumulatedSpriteNumber) this.topUpAccumulatedSpriteNumber.node.active = false;
         this._accumulated = 0;
         GameData.instance.topUpDisplayedEachWin = 0;
+        this._remainBaselineWorldY = null;
     }
 }

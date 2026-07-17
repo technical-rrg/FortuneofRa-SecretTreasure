@@ -294,6 +294,11 @@ export const GameEvents = {
     // ─── TOPUP GAME ───
     /** Hiện transition popup. Payload: TransitionMode (FreeSpin | TopUp | PickGame). */
     TOPUP_TRANSITION_SHOW: 'topup:transition:show',
+    /**
+     * TransitionPopup đã fade-in full (overlay phủ kín).
+     * Payload: TransitionMode — lúc này mới được đổi UI mode (TopUp / FreeSpin / PickGame).
+     */
+    TOPUP_TRANSITION_READY: 'topup:transition:ready',
     TOPUP_TRANSITION_DONE: 'topup:transition:done',
     TOPUP_START: 'topup:start',
     TOPUP_END: 'topup:end',

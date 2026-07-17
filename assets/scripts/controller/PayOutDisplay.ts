@@ -122,6 +122,7 @@ export class PayOutDisplay extends Component {
         bus.on(GameEvents.UI_UPDATE_WIN_LABEL,  this._onLineHighlight,    this);
         bus.on(GameEvents.WIN_SHOW_ALL_LINES,   this._onShowAllLines,     this);
         bus.on(GameEvents.REELS_START_SPIN,     this._hideAllEffects,     this);
+        bus.on(GameEvents.WIN_HIGHLIGHT_CLEAR,  this._hideAllEffects,     this);
         bus.on(GameEvents.JACKPOT_LOOP_START,   this._hideAllEffects,     this);
         bus.on(GameEvents.PICK_GAME_OPEN,       this._hideAllEffects,     this);
         bus.on(GameEvents.PICK_GAME_CLOSE,      this._hideAllEffects,     this);

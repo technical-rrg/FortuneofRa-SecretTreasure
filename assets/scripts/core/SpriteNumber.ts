@@ -309,6 +309,12 @@ export class SpriteNumber extends Component {
         }
     }
 
+    /** Re-render trong Editor khi chỉnh spacing / sprite — không cần gọi setData() thủ công. */
+    onValidate(): void {
+        if (!this._hasData || !this.numberSprites.length) return;
+        this.setData(this._lastValue, this._lastCurrencyIndex, this._lastMinDecimals, this._lastUseKMBT);
+    }
+
     onDestroy(): void {
         this._stopJolt();
         // KHÔNG gọi _recycleAll() ở đây — active digit nodes là children của node này,
@@ -333,24 +339,15 @@ export class SpriteNumber extends Component {
         if (this.enableLangCurrency && currencyIndex >= 0) {
             minDecimals = Math.max(minDecimals, 3);
         }
-        const { totalWidth, maxHeight } = this._computeSize(finalValue, currencyIndex, minDecimals);
+        const sizeResult = this._computeSize(finalValue, currencyIndex, minDecimals);
+        const { totalWidth, maxHeight, sumSpriteWidth, sumVisualGaps } = sizeResult;
         this._lockedWidth  = totalWidth;
         this._lockedHeight = maxHeight;
 
         const parentTf = this.node.getComponent(UITransform);
 
         if (this.shrinkToFit) {
-            // shrinkToFit: dùng kích thước container đã snapshot từ Editor (onLoad),
-            // KHÔNG ghi đè contentSize, KHÔNG nhân _initialScale (scale tuyệt đối).
-            const containerW = this.maxWidth > 0 ? this.maxWidth : this._shrinkContainerW;
-            const containerH = this._shrinkContainerH;
-            let scaleRatio = 1;
-            if (containerW > 0 && totalWidth > containerW) {
-                scaleRatio = Math.min(scaleRatio, containerW / totalWidth);
-            }
-            if (containerH > 0 && maxHeight > containerH) {
-                scaleRatio = Math.min(scaleRatio, containerH / maxHeight);
-            }
+            const scaleRatio = this._computeShrinkScaleRatio(sumSpriteWidth, sumVisualGaps, maxHeight);
             this._effectiveScale = scaleRatio;
             this.node.setScale(scaleRatio, scaleRatio, 1);
         } else {
@@ -564,32 +561,20 @@ export class SpriteNumber extends Component {
         }
 
         // ── Pass 1: Tính tổng width để căn giữa ──────────────────────────
-        let totalWidth = 0;
-        let maxHeight  = 0;
-        for (let i = 0; i < frames.length; i++) {
-            const frame = frames[i];
-            const frameW = (frame === currencyFrame) ? effectiveCurrencyWidth : frame.originalSize.width;
-            totalWidth += frameW;
-            maxHeight = Math.max(maxHeight, frame.originalSize.height);
-            if (i < frames.length - 1) {
-                const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
-                const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
-                const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
-                const isCurr      = frame === currencyFrame;
-                const isNextCurr  = frames[i + 1] === currencyFrame;
-                totalWidth += isNextKMBT
-                    ? this.kmbtSpacing
-                    : (isPunct || isNextPunct)
-                        ? this.spacing + this.punctuationSpacingOffset
-                        : (isCurr || isNextCurr)
-                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
-                            : this.spacing;
-            }
-        }
+        const layoutMetrics = this._computeLayoutMetrics(frames, currencyFrame, effectiveCurrencyWidth);
+        const { totalWidth, maxHeight, sumSpriteWidth, sumVisualGaps } = layoutMetrics;
+
+        // shrinkToFit: spacing tính theo pixel hiển thị — chỉ scale phần glyph, không scale gap.
+        const layoutScale = this.shrinkToFit
+            ? (this._lockedWidth > 0 ? this._effectiveScale : this._computeShrinkScaleRatio(sumSpriteWidth, sumVisualGaps, maxHeight))
+            : 1;
+        const layoutTotalWidth = this.shrinkToFit
+            ? sumSpriteWidth + sumVisualGaps / layoutScale
+            : totalWidth;
 
         // ── Pass 2: Spawn/reuse node, đặt vị trí thủ công ────────────────
-        // Bắt đầu từ -totalWidth/2 để căn giữa quanh pivot của parent node
-        let cursorX = -totalWidth / 2;
+        // Bắt đầu từ -layoutTotalWidth/2 để căn giữa quanh pivot của parent node
+        let cursorX = -layoutTotalWidth / 2;
         for (let i = 0; i < frames.length; i++) {
             const frame = frames[i];
             const isCurrencyFrame = frame === currencyFrame;
@@ -616,18 +601,8 @@ export class SpriteNumber extends Component {
 
             // Tính gap sang node tiếp theo (cursor advance theo allocatedW, không phải spriteW)
             if (i < frames.length - 1) {
-                const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
-                const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
-                const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
-                const isCurr      = frame === currencyFrame;
-                const isNextCurr  = frames[i + 1] === currencyFrame;
-                const gap = isNextKMBT
-                    ? this.kmbtSpacing
-                    : (isPunct || isNextPunct)
-                        ? this.spacing + this.punctuationSpacingOffset
-                        : (isCurr || isNextCurr)
-                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
-                            : this.spacing;
+                const visualGap = layoutMetrics.visualGap(i);
+                const gap = this.shrinkToFit ? visualGap / layoutScale : visualGap;
                 cursorX += allocatedW + gap;
             }
 
@@ -646,21 +621,9 @@ export class SpriteNumber extends Component {
                 : totalWidth;
             const parentTf = this.node.getComponent(UITransform);
             if (this.shrinkToFit) {
-                // shrinkToFit: dùng kích thước container đã snapshot từ Editor (onLoad).
-                // KHÔNG ghi đè contentSize, KHÔNG nhân _initialScale (scale tuyệt đối).
-                // _shrinkContainerW/H ổn định suốt vòng đời component — không bị ảnh hưởng
-                // bởi các lần setData() khác hay code ngoài ghi đè contentSize.
-                const containerW = this.maxWidth > 0 ? this.maxWidth : this._shrinkContainerW;
-                const containerH = this._shrinkContainerH;
-                let scaleRatio = 1;
-                if (containerW > 0 && sizeRef > containerW) {
-                    scaleRatio = Math.min(scaleRatio, containerW / sizeRef);
-                }
-                if (containerH > 0 && maxHeight > containerH) {
-                    scaleRatio = Math.min(scaleRatio, containerH / maxHeight);
-                }
-                this._effectiveScale = scaleRatio;
-                this.node.setScale(scaleRatio, scaleRatio, 1);
+                // shrinkToFit: chỉ thu glyph — spacing giữ nguyên pixel hiển thị (layoutScale đã tính ở Pass 2).
+                this._effectiveScale = layoutScale;
+                this.node.setScale(layoutScale, layoutScale, 1);
             } else {
                 if (parentTf) parentTf.setContentSize(sizeRef, maxHeight);
                 // Scale để vừa maxWidth nếu cần — áp dụng trên cơ sở initial scale
@@ -779,10 +742,89 @@ export class SpriteNumber extends Component {
     }
 
     /**
+     * Khoảng cách hiển thị (px) giữa hai SpriteFrame liền kề.
+     */
+    private _getPairVisualGap(
+        frame: SpriteFrame,
+        nextFrame: SpriteFrame,
+        currencyFrame: SpriteFrame | null,
+    ): number {
+        const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
+        const isNextPunct = nextFrame === this.dotSprite || nextFrame === this.commaSprite;
+        const isNextKMBT  = this.kmbtSprites.includes(nextFrame as SpriteFrame);
+        const isCurr      = frame === currencyFrame;
+        const isNextCurr  = nextFrame === currencyFrame;
+        if (isNextKMBT) return this.kmbtSpacing;
+        if (isPunct || isNextPunct) return this.spacing + this.punctuationSpacingOffset;
+        if (isCurr || isNextCurr) {
+            return this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0);
+        }
+        return this.spacing;
+    }
+
+    private _computeLayoutMetrics(
+        frames: SpriteFrame[],
+        currencyFrame: SpriteFrame | null,
+        effectiveCurrencyWidth: number,
+    ): {
+        sumSpriteWidth: number;
+        sumVisualGaps: number;
+        totalWidth: number;
+        maxHeight: number;
+        visualGap: (index: number) => number;
+    } {
+        let sumSpriteWidth = 0;
+        let sumVisualGaps  = 0;
+        let maxHeight      = 0;
+        for (let i = 0; i < frames.length; i++) {
+            const frame  = frames[i];
+            const frameW = (frame === currencyFrame) ? effectiveCurrencyWidth : frame.originalSize.width;
+            sumSpriteWidth += frameW;
+            maxHeight = Math.max(maxHeight, frame.originalSize.height);
+            if (i < frames.length - 1) {
+                sumVisualGaps += this._getPairVisualGap(frame, frames[i + 1], currencyFrame);
+            }
+        }
+        return {
+            sumSpriteWidth,
+            sumVisualGaps,
+            totalWidth: sumSpriteWidth + sumVisualGaps,
+            maxHeight,
+            visualGap: (index: number) => this._getPairVisualGap(frames[index], frames[index + 1], currencyFrame),
+        };
+    }
+
+    /**
+     * shrinkToFit: chỉ scale glyph để vừa khung; spacing giữ theo pixel hiển thị.
+     * visualWidth = sumSpriteWidth * scale + sumVisualGaps
+     */
+    private _computeShrinkScaleRatio(sumSpriteWidth: number, sumVisualGaps: number, maxHeight: number): number {
+        const containerW = this.maxWidth > 0 ? this.maxWidth : this._shrinkContainerW;
+        const containerH = this._shrinkContainerH;
+        let scaleRatio = 1;
+        if (containerW > 0 && sumSpriteWidth > 0) {
+            const availableW = containerW - sumVisualGaps;
+            if (availableW > 0 && sumSpriteWidth > availableW) {
+                scaleRatio = Math.min(scaleRatio, availableW / sumSpriteWidth);
+            } else if (availableW <= 0) {
+                scaleRatio = Math.min(scaleRatio, containerW / sumSpriteWidth);
+            }
+        }
+        if (containerH > 0 && maxHeight > containerH) {
+            scaleRatio = Math.min(scaleRatio, containerH / maxHeight);
+        }
+        return scaleRatio;
+    }
+
+    /**
      * Tính totalWidth và maxHeight cho một giá trị mà không render.
      * Dùng bởi lockWidth() để pre-compute kích thước container.
      */
-    private _computeSize(value: number, currencyIndex: number, minDecimals: number): { totalWidth: number; maxHeight: number } {
+    private _computeSize(
+        value: number,
+        currencyIndex: number,
+        minDecimals: number,
+    ): { totalWidth: number; maxHeight: number; sumSpriteWidth: number; sumVisualGaps: number } {
         const hasCurrency = currencyIndex >= 0 && currencyIndex < this.currencySprites.length;
         // forSizing=true: không ẩn .000 → size luôn tính đủ phần thập phân dù số tròn
         const formatted   = this._formatNumber(value, minDecimals, true);
@@ -813,28 +855,13 @@ export class SpriteNumber extends Component {
             }
         }
 
-        let totalWidth = 0, maxHeight = 0;
-        for (let i = 0; i < frames.length; i++) {
-            const frame  = frames[i];
-            const frameW = (frame === currencyFrame) ? effectiveCurrencyWidth : frame.originalSize.width;
-            totalWidth += frameW;
-            maxHeight = Math.max(maxHeight, frame.originalSize.height);
-            if (i < frames.length - 1) {
-                const isPunct     = frame === this.dotSprite || frame === this.commaSprite;
-                const isNextPunct = frames[i + 1] === this.dotSprite || frames[i + 1] === this.commaSprite;
-                const isNextKMBT  = this.kmbtSprites.includes(frames[i + 1] as SpriteFrame);
-                const isCurr      = frame === currencyFrame;
-                const isNextCurr  = frames[i + 1] === currencyFrame;
-                totalWidth += isNextKMBT
-                    ? this.kmbtSpacing
-                    : (isPunct || isNextPunct)
-                        ? this.spacing + this.punctuationSpacingOffset
-                        : (isCurr || isNextCurr)
-                            ? this.currencySpacing + (currencyFrame ? currencyFrame.originalSize.width * this.currencySpacingRatio : 0)
-                            : this.spacing;
-            }
-        }
-        return { totalWidth, maxHeight };
+        const layoutMetrics = this._computeLayoutMetrics(frames, currencyFrame, effectiveCurrencyWidth);
+        return {
+            totalWidth: layoutMetrics.totalWidth,
+            maxHeight: layoutMetrics.maxHeight,
+            sumSpriteWidth: layoutMetrics.sumSpriteWidth,
+            sumVisualGaps: layoutMetrics.sumVisualGaps,
+        };
     }
 
     /** Dừng tween giật đang chạy. */

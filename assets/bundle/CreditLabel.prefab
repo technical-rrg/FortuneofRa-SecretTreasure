@@ -171,7 +171,7 @@
     "currencyPosition": 0,
     "enableLangCurrency": false,
     "enableCountSound": false,
-    "spacing": -20,
+    "spacing": -18,
     "kmbtSpacing": 10,
     "punctuationSpacingOffset": -10,
     "currencySpacing": 0,

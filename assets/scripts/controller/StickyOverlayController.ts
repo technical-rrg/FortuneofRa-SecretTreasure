@@ -35,6 +35,7 @@ import { Log }          from '../core/Logger';
 import { SoundManager } from '../manager/SoundManager';
 import { SlotMachineController } from './SlotMachineController';
 import { TopUpManager } from './TopUpManager';
+import { TopUpTransitionPopup, TransitionMode } from './TopUpTransitionPopup';
 
 const { ccclass, property } = _decorator;
 
@@ -128,14 +129,24 @@ export class StickyOverlayController extends Component {
 
     private _topUpSpinCounter: number = 0;
 
-    /** true trong _refreshAll lần đầu sau TOPUP_START — nhún chậm + stagger. */
+    /** true trong _refreshAll lần đầu vào TopUp — nhún chậm + stagger. */
     private _isEnteringTopUp: boolean = false;
+    /**
+     * true khi đang có TransitionPopup TopUp:
+     * setup coin dưới overlay lúc TOPUP_START (sau READY), chỉ nhún sau TOPUP_TRANSITION_DONE.
+     */
+    private _deferEnterAnim: boolean = false;
+    private _pendingEnterAnim: boolean = false;
+    private _enterAnimPlayed: boolean = false;
 
     // ── LIFECYCLE ──────────────────────────────────────────────────────────────
 
     onLoad(): void {
         this._hideAll();
 
+        EventBus.instance.on(GameEvents.TOPUP_TRANSITION_SHOW, this._onTransitionShow, this);
+        EventBus.instance.on(GameEvents.TOPUP_TRANSITION_READY, this._onTransitionReady, this);
+        EventBus.instance.on(GameEvents.TOPUP_TRANSITION_DONE, this._onTransitionDone, this);
         EventBus.instance.on(GameEvents.TOPUP_START,         this._onTopUpStart,   this);
         EventBus.instance.on(GameEvents.TOPUP_TOTAL_UPDATED, this._onTopUpUpdated, this);
         EventBus.instance.on(GameEvents.TOPUP_END,           this._onTopUpEnd,     this);
@@ -154,6 +165,9 @@ export class StickyOverlayController extends Component {
     }
 
     onDestroy(): void {
+        EventBus.instance.off(GameEvents.TOPUP_TRANSITION_SHOW, this._onTransitionShow, this);
+        EventBus.instance.off(GameEvents.TOPUP_TRANSITION_READY, this._onTransitionReady, this);
+        EventBus.instance.off(GameEvents.TOPUP_TRANSITION_DONE, this._onTransitionDone, this);
         EventBus.instance.off(GameEvents.TOPUP_START,         this._onTopUpStart,   this);
         EventBus.instance.off(GameEvents.TOPUP_TOTAL_UPDATED, this._onTopUpUpdated, this);
         EventBus.instance.off(GameEvents.TOPUP_END,           this._onTopUpEnd,     this);
@@ -164,19 +178,85 @@ export class StickyOverlayController extends Component {
 
     // ── EVENT HANDLERS ─────────────────────────────────────────────────────────
 
+    /** Transition TopUp bắt đầu fade-in → đánh dấu sẽ defer bounce. */
+    private _onTransitionShow(mode?: TransitionMode): void {
+        if (mode === TransitionMode.TopUp) {
+            this._deferEnterAnim = true;
+            this._enterAnimPlayed = false;
+        }
+    }
+
+    /** Fade-in xong — UI TopUp sắp prepare; vẫn defer bounce đến DONE. */
+    private _onTransitionReady(mode?: TransitionMode): void {
+        if (mode === TransitionMode.TopUp) {
+            this._deferEnterAnim = true;
+        }
+    }
+
+    /** Transition tắt → diễn fade + bounce đồng đỏ lần đầu vào TopUp. */
+    private _onTransitionDone(): void {
+        if (GameData.instance.currentMode !== 'respin') {
+            this._pendingEnterAnim = false;
+            this._deferEnterAnim = false;
+            return;
+        }
+        if (this._enterAnimPlayed) return;
+        // Chỉ bounce khi đã TOPUP_START (pending) hoặc overlay đã setup (active + defer)
+        if (this._pendingEnterAnim || (this._deferEnterAnim && this.node.active)) {
+            this._playEnterAnim();
+            return;
+        }
+        // TOPUP_START tới sau DONE (load chậm) → giữ defer=false để START tự nhún
+        this._deferEnterAnim = false;
+    }
+
     private _onTopUpStart(): void {
         this.node.active = true;
         this._topUpSpinCounter = 0;
+        this._enterAnimPlayed = false;
         this.clearTempPlusOne('topup-start');
         this.alignPositionsFromTopUpManager();
         this._previouslyActiveSlots.clear();
-        this._fadeInOverlay();
-        this._isEnteringTopUp = true;
-        this._refreshAll(false /* first show — fade in tất cả */);
-        this._isEnteringTopUp = false;
+
+        // Dưới Transition (sau READY): setup tĩnh, nhún khi DONE
+        if (this._deferEnterAnim || this._isTopUpTransitionActive()) {
+            this._deferEnterAnim = true;
+            const op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
+            Tween.stopAllByTarget(op);
+            op.opacity = 0;
+            this._refreshAll(false, false);
+            this._pendingEnterAnim = true;
+            Log.d('[StickyOverlay] TopUp coins prepared under Transition — bounce deferred to DONE');
+            return;
+        }
+
+        // Resume / không qua Transition → nhún ngay
+        this._playEnterAnim();
     }
 
-    /** Fade in toàn StickyOverlay sau TransitionPopup fade out. */
+    /** TransitionPopup TopUp đang phủ màn hình? */
+    private _isTopUpTransitionActive(): boolean {
+        const scene = this.node.scene;
+        if (!scene) return false;
+        const popups = scene.getComponentsInChildren(TopUpTransitionPopup);
+        return popups.some(p => !!p?.node?.isValid && p.node.active);
+    }
+
+    /** Fade-in overlay + bounce stagger lần đầu vào TopUp. */
+    private _playEnterAnim(): void {
+        if (this._enterAnimPlayed) return;
+        this._enterAnimPlayed = true;
+        this._pendingEnterAnim = false;
+        this._deferEnterAnim = false;
+        this.node.active = true;
+        this._previouslyActiveSlots.clear();
+        this._fadeInOverlay();
+        this._isEnteringTopUp = true;
+        this._refreshAll(false, true);
+        this._isEnteringTopUp = false;
+        Log.d('[StickyOverlay] TopUp enter bounce started');
+    }
+
     private _fadeInOverlay(): void {
         const fadeDur = Math.max(0.05, this.topUpEnterFadeDuration);
         const op = this.node.getComponent(UIOpacity) ?? this.node.addComponent(UIOpacity);
@@ -209,6 +289,9 @@ export class StickyOverlayController extends Component {
         this._slotCreditMap.clear();
         this._coinSlotOriginalParents.clear();
         this._topUpSpinCounter = 0;
+        this._deferEnterAnim = false;
+        this._pendingEnterAnim = false;
+        this._enterAnimPlayed = false;
         this.node.active = false;
     }
 
@@ -218,13 +301,14 @@ export class StickyOverlayController extends Component {
      * Refresh toàn bộ 15 ô overlay từ GameData.stickyCells.
      * @param fadeOnlyNew  true  = chỉ fade-in slot vừa được bật (slot cũ giữ nguyên)
      *                     false = ẩn hết rồi show tất cả cùng lúc (lần đầu vào Topup)
+     * @param animate      false = chỉ đặt coin tĩnh (dưới Transition, chưa nhún)
      */
-    private _refreshAll(fadeOnlyNew: boolean): void {
+    private _refreshAll(fadeOnlyNew: boolean, animate: boolean = true): void {
         const cells = GameData.instance.stickyCells;
         const newActiveSlots = new Set<string>();
 
         // ═══ TOPUP OVERLAY DEBUG ═══
-        Log.e(`[SOC-DEBUG] _refreshAll(fadeOnlyNew=${fadeOnlyNew}) — stickyCells.size=${cells.size} coinSlots.length=${this.coinSlots.length} node.active=${this.node.active}`);
+        Log.e(`[SOC-DEBUG] _refreshAll(fadeOnlyNew=${fadeOnlyNew}, animate=${animate}) — stickyCells.size=${cells.size} coinSlots.length=${this.coinSlots.length} node.active=${this.node.active}`);
         Log.e(`[SOC-DEBUG] stickyCells: ${cells.size === 0 ? '(empty)' : Array.from(cells.entries()).map(([k, c]) => `${k}=${c.symbolId === SymbolId.STICKY_YELLOW ? 'YELLOW' : c.symbolId === SymbolId.STICKY_GREEN ? 'GREEN' : c.symbolId === SymbolId.STICKY_RED ? 'RED' : c.symbolId}($${c.credit})`).join(', ')}`);
         // ═══ END DEBUG ═══
 
@@ -293,6 +377,15 @@ export class StickyOverlayController extends Component {
                     this._reparentToStickyOverlay(slotNode);
                 }
 
+                if (!animate) {
+                    // Setup tĩnh dưới Transition — chờ DONE mới fade/bounce
+                    Tween.stopAllByTarget(slotNode);
+                    const restOp = slotNode.getComponent(UIOpacity) ?? slotNode.addComponent(UIOpacity);
+                    Tween.stopAllByTarget(restOp);
+                    restOp.opacity = 255;
+                    slotNode.setScale(this._getBaseScale(cell.symbolId), this._getBaseScale(cell.symbolId), 1);
+                    continue;
+                }
 
                 // Fade in + Bounce: chỉ cho coin MỚI hoặc lần đầu mở (fadeOnlyNew=false)
                 if (!fadeOnlyNew || isNewCoin) {
@@ -326,9 +419,8 @@ export class StickyOverlayController extends Component {
         // Update previous active slots for next refresh
         this._previouslyActiveSlots = newActiveSlots;
 
-        const newCount = Array.from(newActiveSlots).filter(k => !Array.from({length: prevSize}).some(() => false)).length;
         Log.e(`[SOC-DEBUG] refreshAll DONE — activeSlots=${newActiveSlots.size} prevSlots=${prevSize} cells rendered on overlay`);
-        Log.d(`[StickyOverlay] refreshAll(fadeOnlyNew=${fadeOnlyNew}) — stickyCells=${cells.size}/15`);
+        Log.d(`[StickyOverlay] refreshAll(fadeOnlyNew=${fadeOnlyNew}, animate=${animate}) — stickyCells=${cells.size}/15`);
     }
 
     /** Ẩn tất cả 15 slot (không destroy, chỉ inactive) */

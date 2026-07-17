@@ -101,17 +101,18 @@ export class FeatureEntryGaugeController extends Component {
     /** Gauge bị ẩn vì đang trong feature (PickGame / TopUp / FreeSpin). */
     private _hiddenForFeature: boolean = false;
     private _wasActiveBeforeFeature: boolean = true;
-    /** Pick Game: PICK_GAME_OPEN chỉ đánh dấu — ẩn sau PICK_GAME_ENTRY_DONE. */
+    /** Pick Game: PICK_GAME_OPEN đánh dấu — ẩn khi TOPUP_TRANSITION_READY. */
     private _pendingPickGameHide: boolean = false;
 
     onLoad(): void {
         EventBus.instance.on(GameEvents.FEATURE_GAUGE_UPDATE, this._onUpdate, this);
         EventBus.instance.on(GameEvents.FEATURE_GAUGE_RESET,  this._onReset,  this);
-        // Pick Game — ẩn khi entry xong
+        // Pick Game — ẩn khi Transition fade-in xong (READY)
         EventBus.instance.on(GameEvents.PICK_GAME_OPEN,         this._onPickGameOpen,       this);
+        EventBus.instance.on(GameEvents.TOPUP_TRANSITION_READY, this._onPickGameTransitionReady, this);
         EventBus.instance.on(GameEvents.PICK_GAME_ENTRY_DONE,   this._onPickGameEntryDone,  this);
         EventBus.instance.on(GameEvents.PICK_GAME_CLOSE,        this._onFeatureEnded,       this);
-        // TopUp / FreeSpin — ẩn khi đã vào mode (sau transition / popup)
+        // TopUp / FreeSpin — ẩn khi UI prepare sau READY (TOPUP_START / FREE_SPIN_*)
         EventBus.instance.on(GameEvents.TOPUP_START,            this._onFeatureEntered,     this);
         EventBus.instance.on(GameEvents.FREE_SPIN_START,        this._onFeatureEntered,     this);
         EventBus.instance.on(GameEvents.FREE_SPIN_GOLD_START,    this._onFeatureEntered,     this);
@@ -143,20 +144,27 @@ export class FeatureEntryGaugeController extends Component {
         this._applyStage(0, true);
     }
 
-    /** PICK_GAME_OPEN: chỉ đánh dấu — chưa ẩn (transition Pot→Pick Game vẫn thấy gauge). */
+    /** PICK_GAME_OPEN: chỉ đánh dấu — ẩn khi TransitionPopup READY. */
     private _onPickGameOpen(): void {
         this._wasActiveBeforeFeature = this.node.active;
         this._pendingPickGameHide = true;
     }
 
-    /** Đã vào Pick Game (entry xong) → mới ẩn gauge. */
+    /** TOPUP_TRANSITION_READY: overlay phủ kín → mới ẩn gauge. */
+    private _onPickGameTransitionReady(): void {
+        if (!this._pendingPickGameHide) return;
+        this._pendingPickGameHide = false;
+        this._hideForFeature();
+    }
+
+    /** Fallback nếu SHOW bị miss / bỏ qua transition. */
     private _onPickGameEntryDone(): void {
         if (!this._pendingPickGameHide) return;
         this._pendingPickGameHide = false;
         this._hideForFeature();
     }
 
-    /** Đã vào TopUp / FreeSpin (TOPUP_START, FREE_SPIN_START sau transition hoặc popup). */
+    /** Đã vào TopUp / FreeSpin (UI prepare dưới TransitionPopup). */
     private _onFeatureEntered(): void {
         this._hideForFeature();
     }

@@ -95,6 +95,7 @@ export class PotController extends Component {
         bus.on(GameEvents.PICK_GAME_OPEN,        this._onPickGameOpen,    this);
         bus.on(GameEvents.PICK_GAME_ENTRY_DONE,  this._onPickGameEntryDone, this);
         bus.on(GameEvents.PICK_GAME_CLOSE,       this._onPickGameClose,   this);
+        bus.on(GameEvents.TOPUP_TRANSITION_READY, this._onTopUpTransitionReady, this);
         bus.on(GameEvents.TOPUP_TRANSITION_DONE, this._onTopUpTransitionDone, this);
         if (this.potSpine?.node) {
             this._animationNode = this.potSpine.node;
@@ -310,14 +311,19 @@ export class PotController extends Component {
         }
     }
 
-    /** PICK_GAME_OPEN: đánh dấu chờ ẩn Pot sau TransitionPopup */
+    /** PICK_GAME_OPEN: đánh dấu chờ ẩn Pot khi TransitionPopup READY */
     private _onPickGameOpen(): void {
         this._wasActiveBeforePickGame = this.node.active;
         this._pendingPickGameHide = true;
-        Log.d('[PotController] Pick Game open — Pot hide deferred until transition done');
+        Log.d('[PotController] Pick Game open — Pot hide when TransitionPopup READY');
     }
 
-    /** TOPUP_TRANSITION_DONE: ẩn Pot khi transition Pick Game kết thúc */
+    /** TOPUP_TRANSITION_READY: overlay phủ kín → mới ẩn Pot */
+    private _onTopUpTransitionReady(): void {
+        this._hidePotForPickGameIfPending();
+    }
+
+    /** Fallback nếu READY bị miss */
     private _onTopUpTransitionDone(): void {
         this._hidePotForPickGameIfPending();
     }
@@ -332,7 +338,7 @@ export class PotController extends Component {
         this._pendingPickGameHide = false;
         if (this.node.active) {
             this.node.active = false;
-            Log.d('[PotController] Hidden — Pick Game transition done');
+            Log.d('[PotController] Hidden — Pick Game under TransitionPopup');
         }
     }
 

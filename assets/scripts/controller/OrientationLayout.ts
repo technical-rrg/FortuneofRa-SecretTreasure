@@ -203,6 +203,11 @@ export class OrientationLayout extends Component {
         this.scheduleOnce(this._applyOrientation, 0);
     }
 
+    private _isRemainDebugTarget(): boolean {
+        // Chỉ Remain dưới TopUpUI — tránh spam sibling.
+        return this.node.name === 'Remain' && this.node.parent?.name === 'TopUpUI';
+    }
+
     private _applyOrientation(): void {
         const size = screen.windowSize;
         const isPortrait = size.height > size.width;
@@ -214,6 +219,8 @@ export class OrientationLayout extends Component {
     }
 
     private _applyData(data: OrientationLayoutData): void {
+        const debug = this._isRemainDebugTarget();
+
         // 1. Position
         this.node.setPosition(data.posX, data.posY, this.node.position.z);
 
@@ -250,7 +257,19 @@ export class OrientationLayout extends Component {
         widget.isAlignVerticalCenter    = data.isAlignVerticalCenter;
         widget.verticalCenter           = data.verticalCenter;
         widget.enabled = true;
+
+        const beforeAlignWorldY = this.node.worldPosition.y;
         widget.updateAlignment();
+        if (debug) {
+            const deltaWorldY = this.node.worldPosition.y - beforeAlignWorldY;
+            if (Math.abs(deltaWorldY) > 0.5) {
+                Log.e(
+                    `[REMAIN-POS] Widget kéo Remain ΔworldY=${deltaWorldY.toFixed(1)} ` +
+                    `localY=${this.node.position.y.toFixed(1)} worldY=${this.node.worldPosition.y.toFixed(1)} ` +
+                    `Widget(T=${widget.isAlignTop}/${widget.top.toFixed(0)},VC=${widget.isAlignVerticalCenter}/${widget.verticalCenter.toFixed(0)})`
+                );
+            }
+        }
 
         // 6. RichText maxWidth (nếu có)
         if (data.richTextMaxWidth > 0) {

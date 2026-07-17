@@ -15,7 +15,7 @@
                 <key>spriteSourceSize</key>
                 <string>{260,260}</string>
                 <key>textureRect</key>
-                <string>{{0,225},{260,260}}</string>
+                <string>{{219,225},{260,260}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -30,7 +30,7 @@
                 <key>spriteSourceSize</key>
                 <string>{260,260}</string>
                 <key>textureRect</key>
-                <string>{{260,225},{260,260}}</string>
+                <string>{{479,225},{260,260}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -124,6 +124,21 @@
                 <key>textureRotated</key>
                 <false/>
             </dict>
+            <key>16.png</key>
+            <dict>
+                <key>aliases</key>
+                <array/>
+                <key>spriteOffset</key>
+                <string>{0,0}</string>
+                <key>spriteSize</key>
+                <string>{219,236}</string>
+                <key>spriteSourceSize</key>
+                <string>{219,236}</string>
+                <key>textureRect</key>
+                <string>{{0,225},{219,236}}</string>
+                <key>textureRotated</key>
+                <false/>
+            </dict>
             <key>2.png</key>
             <dict>
                 <key>aliases</key>
@@ -135,7 +150,7 @@
                 <key>spriteSourceSize</key>
                 <string>{260,260}</string>
                 <key>textureRect</key>
-                <string>{{520,225},{260,260}}</string>
+                <string>{{739,225},{260,260}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -256,9 +271,9 @@
             <key>realTextureFileName</key>
             <string>Symbol.png</string>
             <key>size</key>
-            <string>{840,1265}</string>
+            <string>{999,1265}</string>
             <key>smartupdate</key>
-            <string>$TexturePacker:SmartUpdate:e27ec478ca318b3ffb4ceaf941f7ac97:80d00b5d72c1843d3238a01b8e675d39:3d0ad3a717172f27e6ea538b13245e4a$</string>
+            <string>$TexturePacker:SmartUpdate:69be043cd327c9ade5ae206880160cbc:aaddf1811a07a7cd2df43d08037c0531:3d0ad3a717172f27e6ea538b13245e4a$</string>
             <key>textureFileName</key>
             <string>Symbol.png</string>
         </dict>

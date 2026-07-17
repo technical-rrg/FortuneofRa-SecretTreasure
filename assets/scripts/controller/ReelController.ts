@@ -201,9 +201,6 @@ export class ReelController extends Component {
 
         Log.d(`${this._logPrefix} h=${this.symbolHeight} restY=[${ys.map(y=>y.toFixed(0))}] top=${this._topEdge.toFixed(0)} bot=${this._bottomEdge.toFixed(0)}`);
 
-        // DEBUG: so sánh Y visible nodes giữa các reel — cùng row phải cùng Y
-        const visY = [1, 2, 3].map(i => ys[i]?.toFixed(2) ?? 'null');
-        Log.e(`[GRID-DEBUG][REEL-Y-INIT] Reel${this.reelIndex} visibleY[Top,Mid,Bot]=[${visY.join(',')}]`);
     }
 
     // ─── UPDATE ───
@@ -749,8 +746,6 @@ export class ReelController extends Component {
             this._snapFired = true;
             this.onSnapComplete?.();
         }
-
-        Log.e(`${this._logPrefix} _finishDecel snap done — starting bounce, nodes=${this.symbolNodes.length}, hasStopCb=${!!this.onStopComplete}`);
 
         // Bounce nhỏ — snap từ dưới quá khứ về rest
         // Chỉ tween 3 visible nodes (1,2,3). Buffer nodes (0,4) → snap ngay lập tức.

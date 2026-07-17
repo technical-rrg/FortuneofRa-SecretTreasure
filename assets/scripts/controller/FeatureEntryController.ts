@@ -65,6 +65,9 @@ export class FeatureEntryController extends Component {
         this._data = data ?? { existingCells: [], fillCells: [], naturalCount: 0 };
         Log.d(`[FeatureEntryController] START — natural=${this._data.naturalCount} fill=${this._data.fillCells.length}`);
 
+        // Guide + sticky fill: không còn highlight line win (WinPresenter có thể vẫn đang cycle).
+        EventBus.instance.emit(GameEvents.WIN_HIGHLIGHT_CLEAR);
+
         // Safety net: luôn kết thúc dù effect không phản hồi
         this.scheduleOnce(this._safetyFinish, this.safetyTimeout);
 

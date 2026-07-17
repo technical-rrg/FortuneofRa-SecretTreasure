@@ -487,6 +487,12 @@ export class SlotMachineController extends Component {
         return `all=${this._allReelsStopped} visualIdle=${this.areReelsVisuallyIdle} stopped=${this._stoppedCount}/${this.reels.length} stoppedSet=[${Array.from(this._stoppedReelSet).join(',')}] pendingOut=[${Array.from(this._pendingOutOfOrderStops).join(',')}] topUp=${this._isTopUp} free=${this._isFreeSpin} longActive=${this._isLongSpinActive} longBoundary=${this._longSpinBoundary} waiting=[${this._waitingReels.map(r => r.reelIndex).join(',')}] pendingStarts=${this._pendingReelStarts.length} ${reelStates}`;
     }
 
+    /** Chỉ dựng chuỗi debug khi whitelist bật — tránh GC hitch giữa lúc reel quay. */
+    private _logSpinState(msg: string): void {
+        if (!Log.isEnabled('spin-state')) return;
+        Log.e(`${msg} | ${this.debugStateSummary}`);
+    }
+
     tryRecoverReelsStopped(): boolean {
         if (this._isTopUp) return false;
         if (!this.areReelsVisuallyIdle) return false;
@@ -498,7 +504,7 @@ export class SlotMachineController extends Component {
             this._pendingOutOfOrderStops.clear();
             this._stopLongSpinVFX(false);
         }
-        Log.e(`[SPIN-STATE][SlotMC] recover/resent REELS_STOPPED | ${this.debugStateSummary}`);
+        this._logSpinState('[SPIN-STATE][SlotMC] recover/resent REELS_STOPPED');
         EventBus.instance.emit(GameEvents.REELS_STOPPED);
         return true;
     }
@@ -646,12 +652,12 @@ export class SlotMachineController extends Component {
     /** Quick stop — người chơi nhấn Spin lại khi reel đang quay → decel ngay lập tức.
      *  Chỉ hoạt động trong normal spin, không áp dụng cho FreeSpin/TopUp/PickGame. */
     private _onQuickStop(): void {
-        Log.e(`[SPIN-STATE][SlotMC] QUICK_STOP received | ${this.debugStateSummary}`);
+        this._logSpinState('[SPIN-STATE][SlotMC] QUICK_STOP received');
         if (this._isFreeSpin || this._isTopUp || this._isPickGame) return;
         for (const reel of this.reels) {
             reel.forceQuickStop();
         }
-        Log.e(`[SPIN-STATE][SlotMC] QUICK_STOP applied | ${this.debugStateSummary}`);
+        this._logSpinState('[SPIN-STATE][SlotMC] QUICK_STOP applied');
     }
 
     /**
@@ -788,7 +794,7 @@ export class SlotMachineController extends Component {
 
         // Guard: reel chưa dừng hẳn từ spin trước → defer 0.2s rồi thử lại
         if (!this.areAllReelsStopped) {
-            Log.e(`[SPIN-STATE][SlotMC] REELS_START_SPIN deferred | ${this.debugStateSummary}`);
+            this._logSpinState('[SPIN-STATE][SlotMC] REELS_START_SPIN deferred');
             this.scheduleOnce(() => this._onReelsStartSpin(), 0.2);
             return;
         }
@@ -805,8 +811,7 @@ export class SlotMachineController extends Component {
         this._hintPositions = [];
         this._stopHintBounce();
         this._resetVFX();
-        Log.e(`[SPIN-STATE][SlotMC] REELS_START_SPIN accepted | ${this.debugStateSummary}`);
-        // Log removed for performance
+        this._logSpinState('[SPIN-STATE][SlotMC] REELS_START_SPIN accepted');
 
         // Áp dụng speed mode trước khi spin
         this._applySpeedMode();
@@ -883,86 +888,8 @@ export class SlotMachineController extends Component {
     private _onSpinResponse(response: SpinResponse): void {
         if (this._isTopUp) return; // TopUp mode: SlotMachineController không dừng reels
 
-        const data = GameData.instance;
-        const isFS = data.freeSpinRemaining > 0;
-        Log.e(`[SPIN-STATE][SlotMC] SPIN_RESPONSE received | rands=${response.rands?.join(',')} reelIndex=${response.reelIndex} | ${this.debugStateSummary}`);
+        this._logSpinState(`[SPIN-STATE][SlotMC] SPIN_RESPONSE received | rands=${response.rands?.join(',')} reelIndex=${response.reelIndex}`);
 
-        // ═══ GRID COMPARE LOG: Server rands ↔ Client visual grid ═══
-        {
-            const clientName = (id: number): string =>
-                id < 0 ? '---' : (SymbolId[id] ?? `?${id}`);
-
-            const reelIndex  = response.reelIndex ?? 0;
-            const stripSrc   = reelIndex === 1 ? 'FreeSpin'
-                             : reelIndex === 2 ? 'Purchase'
-                             : reelIndex === 3 ? 'ReSpin' : 'Normal';
-
-            // Raw PS strips (PS IDs từ server) — dùng để hiện số PS ID thô
-            const rawStrips    = data.getRawPsStrips(isFS, reelIndex);
-            // Client strips (đã map PS→clientId) — dùng để hiện tên symbol vẽ ra
-            const clientStrips = data.getReelStrips(isFS, reelIndex);
-
-            // ReelController._getSymbols5: visual TOP = center+1, MID = center, BOT = center-1
-            const serverRows: { rand: number; rawTop: number; rawMid: number; rawBot: number }[] = [];
-            const clientRows: { top: number; mid: number; bot: number }[]                       = [];
-
-            for (let c = 0; c < clientStrips.length; c++) {
-                const rand   = response.rands[c] ?? 0;
-                const raw    = rawStrips[c]    ?? [];
-                const client = clientStrips[c] ?? [];
-                const RL = raw.length;
-                const CL = client.length;
-
-                const rc = RL > 0 ? ((rand % RL) + RL) % RL : 0;
-                const cc = CL > 0 ? ((rand % CL) + CL) % CL : 0;
-
-                serverRows.push({
-                    rand,
-                    rawTop: RL > 0 ? raw[((rc + 1) % RL + RL) % RL] : -1,
-                    rawMid: RL > 0 ? raw[rc]                         : -1,
-                    rawBot: RL > 0 ? raw[((rc - 1) % RL + RL) % RL] : -1,
-                });
-                clientRows.push({
-                    top: CL > 0 ? client[((cc + 1) % CL + CL) % CL] : -1,
-                    mid: CL > 0 ? client[cc]                         : -1,
-                    bot: CL > 0 ? client[((cc - 1) % CL + CL) % CL] : -1,
-                });
-            }
-
-            const W = 22;
-            const pad = (s: string | number) => String(s).padEnd(W);
-
-            // PS ID + tên symbol đã map, ví dụ: "13 (MAJOR_SOBEK)"
-            const fmtServer = (psId: number, clientId: number): string => {
-                const name = clientId < 0 ? '---' : (SymbolId[clientId] ?? `?${clientId}`);
-                return pad(`${psId} (${name})`);
-            };
-
-            const header = `════ SPIN RESULT  rands=${JSON.stringify(response.rands)}  strip=${stripSrc} ════`;
-            const divider = '─'.repeat(header.length);
-
-            const serverBlock = [
-                `  ┌── SERVER (PS ID từ strip → tên symbol sau mapping) `,
-                `  │  Reel   : ${serverRows.map((_, i) => pad(`Reel${i}`)).join('')}`,
-                `  │  TOP r+1: ${serverRows.map((r, i) => fmtServer(r.rawTop, clientRows[i].top)).join('')}`,
-                `  │  MID r  : ${serverRows.map((r, i) => fmtServer(r.rawMid, clientRows[i].mid)).join('')}  ← rand trỏ đây`,
-                `  │  BOT r-1: ${serverRows.map((r, i) => fmtServer(r.rawBot, clientRows[i].bot)).join('')}`,
-                `  └──`,
-            ].join('\n');
-
-            const clientBlock = [
-                `  ┌── CLIENT (SymbolId client → gì vẽ lên màn hình) `,
-                `  │  Reel   : ${clientRows.map((_, i) => pad(`Reel${i}`)).join('')}`,
-                `  │  TOP r+1: ${clientRows.map(r => pad(clientName(r.top))).join('')}  ← hàng trên cùng`,
-                `  │  MID r  : ${clientRows.map(r => pad(clientName(r.mid))).join('')}  ← hàng giữa`,
-                `  │  BOT r-1: ${clientRows.map(r => pad(clientName(r.bot))).join('')}  ← hàng dưới cùng`,
-                `  └──`,
-            ].join('\n');
-
-            // Log.d dùng pre-override console.log (Cocos-patched) → hiện trong Preview in-editor.
-            // 'SPIN RESULT' có trong LOG_WHITELIST → pass filter.
-            // Log removed for performance
-        }
         // ★ Progressive Long Spin: tính toán reel nào cần long spin dựa trên tổng red SYMBOLS
         if (this._isLongSpinActive) {
             // Đếm số red symbols trên mỗi reel từ stickyCells
@@ -995,54 +922,8 @@ export class SlotMachineController extends Component {
             ? Math.min(...Array.from(this._longSpinReelSet))
             : -1;
         this._longSpinBoundary = longSpinBoundary;
-        Log.e(`[SPIN-STATE][SlotMC] longspin boundary resolved | boundary=${longSpinBoundary} longSet=[${Array.from(this._longSpinReelSet).join(',')}] | ${this.debugStateSummary}`);
+        this._logSpinState(`[SPIN-STATE][SlotMC] longspin boundary resolved | boundary=${longSpinBoundary} longSet=[${Array.from(this._longSpinReelSet).join(',')}]`);
 
-        // ═══ TOPUP REEL DEBUG ═══
-        if (this._isTopUp) {
-            const data = GameData.instance;
-            const respinStrip = data.config.respinReelStrips;
-            const normalStrip = data.config.reelStrips;
-            const SN = (id: number) => id < 0 ? '???' : (SymbolId[id] ?? `id${id}`);
-
-            // Logs removed for performance
-            if (response.stickyCells) {
-                for (const c of response.stickyCells) {
-                    // Log removed for performance
-                }
-            }
-
-            // Tính tường minh ô nào visual reel sẽ vẽ khi dừng (dùng respinReelStrips)
-            // Log removed for performance
-            for (let ri = 0; ri < this.reels.length; ri++) {
-                const strip = respinStrip[ri] ?? [];
-                const rand  = response.rands[ri] ?? 0;
-                const len   = strip.length || 1;
-                const c     = ((rand % len) + len) % len;
-                // ReelController visual: TOP = center+1, MID = center, BOT = center-1
-                const top = strip[((c + 1) % len + len) % len];
-                const mid = strip[c];
-                const bot = strip[((c - 1) % len + len) % len];
-                // Log removed for performance
-
-                // Cảnh báo nếu rand trùng nhau
-                if (ri > 0 && response.rands[ri] === response.rands[ri - 1]) {
-                    // Log removed for performance
-                }
-            }
-
-            // Kiểm tra Yellow/Green nào đang ở trong respinStrip
-            const yellowInStrip: string[] = [];
-            const greenInStrip:  string[] = [];
-            for (let ri = 0; ri < respinStrip.length; ri++) {
-                for (let si = 0; si < (respinStrip[ri] ?? []).length; si++) {
-                    const sym = respinStrip[ri][si];
-                    if (sym === SymbolId.STICKY_YELLOW) yellowInStrip.push(`Reel${ri}[${si}]`);
-                    if (sym === SymbolId.STICKY_GREEN)  greenInStrip.push(`Reel${ri}[${si}]`);
-                }
-            }
-            // Logs removed for performance
-        }
-        // ═══ END TOPUP REEL DEBUG ═══
 
         for (let i = 0; i < this.reels.length; i++) {
             const reel = this.reels[i];
@@ -1131,7 +1012,7 @@ export class SlotMachineController extends Component {
             for (const reelIndex of pending) {
                 if (!this._canAcceptLongSpinStop(reelIndex)) continue;
                 this._pendingOutOfOrderStops.delete(reelIndex);
-                Log.e(`[SPIN-STATE][SlotMC] flush pending out-of-order REEL_STOPPED reel=${reelIndex} | ${this.debugStateSummary}`);
+                this._logSpinState(`[SPIN-STATE][SlotMC] flush pending out-of-order REEL_STOPPED reel=${reelIndex}`);
                 this._processReelStopped(reelIndex);
                 flushed = true;
                 break;
@@ -1141,12 +1022,12 @@ export class SlotMachineController extends Component {
 
     private _onReelStopped(reelIndex: number): void {
         if (this._stoppedReelSet.has(reelIndex)) {
-            Log.e(`[SPIN-STATE][SlotMC] duplicate REEL_STOPPED ignored reel=${reelIndex} | ${this.debugStateSummary}`);
+            this._logSpinState(`[SPIN-STATE][SlotMC] duplicate REEL_STOPPED ignored reel=${reelIndex}`);
             return;
         }
         if (!this._canAcceptLongSpinStop(reelIndex)) {
             this._pendingOutOfOrderStops.add(reelIndex);
-            Log.e(`[SPIN-STATE][SlotMC] out-of-order REEL_STOPPED held reel=${reelIndex} | ${this.debugStateSummary}`);
+            this._logSpinState(`[SPIN-STATE][SlotMC] out-of-order REEL_STOPPED held reel=${reelIndex}`);
             return;
         }
         this._processReelStopped(reelIndex);
@@ -1155,8 +1036,7 @@ export class SlotMachineController extends Component {
     private _processReelStopped(reelIndex: number): void {
         this._stoppedReelSet.add(reelIndex);
         this._stoppedCount++;
-        Log.e(`[GOLD-FLY][SlotMC._onReelStopped] reel=${reelIndex} _stoppedCount=${this._stoppedCount}/${this.reels.length}`);
-        Log.e(`[SPIN-STATE][SlotMC] REEL_STOPPED reel=${reelIndex} | ${this.debugStateSummary}`);
+        this._logSpinState(`[SPIN-STATE][SlotMC] REEL_STOPPED reel=${reelIndex}`);
         EventBus.instance.emit(GameEvents.REEL_STOPPED, reelIndex);
 
         // ★ Hiện credit label ngay khi reel dừng (per-reel) — chỉ cho STICKY_RED
@@ -1172,11 +1052,11 @@ export class SlotMachineController extends Component {
                 const delay = this._longSpinReelSet.has(reelIndex) ? this.longSpinNextReelDelay : 0;
                 // Log removed for performance
                 if (this._pendingOutOfOrderStops.has(next.reelIndex)) {
-                    Log.e(`[SPIN-STATE][SlotMC] skip stopAt for pending out-of-order reel=${next.reelIndex} | ${this.debugStateSummary}`);
+                    this._logSpinState(`[SPIN-STATE][SlotMC] skip stopAt for pending out-of-order reel=${next.reelIndex}`);
                 } else if (delay > 0) {
                     this.scheduleOnce(() => {
                         if (this._pendingOutOfOrderStops.has(next.reelIndex) || this._stoppedReelSet.has(next.reelIndex)) {
-                            Log.e(`[SPIN-STATE][SlotMC] scheduled stopAt skipped for already pending/stopped reel=${next.reelIndex} | ${this.debugStateSummary}`);
+                            this._logSpinState(`[SPIN-STATE][SlotMC] scheduled stopAt skipped for already pending/stopped reel=${next.reelIndex}`);
                             return;
                         }
                         this.reels[next.reelIndex].stopAt(next.centerIndex, next.isLong);
@@ -1212,8 +1092,7 @@ export class SlotMachineController extends Component {
 
         if (this._stoppedCount === this.reels.length && !this._allReelsStopped) {
             this._allReelsStopped = true;
-            Log.e(`[GOLD-FLY][SlotMC] EMIT REELS_STOPPED _stoppedCount=${this._stoppedCount}`);
-            Log.e(`[SPIN-STATE][SlotMC] EMIT REELS_STOPPED | ${this.debugStateSummary}`);
+            this._logSpinState('[SPIN-STATE][SlotMC] EMIT REELS_STOPPED');
             EventBus.instance.emit(GameEvents.REELS_STOPPED);
         }
     }

@@ -252,6 +252,7 @@ export class SymbolHighlighter extends Component {
         bus.on(GameEvents.CREDIT_FLY_IN_START, this._onFeatureSelectOpen, this);
         // FeatureEntryGuide xuất hiện → tắt highlight symbol ngay trước khi guide chạy
         bus.on(GameEvents.FORCE_FEATURE_ENTRY_START, this._onFeatureSelectOpen, this);
+        bus.on(GameEvents.FEATURE_ENTRY_GUIDE_SHOW, this._onFeatureSelectOpen, this);
         bus.on(GameEvents.PICK_GAME_OPEN, this._onPickGameBoundary, this);
         bus.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameBoundary, this);
         // Red symbol bounce trước khi fly-in (6+ Red → feature)
@@ -268,8 +269,8 @@ export class SymbolHighlighter extends Component {
     /** Cycling từng line một → chỉ highlight cells của line đó */
     private _onLineHighlight(linePay: MatchedLinePay): void {
         const cells = this._getWinningCells(linePay);
-        // Force-clean toàn bộ spine cũ trước khi activate line mới — tránh orphan spine nodes
-        // (entries có thể đã bị xóa khỏi active/pending nhưng spineNode vẫn còn trên PaylineManager)
+        // Force-clean toàn bộ spine/bounce cũ trước khi activate line mới —
+        // tránh highlight line trước còn sót (orphan clone trên PaylineManager).
         this._deactivateAllSpines();
         this._applyHighlight(cells);
         this._zoomCells(cells);
@@ -341,6 +342,8 @@ export class SymbolHighlighter extends Component {
         // );
         // Bonus symbol (cột 2) được xử lý riêng qua FREE_SPIN_BONUS_REVEAL —
         // KHÔNG đưa vào allCells để tránh fillBlack highlight cho nó.
+        // Clear highlight cũ trước show-all — tránh sót bounce/spine từ spin/cycle trước.
+        this._deactivateAllSpines();
         this._applyHighlight(allCells);
         // Zoom cho gold coin được xử lý trong _applyGreenTint (gọi từ _activateSpinesForCells)
         // Dùng duration từ WinPresenter.spinEnableDelay nếu được truyền vào,
@@ -382,6 +385,8 @@ export class SymbolHighlighter extends Component {
             `wildWays=${wildWays} duration=${duration ?? 'default'}`
         );
 
+        // Clear highlight cũ trước show-all — tránh sót bounce/spine từ cycle trước.
+        this._deactivateAllSpines();
         this._applyHighlight(allCells);
         // Zoom cho gold coin được xử lý trong _applyGreenTint (gọi từ _activateSpinesForCells)
         // Nếu chỉ có 1 way win duy nhất → loop spine animation thay vì play once
@@ -421,7 +426,7 @@ export class SymbolHighlighter extends Component {
         // grid row ngược với visual row: displayRow = 2 - gridRow
         const cells: CellPos[] = way.cells.map(({ reel, row }) => ({ col: reel, row: 2 - row }));
 
-        // Deactivate spine cho symbol không còn trong way mới (cả active + pending)
+        // Deactivate spine/bounce cho symbol không còn trong way mới (cả active + pending)
         // Freemode: giữ STICKY_YELLOW entries (loop spine) — không deactivate khi cycle sang way khác
         const isFreeMode = GameData.instance.currentMode === 'freespin' || GameData.instance.currentMode === 'freespin_gold';
         const nodeSet = new Set(cells.map(c => this.reels[c.col]?.symbolNodes[c.row + 1]).filter((n): n is Node => !!n));
@@ -432,6 +437,8 @@ export class SymbolHighlighter extends Component {
                 this._deactivateEntry(entry);
             }
         }
+        // Dọn bounce clone còn sót (không còn entry track) cho cell ngoài way hiện tại
+        this._clearUntrackedBounceClones(nodeSet);
         // Cleanup orphan spine nodes trên PaylineManager (không còn entry nào track).
         // ★ KHÔNG đụng highlight của WaysPayDisplay — chúng cũng là sp.Skeleton children
         //   của cùng PaylineManager. Chỉ dọn orphan khi dùng spine win highlight của highlighter.
@@ -507,9 +514,10 @@ export class SymbolHighlighter extends Component {
     // ── SPINE HIGHLIGHT (Prefab instantiate on demand) ───────────────────────
 
     /**
-     * Hard-reset: deactivate tất cả spine và restore sprite ngay lập tức.
-     * Chỉ gọi khi cần force-clean (onDestroy, hoặc reset cứng).
-     * Trong gameplay bình thường: spine tự deactivate qua symbol-changed.
+     * Hard-reset: deactivate tất cả spine/bounce và restore sprite ngay lập tức.
+     * Gọi khi đổi line cycle, spin mới, hoặc reset cứng.
+     * Cuối cùng luôn force-clear clone map — bắt orphan không còn entry track
+     * (nguyên nhân highlight line trước vẫn nằm trên PaylineManager).
      */
     private _deactivateAllSpines(): void {
         this._spineGen++;
@@ -538,6 +546,75 @@ export class SymbolHighlighter extends Component {
             this._yellowCloneTweens.delete(entry.symbolNode);
             if (entry.view) entry.view.setSpriteVisible(true);
             this._destroySpineNode(entry.spineNode);
+        }
+        // Belt-and-suspenders: dọn mọi bounce/yellow clone còn sót sau khi clear entries
+        this._forceClearAllHighlightClones();
+        this._sweepOrphanHighlightClones();
+    }
+
+    /** Destroy mọi sprite-bounce / yellow clone còn trong map (kể cả orphan không còn entry). */
+    private _forceClearAllHighlightClones(): void {
+        for (const [symNode, clone] of this._spriteBounceClones) {
+            if (clone && isValid(clone)) {
+                Tween.stopAllByTarget(clone);
+                this._bounceOrigPos.delete(clone);
+                if (clone.parent) clone.removeFromParent();
+                clone.destroy();
+            }
+            if (symNode?.isValid) {
+                symNode.getComponent(SymbolView)?.setSpriteVisible(true);
+            }
+        }
+        this._spriteBounceClones.clear();
+
+        for (const [symNode, clone] of this._yellowClones) {
+            if (clone && isValid(clone)) {
+                Tween.stopAllByTarget(clone);
+                clone.destroy();
+            }
+            if (symNode?.isValid) {
+                symNode.getComponent(SymbolView)?.setSpriteVisible(true);
+            }
+        }
+        this._yellowClones.clear();
+        this._yellowCloneTweens.clear();
+    }
+
+    /**
+     * Dọn bounce clone không thuộc tập cell đang giữ (ways cycle).
+     * Freemode STICKY_YELLOW được giữ nguyên nếu vẫn còn entry.
+     */
+    private _clearUntrackedBounceClones(keepNodes: Set<Node>): void {
+        for (const [symNode, clone] of [...this._spriteBounceClones]) {
+            if (keepNodes.has(symNode)) continue;
+            if (clone && isValid(clone)) {
+                Tween.stopAllByTarget(clone);
+                this._bounceOrigPos.delete(clone);
+                if (clone.parent) clone.removeFromParent();
+                clone.destroy();
+            }
+            this._spriteBounceClones.delete(symNode);
+            if (symNode?.isValid) {
+                symNode.getComponent(SymbolView)?.setSpriteVisible(true);
+            }
+        }
+    }
+
+    /** Quét node `__HLClone_*` orphan trên PaylineManager (không còn trong map). */
+    private _sweepOrphanHighlightClones(): void {
+        if (!this.paylineManagerNode?.isValid) return;
+        const tracked = new Set<Node>([
+            ...this._spriteBounceClones.values(),
+            ...this._yellowClones.values(),
+        ]);
+        const orphans = this.paylineManagerNode.children.filter(
+            (child) => child.name.startsWith('__HLClone_') && !tracked.has(child),
+        );
+        for (const child of orphans) {
+            if (!isValid(child)) continue;
+            Tween.stopAllByTarget(child);
+            this._bounceOrigPos.delete(child);
+            child.destroy();
         }
     }
 
@@ -1025,20 +1102,30 @@ export class SymbolHighlighter extends Component {
 
     private _stopSpriteBounce(entry: ActiveSpineEntry): void {
         const symbolNode = entry.symbolNode;
-        if (!symbolNode?.isValid) return;
-
         const bounceNode = entry.spineNode;
+
+        // Luôn stop tween + destroy clone — kể cả khi symbolNode đã invalid,
+        // tránh orphan `__HLClone_*` nằm lại trên PaylineManager.
         if (bounceNode?.isValid && bounceNode !== symbolNode) {
             Tween.stopAllByTarget(bounceNode);
-        } else {
+        } else if (symbolNode?.isValid) {
             Tween.stopAllByTarget(symbolNode);
         }
 
-        this._destroySpriteBounceClone(symbolNode);
+        if (symbolNode) {
+            this._destroySpriteBounceClone(symbolNode);
+        } else if (bounceNode?.isValid && bounceNode !== symbolNode) {
+            Tween.stopAllByTarget(bounceNode);
+            this._bounceOrigPos.delete(bounceNode);
+            if (bounceNode.parent) bounceNode.removeFromParent();
+            bounceNode.destroy();
+        }
 
-        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
-        symbolNode.setScale(baseScale, baseScale, 1);
-        entry.spineNode = symbolNode;
+        if (symbolNode?.isValid) {
+            const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
+            symbolNode.setScale(baseScale, baseScale, 1);
+            entry.spineNode = symbolNode;
+        }
     }
 
     private _onSpriteBounceComplete(entry: ActiveSpineEntry, gen: number): void {
@@ -1048,7 +1135,8 @@ export class SymbolHighlighter extends Component {
         if (idx < 0) return;
 
         this._activeSpines.splice(idx, 1);
-        if (entry._onSymChanged && !this._pendingListeners.includes(entry)) {
+        // Luôn giữ entry trong pending để cycle line sau còn track được clone "frame cuối"
+        if (!this._pendingListeners.includes(entry)) {
             this._pendingListeners.push(entry);
         }
 
@@ -1114,7 +1202,8 @@ export class SymbolHighlighter extends Component {
         if (idx < 0) return;
 
         this._activeSpines.splice(idx, 1);
-        if (entry._onSymChanged && !this._pendingListeners.includes(entry)) {
+        // Luôn giữ entry trong pending — spine giữ frame cuối phải được track để cycle line clear được
+        if (!this._pendingListeners.includes(entry)) {
             this._pendingListeners.push(entry);
         }
 

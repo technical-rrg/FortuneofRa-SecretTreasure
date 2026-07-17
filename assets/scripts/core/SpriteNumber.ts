@@ -27,8 +27,8 @@
  */
 
 import {
-    _decorator, Color, Component, Enum, Label, Node, NodePool,
-    Sprite, SpriteFrame, tween, Tween, UITransform, Vec3,
+    _decorator, Color, Component, Enum, ImageAsset, Label, Node, NodePool,
+    Rect, Size, Sprite, SpriteFrame, Texture2D, tween, Tween, UITransform, Vec2, Vec3,
 } from 'cc';
 import { EventBus } from './EventBus';
 import { GameEvents } from './GameEvents';
@@ -38,6 +38,16 @@ import { formatKMBT } from './FormatUtils';
 import { Log } from './Logger';
 
 const { ccclass, property } = _decorator;
+
+/**
+ * Cache SpriteFrame đã downsample (canvas high-quality) theo scale bucket.
+ * Tránh GPU sample atlas lớn xuống rất nhỏ → răng cưa / nhòe mipmap.
+ */
+const _hqFrameCache = new Map<string, SpriteFrame>();
+/** Scale dưới ngưỡng này mới bake HQ frame (shrinkToFit). */
+const HQ_DOWNSCALE_THRESHOLD = 0.75;
+/** Supersample 2x so với kích thước hiển thị design → sắc trên màn DPR cao. */
+const HQ_SUPERSAMPLE = 2;
 
 // ─── Enum ────────────────────────────────────────────────────────────────────
 
@@ -576,6 +586,9 @@ export class SpriteNumber extends Component {
         const layoutTotalWidth = totalWidth * layoutScale;
 
         // ── Pass 2: Spawn/reuse node, đặt vị trí thủ công ────────────────
+        // shrinkToFit + scale nhỏ: bake HQ downsample thay vì scale GPU (tránh răng cưa/nhòe mip).
+        const useHqDownscale = this.shrinkToFit && layoutScale > 0 && layoutScale < HQ_DOWNSCALE_THRESHOLD;
+
         // Bắt đầu từ -layoutTotalWidth/2 để căn giữa quanh pivot của parent node
         let cursorX = -layoutTotalWidth / 2;
         for (let i = 0; i < frames.length; i++) {
@@ -590,12 +603,20 @@ export class SpriteNumber extends Component {
 
             const node   = this._acquireNode();
             const sprite = node.getComponent(Sprite)!;
-            sprite.spriteFrame = frame;
-
             const tf = node.getComponent(UITransform)!;
-            // Sprite giữ kích thước gốc; shrinkToFit scale child node để vừa khung.
-            tf.setContentSize(frame.originalSize);
-            node.setScale(layoutScale, layoutScale, 1);
+
+            if (useHqDownscale) {
+                const hqFrame = this._getHqDownscaledFrame(frame, layoutScale) ?? frame;
+                sprite.spriteFrame = hqFrame;
+                // Hiển thị đúng size design; texture đã bake ~2x nên sắc, không cần scale node.
+                tf.setContentSize(displaySpriteW, frame.originalSize.height * layoutScale);
+                node.setScale(1, 1, 1);
+            } else {
+                sprite.spriteFrame = frame;
+                // Sprite giữ kích thước gốc; shrinkToFit scale child node để vừa khung.
+                tf.setContentSize(frame.originalSize);
+                node.setScale(layoutScale, layoutScale, 1);
+            }
 
             // Căn PHẢI trong không gian cấp phát (đã nhân layoutScale):
             //   right edge của sprite = cursorX + displayAllocW
@@ -901,5 +922,94 @@ export class SpriteNumber extends Component {
         // nếu không node sẽ được addChild nhưng vô hình (chỉ thấy jolt animation).
         node.active = true;
         return node;
+    }
+
+    /**
+     * Bake 1 SpriteFrame đã downsample bằng canvas (imageSmoothingQuality=high).
+     * Texture đích ≈ displaySize × HQ_SUPERSAMPLE — gần 1:1 với pixel màn hình, không cần mipmap.
+     */
+    private _getHqDownscaledFrame(src: SpriteFrame, layoutScale: number): SpriteFrame | null {
+        if (typeof document === 'undefined') return null;
+
+        const srcTex = src.texture as Texture2D | null;
+        const imageAsset = srcTex?.image ?? null;
+        const raw = imageAsset?.data as unknown;
+        const canDraw =
+            !!raw && (
+                (typeof HTMLImageElement !== 'undefined' && raw instanceof HTMLImageElement) ||
+                (typeof ImageBitmap !== 'undefined' && raw instanceof ImageBitmap) ||
+                (typeof HTMLCanvasElement !== 'undefined' && raw instanceof HTMLCanvasElement)
+            );
+        if (!srcTex || !canDraw) {
+            return null;
+        }
+        const source = raw as CanvasImageSource;
+
+        const srcW = Math.max(1, Math.round(src.originalSize.width));
+        const srcH = Math.max(1, Math.round(src.originalSize.height));
+        const texScale = Math.min(1, layoutScale * HQ_SUPERSAMPLE);
+        const destW = Math.max(1, Math.round(srcW * texScale));
+        const destH = Math.max(1, Math.round(srcH * texScale));
+        // Đã gần full-res thì dùng atlas gốc.
+        if (destW >= srcW * 0.95 && destH >= srcH * 0.95) return null;
+
+        const rect = src.rect;
+        const bucket = `${destW}x${destH}`;
+        const key = `${srcTex.uuid}|${rect.x},${rect.y},${rect.width},${rect.height}|r${src.rotated ? 1 : 0}|${bucket}`;
+        const cached = _hqFrameCache.get(key);
+        if (cached?.isValid) return cached;
+
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = destW;
+            canvas.height = destH;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+
+            ctx.imageSmoothingEnabled = true;
+            // 'high' ≈ Lanczos-quality trên Chromium — sắc hơn GPU mipbox khi scale nhỏ.
+            (ctx as CanvasRenderingContext2D & { imageSmoothingQuality?: string }).imageSmoothingQuality = 'high';
+            ctx.clearRect(0, 0, destW, destH);
+
+            if (src.rotated) {
+                // Atlas rotate 90° CW trong Cocos: rect.width/height đã đổi chỗ trên texture.
+                ctx.translate(destW / 2, destH / 2);
+                ctx.rotate(-Math.PI / 2);
+                ctx.drawImage(
+                    source,
+                    rect.x, rect.y, rect.width, rect.height,
+                    -destH / 2, -destW / 2, destH, destW,
+                );
+            } else {
+                ctx.drawImage(
+                    source,
+                    rect.x, rect.y, rect.width, rect.height,
+                    0, 0, destW, destH,
+                );
+            }
+
+            const bakedImage = new ImageAsset(canvas);
+            const bakedTex = new Texture2D();
+            bakedTex.image = bakedImage;
+            bakedTex.setFilters(Texture2D.Filter.LINEAR, Texture2D.Filter.LINEAR);
+            bakedTex.setMipFilter(Texture2D.Filter.NONE);
+            bakedTex.setWrapMode(Texture2D.WrapMode.CLAMP_TO_EDGE, Texture2D.WrapMode.CLAMP_TO_EDGE);
+
+            const bakedFrame = new SpriteFrame();
+            bakedFrame.reset({
+                texture: bakedTex,
+                rect: new Rect(0, 0, destW, destH),
+                originalSize: new Size(destW, destH),
+                offset: new Vec2(0, 0),
+                isRotate: false,
+            });
+            bakedFrame.packable = false;
+
+            _hqFrameCache.set(key, bakedFrame);
+            return bakedFrame;
+        } catch (err) {
+            Log.w(`[SpriteNumber] HQ downsample failed: ${err}`);
+            return null;
+        }
     }
 }

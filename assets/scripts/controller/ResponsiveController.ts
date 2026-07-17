@@ -122,10 +122,11 @@ export class ResponsiveController extends Component {
         if (sw <= 0 || sh <= 0 || designW <= 0 || designH <= 0) return;
 
         const scale = Math.min(sw / designW, sh / designH);
-        const gw = designW * scale;
-        const gh = designH * scale;
-        const x = (sw - gw) / 2;
-        const y = (sh - gh) / 2;
+        // Snap to integer pixels — viewport lệch nửa pixel làm UI (SpriteNumber) bị nhòe/bể cạnh.
+        const gw = Math.max(1, Math.round(designW * scale));
+        const gh = Math.max(1, Math.round(designH * scale));
+        const x = Math.round((sw - gw) / 2);
+        const y = Math.round((sh - gh) / 2);
         this.mainCamera.viewport = new Rect(x / sw, y / sh, gw / sw, gh / sh);
         Log.d(`[Responsive] Camera viewport: x=${(x / sw).toFixed(3)} y=${(y / sh).toFixed(3)} w=${(gw / sw).toFixed(3)} h=${(gh / sh).toFixed(3)}`);
     }

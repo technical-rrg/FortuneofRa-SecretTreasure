@@ -92,6 +92,8 @@ export class WinPresenter extends Component {
         EventBus.instance.on(GameEvents.CREDIT_FLY_IN_START, this._onCreditFlyInStart, this);
         EventBus.instance.on(GameEvents.PICK_GAME_OPEN, this._onPickGameOpen, this);
         EventBus.instance.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameClose, this);
+        EventBus.instance.on(GameEvents.FORCE_FEATURE_ENTRY_START, this._onWinHighlightClear, this);
+        EventBus.instance.on(GameEvents.FEATURE_ENTRY_GUIDE_SHOW, this._onWinHighlightClear, this);
         EventBus.instance.on(GameEvents.FREE_SPIN_COUNT_UPDATED, (remaining: number) => {
             this._isFreeSpinMode = remaining > 0;
         }, this);
@@ -270,23 +272,43 @@ export class WinPresenter extends Component {
         // 5) Sau showAllHighlightDuration: bắt đầu cycling từng way/line
         // Không cycling khi auto-spin: next spin bắt đầu ngay sau WIN_PRESENT_END,
         // cycling chạy đồng thời sẽ emit line lẻ ngay lập tức trước khi bị _stopCycling.
+        //
+        // BUG FIX: 1 WaysPayWin (vd. chỉ symbol J) vẫn có thể có nhiều combinations.
+        // Trước đây điều kiện `ways.length > 1` khiến case này fallback sang line-cycle
+        // (UI_UPDATE_WIN_LABEL) → WaysPayDisplay không nhận WIN_CYCLE_ONE_WAY →
+        // 5 spine overlay show-all bị kẹt trên màn hình.
         const shouldCycle = !willAutoSpin && !this._isAutoSpinMode;
         const waysForCycle = response.waysPayWins ?? [];
+        const waysComboCount = this._countWaysCombos(waysForCycle);
         Log.d(
-            `[WinHL] _emitHighlights | gen=${myGen} ways=${waysForCycle.length} lines=${response.matchedLinePays?.length ?? 0} ` +
-            `showAll=${showAllDuration}s cycle=${shouldCycle}`
+            `[WinHL] _emitHighlights | gen=${myGen} ways=${waysForCycle.length} combos=${waysComboCount} ` +
+            `lines=${response.matchedLinePays?.length ?? 0} showAll=${showAllDuration}s cycle=${shouldCycle}`
         );
-        if (shouldCycle && waysForCycle.length > 1) {
+        if (shouldCycle && waysComboCount > 1) {
             this.scheduleOnce(() => {
                 if (this._generation !== myGen) return;
                 this._startWaysCycle(waysForCycle, myGen);
             }, showAllDuration);
-        } else if (shouldCycle && response.matchedLinePays.length > 1) {
+        } else if (shouldCycle && waysForCycle.length === 0 && response.matchedLinePays.length > 1) {
+            // Legacy payline only — không dùng khi đã có Ways Pay (tránh lệch overlay)
             this.scheduleOnce(() => {
                 if (this._generation !== myGen) return;
                 this._startLineCycle(response.matchedLinePays, myGen);
             }, showAllDuration);
         }
+    }
+
+    /** Tổng số combination paths từ mọi WaysPayWin (1 way × N combos vẫn > 1). */
+    private _countWaysCombos(ways: WaysPayWin[]): number {
+        let n = 0;
+        for (const w of ways) {
+            if (w.combinations && w.combinations.length > 0) {
+                n += w.combinations.length;
+            } else if (w.cells && w.cells.length > 0) {
+                n += 1;
+            }
+        }
+        return n;
     }
 
     // ─── CYCLING LOOP (lặp lại vô hạn đến khi spin mới) ─────────────

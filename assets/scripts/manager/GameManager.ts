@@ -254,16 +254,14 @@ export class GameManager extends Component {
     // ─── LIFECYCLE ───
 
     onLoad(): void {
+        // Khóa target 60 FPS (web/desktop). Cocos dùng rAF + cap theo giá trị này.
+        game.frameRate = 60;
+
         // Khởi tạo DebugManager sớm để keyboard shortcuts (F1-F7) hoạt động ngay từ đầu
         DebugManager.instance.toString();
         // Khởi tạo AutoSpinManager sớm để ENTER_SUCCESS listener được đăng ký trước khi login xong.
         // Dùng toString() để tránh build optimizer tree-shake biểu thức không có side-effect.
         AutoSpinManager.instance.toString();
-
-        // ★ Bật log tag để debug StickyAccumulated / StickyEarned từ server.
-        Log.enable('featuregauge');
-        // ★ Debug sticky red land-bounce / WaysPayDisplay orphan cleanup.
-        Log.enable('lb-debug');
 
         this._bindEvents();
 
@@ -803,6 +801,9 @@ export class GameManager extends Component {
         if (featureResp.isForcedFeatureEntry && !this._forceFeatureEntryPlayed) {
             this._forceFeatureEntryPlayed = true;
             Log.e('[FEATURE-ENTRY] Force Feature Entry → guide + sticky fill trước credit-fly');
+
+            // Tắt ngay highlight / line cycling — kể cả trong mock gauge hold trước guide.
+            EventBus.instance.emit(GameEvents.WIN_HIGHLIGHT_CLEAR);
 
             const beginForceEntry = (): void => {
                 // Gauge reset do server xử lý sau Pick Game — client không reset local tại đây.

@@ -184,12 +184,12 @@ export class LoadingController extends Component {
     // ─── LIFECYCLE ───
 
     onLoad(): void {
+        // Khóa 60 FPS sớm nhất (trước khi vào game scene).
+        game.frameRate = 60;
+
         // ★ Khởi tạo ngôn ngữ sớm nhất có thể — trước khi bất kỳ Label nào render.
         //   Đọc DEV_FORCE_LANG (từ ServerConfig) hoặc localStorage 'supernova_lang'.
         LocalizationManager.instance.loadSavedLanguage();
-
-        // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — trước cả login/enter.
-        Log.enable('featuregauge');
 
         // ★ Bắt đầu tải font + CDN + MainBundle ngay — song song với login ở start().
         this._earlyLoadFont();

@@ -46,6 +46,13 @@ const SYMBOL_FRAME_KEYS: Record<number, string> = {
     [SymbolId.PLUS_ONE_SPIN]: '15_plus_one_spin',
 };
 
+/** Hoisted — tránh tạo mảng mới mỗi lần wrap symbol khi reel đang quay. */
+function isStickySymbol(symbolId: number): boolean {
+    return symbolId === SymbolId.STICKY_RED
+        || symbolId === SymbolId.STICKY_YELLOW
+        || symbolId === SymbolId.STICKY_GREEN;
+}
+
 @ccclass('SymbolView')
 export class SymbolView extends Component {
 
@@ -301,6 +308,8 @@ export class SymbolView extends Component {
     // ─── INTERNAL ───
 
     private _sprite: Sprite | null = null;
+    /** Cache getComponentsInChildren(Sprite) — tránh cấp phát mảng mỗi lần setSpriteVisible. */
+    private _sprites: Sprite[] = [];
     private _currentSymbolId: number = -1;
     private _isSpinning: boolean = false;
     private _debugLabel: Label | null = null;
@@ -309,6 +318,9 @@ export class SymbolView extends Component {
     /** Parent reel cố định — không đổi khi reparent tạm sang WaysPayDisplay */
     private _reelHomeParent: Node | null = null;
     private _reelHomeLocalPos: Vec3 = new Vec3();
+    /** Cache kết quả _resolveSymbolFrame theo symbolId (invalidate khi đổi symbolFrames). */
+    private _resolvedFrameCache: Map<number, SpriteFrame | null> = new Map();
+    private _frameCacheSource: SpriteFrame[] | null = null;
 
     /** Cache parent reel + local pos (chỉ khi node đang nằm trên reel, không phải WaysPayDisplay). */
     private _ensureReelHomeCached(): void {
@@ -519,6 +531,7 @@ export class SymbolView extends Component {
 
     onLoad(): void {
         this._sprite = this.getComponent(Sprite) ?? this.getComponentInChildren(Sprite);
+        this._sprites = this.node.getComponentsInChildren(Sprite);
        // this._createDebugLabel();
 
         // Áp dụng defaultScale
@@ -581,13 +594,12 @@ export class SymbolView extends Component {
 
         // Nếu là sticky coin → luôn hiện credit label (active true) và gán đúng giá trị
         // ★ TopUp mode: background reel KHÔNG hiện credit/bounce — StickyOverlay đã xử lý
-        if ((symbolId === SymbolId.STICKY_RED || symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN) && this.reelIndex >= 0 && this.rowIndex >= 0
+        if (isStickySymbol(symbolId) && this.reelIndex >= 0 && this.rowIndex >= 0
             && GameData.instance.currentMode !== 'respin') {
             const _key = `${this.reelIndex}-${this.rowIndex}`;
             const cell = GameData.instance.stickyCells.get(_key);
             // Luôn active true, gán credit từ cell hoặc 0 nếu chưa có data
             const creditValue = cell && cell.symbolId === symbolId ? cell.credit : 0;
-            Log.e(`[STICKY-LABEL] SymbolView.setSymbol r${this.reelIndex}row${this.rowIndex} id=${symbolId} credit=${creditValue} mode=${GameData.instance.currentMode}`);
             this.showCredit(creditValue);
             this._pendingLandBounce = !this._landBouncePlayed;
         } else if (symbolId === SymbolId.PLUS_ONE_SPIN && this.reelIndex >= 0 && this.rowIndex >= 0
@@ -634,28 +646,49 @@ export class SymbolView extends Component {
     }
 
     private _resolveSymbolFrame(symbolId: number): SpriteFrame | null {
+        if (this._frameCacheSource !== this.symbolFrames) {
+            this._resolvedFrameCache.clear();
+            this._frameCacheSource = this.symbolFrames;
+        }
+        if (this._resolvedFrameCache.has(symbolId)) {
+            return this._resolvedFrameCache.get(symbolId)!;
+        }
+
         const expectedKey = SYMBOL_FRAME_KEYS[symbolId];
         const indexedFrame = this.symbolFrames[symbolId] ?? null;
-        if (!expectedKey) return indexedFrame;
-
-        if (this._frameMatches(indexedFrame, expectedKey)) return indexedFrame;
-
-        const fallbackFrame = this.symbolFrames.find(frame => this._frameMatches(frame, expectedKey)) ?? null;
-        if (fallbackFrame) {
-            const indexedName = indexedFrame?.name ?? 'null';
-            // Log removed for performance
-            return fallbackFrame;
+        let resolved: SpriteFrame | null = indexedFrame;
+        if (expectedKey) {
+            if (this._frameMatches(indexedFrame, expectedKey)) {
+                resolved = indexedFrame;
+            } else {
+                resolved = this.symbolFrames.find(frame => this._frameMatches(frame, expectedKey)) ?? indexedFrame;
+            }
         }
-
-        if (indexedFrame) {
-            // Log removed for performance
-        }
-        return indexedFrame;
+        this._resolvedFrameCache.set(symbolId, resolved);
+        return resolved;
     }
 
     private _frameMatches(frame: SpriteFrame | null, expectedKey: string): boolean {
         if (!frame) return false;
-        return (frame.name ?? '').toLowerCase().includes(expectedKey);
+        const name = frame.name;
+        if (!name) return false;
+        // indexOf tránh toLowerCase() cấp phát chuỗi mỗi lần resolve
+        const lowerKey = expectedKey; // keys đã lowercase
+        const n = name.length;
+        const k = lowerKey.length;
+        if (k === 0 || n < k) return false;
+        // So khớp case-insensitive không tạo string mới
+        for (let i = 0; i <= n - k; i++) {
+            let ok = true;
+            for (let j = 0; j < k; j++) {
+                const a = name.charCodeAt(i + j);
+                const b = lowerKey.charCodeAt(j);
+                const al = a >= 65 && a <= 90 ? a + 32 : a;
+                if (al !== b) { ok = false; break; }
+            }
+            if (ok) return true;
+        }
+        return false;
     }
 
     private _applySpriteFrame(frame: SpriteFrame | null): void {
@@ -667,10 +700,7 @@ export class SymbolView extends Component {
     }
 
     public prefillStickyCredit(symbolId: number, targetRowIndex: number): void {
-        const isSticky = symbolId === SymbolId.STICKY_RED
-            || symbolId === SymbolId.STICKY_YELLOW
-            || symbolId === SymbolId.STICKY_GREEN;
-        if (!isSticky || this.reelIndex < 0 || targetRowIndex < 0 || GameData.instance.currentMode === 'respin') {
+        if (!isStickySymbol(symbolId) || this.reelIndex < 0 || targetRowIndex < 0 || GameData.instance.currentMode === 'respin') {
             this.clearCredit();
             return;
         }
@@ -678,7 +708,6 @@ export class SymbolView extends Component {
         const key = `${this.reelIndex}-${targetRowIndex}`;
         const cell = GameData.instance.stickyCells.get(key);
         const creditValue = cell && cell.symbolId === symbolId ? cell.credit : 0;
-        Log.e(`[STICKY-LABEL] SymbolView.prefill r${this.reelIndex}row${targetRowIndex} id=${symbolId} credit=${creditValue} mode=${GameData.instance.currentMode}`);
         this.showCredit(creditValue);
     }
 
@@ -687,9 +716,12 @@ export class SymbolView extends Component {
      * Chỉ toggle enabled — không xóa spriteFrame, restore ngay khi gọi lại true.
      */
     setSpriteVisible(visible: boolean): void {
-        const sprites = this.node.getComponentsInChildren(Sprite);
-        for (const spr of sprites) {
-            spr.enabled = visible;
+        if (this._sprites.length === 0) {
+            this._sprites = this.node.getComponentsInChildren(Sprite);
+        }
+        for (let i = 0; i < this._sprites.length; i++) {
+            const spr = this._sprites[i];
+            if (spr?.isValid) spr.enabled = visible;
         }
     }
 
@@ -701,14 +733,10 @@ export class SymbolView extends Component {
      * Gọi sau khi reel dừng và sticky cell đã được xác nhận.
      */
     showCredit(value: number): void {
-        if (!this.SpriteNumber) {
-            Log.e(`[STICKY-LABEL] SymbolView.showCredit r${this.reelIndex}row${this.rowIndex} SKIP: no SpriteNumber`);
-            return;
-        }
+        if (!this.SpriteNumber) return;
         const labelNode = this.SpriteNumber.node;
         Tween.stopAllByTarget(labelNode);
         const shouldActive = value > 0;
-        Log.e(`[STICKY-LABEL] SymbolView.showCredit r${this.reelIndex}row${this.rowIndex} value=${value} active→${shouldActive} (was=${labelNode.active})`);
         this.SpriteNumber.setData(value);
         // Reset rotation của CreditLabel để tránh bị nghiêng méo (đặc biệt case row0 col0)
         labelNode.setRotationFromEuler(0, 0, 0);
@@ -881,8 +909,31 @@ export class SymbolView extends Component {
     // ─── EVENT HANDLERS (từ ReelController) ───
 
     private _onSymbolChanged(symbolId: number): void {
-        // Nếu symbol đang là sticky coin và vẫn nhận cùng ID → giữ nguyên scale (không reset zoom)
-        const isSticky = [SymbolId.STICKY_RED, SymbolId.STICKY_YELLOW, SymbolId.STICKY_GREEN].includes(symbolId);
+        // Hot path khi đang quay: chỉ đổi sprite — không tween/rename/restore
+        if (this._isSpinning) {
+            this._currentSymbolId = symbolId;
+            if (symbolId < 0) {
+                if (this._sprite) this._sprite.spriteFrame = null;
+                return;
+            }
+            const frame = this._resolveSymbolFrame(symbolId)
+                ?? this.blurFrames[symbolId]
+                ?? this.symbolFrames[symbolId]
+                ?? null;
+            if (this._sprite && frame) {
+                this._sprite.spriteFrame = frame;
+            }
+            // Sticky credit trên visible cells (rowIndex>=0) ngay cả lúc quay
+            if (isStickySymbol(symbolId) && this.reelIndex >= 0 && this.rowIndex >= 0) {
+                const cell = GameData.instance.stickyCells.get(`${this.reelIndex}-${this.rowIndex}`);
+                const creditValue = cell && cell.symbolId === symbolId ? cell.credit : 0;
+                this.showCredit(creditValue);
+            }
+            return;
+        }
+
+        // Idle / settle: sticky cùng ID → giữ scale/tween land-bounce đang chạy
+        const isSticky = isStickySymbol(symbolId);
         const sameSticky = isSticky && this._currentSymbolId === symbolId;
         const keepRunningLandBounce = sameSticky && this._landBouncePlayed;
         if (!keepRunningLandBounce) {
@@ -895,42 +946,11 @@ export class SymbolView extends Component {
             this.node.setScale(this.defaultScale, this.defaultScale, 1);
         }
 
-        // Khi đang spinning: đổi sprite theo symbol mới (blurFrames ≡ symbolFrames trong project này)
-        if (this._isSpinning) {
-            if (symbolId < 0) {
-                this._currentSymbolId = symbolId;
-                this._syncSymbolDebugName(symbolId);
-                if (this._sprite) this._sprite.spriteFrame = null;
-            } else {
-                this._currentSymbolId = symbolId;
-                this._syncSymbolDebugName(symbolId);
-                const frame = this._resolveSymbolFrame(symbolId)
-                    ?? this.blurFrames[symbolId]
-                    ?? this.symbolFrames[symbolId]
-                    ?? null;
-                if (this._sprite && frame) {
-                    this._sprite.spriteFrame = frame;
-                }
-                // ★ Bật credit label cho sticky coins ngay cả trong lúc quay
-                if (isSticky && this.reelIndex >= 0 && this.rowIndex >= 0) {
-                    const _key = `${this.reelIndex}-${this.rowIndex}`;
-                    const cell = GameData.instance.stickyCells.get(_key);
-                    const creditValue = cell && cell.symbolId === symbolId ? cell.credit : 0;
-                    this.showCredit(creditValue);
-                }
-            }
-            return;
-        }
         if (sameSticky) {
             const frame = this._resolveSymbolFrame(symbolId);
             if (frame) this._applySpriteFrame(frame);
             if (this.rowIndex >= 0) {
                 this.prefillStickyCredit(symbolId, this.rowIndex);
-            }
-            // Sticky coin giữ nguyên scale, sprite, credit — không cần reset
-            // ★ Nhưng vẫn phải đánh dấu _pendingLandBounce để nhún khi reel-settled fire
-            // Chỉ nhún cho visible nodes (rowIndex>=0), buffer nodes (rowIndex=-1) ngoài mask không nhún
-            if (this.rowIndex >= 0) {
                 this._pendingLandBounce = !this._landBouncePlayed;
             }
             return;
@@ -950,10 +970,7 @@ export class SymbolView extends Component {
     private _onSpinFast(): void {
         // Reel đã vào tốc độ nhanh → hiện blur
         // ★ Chỉ ẩn credit label cho non-sticky coins; sticky coins giữ credit hiển thị
-        const isSticky = this._currentSymbolId === SymbolId.STICKY_RED
-            || this._currentSymbolId === SymbolId.STICKY_YELLOW
-            || this._currentSymbolId === SymbolId.STICKY_GREEN;
-        if (!isSticky) {
+        if (!isStickySymbol(this._currentSymbolId)) {
             this.clearCredit();
         }
         this.showBlur();

@@ -9,14 +9,14 @@
  *   bottom-left(1) → bottom-right(2) → 2nd-left(3) → 2nd-right(4) → …
  *   → top-left(9) → top-right(10)
  *
- * Khi vào Feature → gauge giữ theo server; reset sau Pick Game (PotCount=0).
+ * Khi vào Feature → gauge giữ theo server; reset khi vào feature spin (StickyAccumulated=0).
  *
  * ── GAUGE DATA (server API) ──
- *   PotCount  = StickyAccumulated (cumulative) → lighting stage 0..10 qua ngưỡng.
- *   WildCount = StickyEarned (this spin only) → log / earned payload.
+ *   StickyAccumulated = Red Sticky tích lũy (normal spin only) → lighting stage 0..10.
+ *   StickyEarned      = Red Sticky landed spin này → log / earned payload.
  *   PotVisualLevel chỉ dùng cho Pot UI — KHÔNG map sang 10 ô gauge.
  * ── CÁCH KÍCH HOẠT ──
- *   GameManager emit FEATURE_GAUGE_UPDATE khi reel dừng (đọc PotCount/WildCount từ spin response).
+ *   GameManager emit FEATURE_GAUGE_UPDATE khi reel dừng (đọc StickyAccumulated/StickyEarned).
  *
  * ── SETUP TRONG EDITOR ──
  *   1. Tạo Node "FeatureEntryGauge" trong scene (con của khung Reel/Canvas).

@@ -427,21 +427,23 @@ export class JackpotDisplay extends Component {
         minor = truncate3(minor);
         mini  = truncate3(mini);
 
-        const mults = data.config.jackpotMultipliers ?? JACKPOT_MULT_FALLBACK;
-        Log.d(
-            `[JackpotDisplay] _updateAll | source=${hasServerValues ? 'SERVER' : 'FALLBACK'}` +
-            ` | totalBet=${data.totalBet}` +
-            ` | multGRAND=${mults.GRAND} multMAJOR=${mults.MAJOR} multMINOR=${mults.MINOR} multMINI=${mults.MINI}` +
-            ` | GRAND=${grand} MAJOR=${major} MINOR=${minor} MINI=${mini}` +
-            ` | serverVals=[${vals?.join(',') ?? 'null'}]`
-        );
-
         const ci = this.currencyIndex;
         const c = this._cachedValues;
-        if (!c || c.grand !== grand) { this._animateValue(this.grandLabel, c?.grand ?? grand, grand, ci); }
-        if (!c || c.major !== major) { this._animateValue(this.majorLabel, c?.major ?? major, major, ci); }
-        if (!c || c.minor !== minor) { this._animateValue(this.minorLabel, c?.minor ?? minor, minor, ci); }
-        if (!c || c.mini  !== mini)  { this._animateValue(this.miniLabel,  c?.mini  ?? mini,  mini,  ci); }
+        const animG = !c || c.grand !== grand;
+        const animMaj = !c || c.major !== major;
+        const animMin = !c || c.minor !== minor;
+        const animMini = !c || c.mini !== mini;
+        if (animG || animMaj || animMin || animMini) {
+            Log.e(
+                `[Jackpot] Display animate G=${grand} Maj=${major} Min=${minor} Mini=${mini}` +
+                ` labels=${!!this.grandLabel}/${!!this.majorLabel}/${!!this.minorLabel}/${!!this.miniLabel}` +
+                ` flags=${animG}/${animMaj}/${animMin}/${animMini}`
+            );
+        }
+        if (animG) { this._animateValue(this.grandLabel, c?.grand ?? grand, grand, ci); }
+        if (animMaj) { this._animateValue(this.majorLabel, c?.major ?? major, major, ci); }
+        if (animMin) { this._animateValue(this.minorLabel, c?.minor ?? minor, minor, ci); }
+        if (animMini) { this._animateValue(this.miniLabel, c?.mini ?? mini, mini, ci); }
         this._cachedValues = { grand, major, minor, mini };
     }
 

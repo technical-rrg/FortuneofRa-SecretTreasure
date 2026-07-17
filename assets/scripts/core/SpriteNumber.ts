@@ -222,7 +222,11 @@ export class SpriteNumber extends Component {
     private _shrinkContainerW: number = 0;
     private _shrinkContainerH: number = 0;
 
-    /** Scale hiệu dụng do maxWidth áp đặt (dùng để jolt nhân lên đúng). */
+    /**
+     * Scale hiệu dụng sau layout:
+     * - shrinkToFit: tỷ lệ scale của digit children (parent giữ _initialScale)
+     * - maxWidth: scale của parent node
+     */
     private _effectiveScale: number = 1;
     /** Đang trong chế độ count-up — số nguyên sẽ được hiển thị với .00 */
     private _isCounting: boolean = false;
@@ -347,9 +351,10 @@ export class SpriteNumber extends Component {
         const parentTf = this.node.getComponent(UITransform);
 
         if (this.shrinkToFit) {
-            const scaleRatio = this._computeShrinkScaleRatio(sumSpriteWidth, sumVisualGaps, maxHeight);
-            this._effectiveScale = scaleRatio;
-            this.node.setScale(scaleRatio, scaleRatio, 1);
+            // Shrink scale áp lên digit children trong setData(), không scale parent
+            // (scale parent sẽ co cả contentSize → không bao giờ vừa khung).
+            this._effectiveScale = this._computeShrinkScaleRatio(sumSpriteWidth, sumVisualGaps, maxHeight);
+            this.node.setScale(this._initialScale, this._initialScale, 1);
         } else {
             // Áp dụng ngay để container đúng size trước khi count-up bắt đầu
             if (parentTf) parentTf.setContentSize(totalWidth, maxHeight);
@@ -477,7 +482,6 @@ export class SpriteNumber extends Component {
         }
 
         // KMBT fallback: khi số >= 100K và bật flag → dùng Label hiển thị K/M/B/T
-        const joltReturnScale = this.node.scale.clone();
         const useKMBTMode = useKMBT && value >= 100000;
         if (useKMBTMode && this.kmbtSprites.length === 0) {
             // Không có KMBT sprite: fallback dùng Label
@@ -492,7 +496,7 @@ export class SpriteNumber extends Component {
                 const interval = this._getRandomJoltInterval();
                 if (now - this._lastJoltTime >= interval * 1000) {
                     this._lastJoltTime = now;
-                    this.playJolt(joltReturnScale);
+                    this.playJolt(this.node.scale.clone());
                 }
             }
             this._prevRenderedValue = value;
@@ -564,13 +568,12 @@ export class SpriteNumber extends Component {
         const layoutMetrics = this._computeLayoutMetrics(frames, currencyFrame, effectiveCurrencyWidth);
         const { totalWidth, maxHeight, sumSpriteWidth, sumVisualGaps } = layoutMetrics;
 
-        // shrinkToFit: spacing tính theo pixel hiển thị — chỉ scale phần glyph, không scale gap.
+        // shrinkToFit: scale từng digit child (không scale parent) để vừa contentSize.
+        // Scale đồng nhất glyph + gap — giống Label Overflow.SHRINK.
         const layoutScale = this.shrinkToFit
             ? (this._lockedWidth > 0 ? this._effectiveScale : this._computeShrinkScaleRatio(sumSpriteWidth, sumVisualGaps, maxHeight))
             : 1;
-        const layoutTotalWidth = this.shrinkToFit
-            ? sumSpriteWidth + sumVisualGaps / layoutScale
-            : totalWidth;
+        const layoutTotalWidth = totalWidth * layoutScale;
 
         // ── Pass 2: Spawn/reuse node, đặt vị trí thủ công ────────────────
         // Bắt đầu từ -layoutTotalWidth/2 để căn giữa quanh pivot của parent node
@@ -582,28 +585,27 @@ export class SpriteNumber extends Component {
             // tất cả còn lại dùng originalSize.width của sprite.
             const allocatedW = isCurrencyFrame ? effectiveCurrencyWidth : frame.originalSize.width;
             const spriteW    = frame.originalSize.width;
+            const displayAllocW = allocatedW * layoutScale;
+            const displaySpriteW = spriteW * layoutScale;
 
             const node   = this._acquireNode();
             const sprite = node.getComponent(Sprite)!;
             sprite.spriteFrame = frame;
 
             const tf = node.getComponent(UITransform)!;
-            // Luôn render sprite ở kích thước gốc — không stretch, không scale child node.
+            // Sprite giữ kích thước gốc; shrinkToFit scale child node để vừa khung.
             tf.setContentSize(frame.originalSize);
-            node.setScale(1, 1, 1);
+            node.setScale(layoutScale, layoutScale, 1);
 
-            // Căn PHẢI trong không gian cấp phát:
-            //   right edge của sprite = cursorX + allocatedW
-            //   → center = cursorX + allocatedW - spriteW / 2
-            // Với ký tự thường (allocatedW == spriteW): công thức trở thành cursorX + spriteW/2 (căn giữa = căn phải, đúng như cũ).
-            // Với NT$ (allocatedW = 3 digits): sprite sát phải → khoảng cách tới chữ số tiếp theo = spacing, không chồng lên nhau.
-            node.setPosition(cursorX + allocatedW - spriteW / 2, 0, 0);
+            // Căn PHẢI trong không gian cấp phát (đã nhân layoutScale):
+            //   right edge của sprite = cursorX + displayAllocW
+            //   → center = cursorX + displayAllocW - displaySpriteW / 2
+            // Với ký tự thường (allocatedW == spriteW): công thức trở thành cursorX + displaySpriteW/2.
+            // Với NT$ (allocatedW = 3 digits): sprite sát phải → khoảng cách tới chữ số tiếp theo = spacing.
+            node.setPosition(cursorX + displayAllocW - displaySpriteW / 2, 0, 0);
 
-            // Tính gap sang node tiếp theo (cursor advance theo allocatedW, không phải spriteW)
             if (i < frames.length - 1) {
-                const visualGap = layoutMetrics.visualGap(i);
-                const gap = this.shrinkToFit ? visualGap / layoutScale : visualGap;
-                cursorX += allocatedW + gap;
+                cursorX += displayAllocW + layoutMetrics.visualGap(i) * layoutScale;
             }
 
             this.node.addChild(node);
@@ -621,9 +623,9 @@ export class SpriteNumber extends Component {
                 : totalWidth;
             const parentTf = this.node.getComponent(UITransform);
             if (this.shrinkToFit) {
-                // shrinkToFit: chỉ thu glyph — spacing giữ nguyên pixel hiển thị (layoutScale đã tính ở Pass 2).
+                // shrinkToFit: contentSize giữ nguyên (khung Editor); scale nằm ở digit children.
                 this._effectiveScale = layoutScale;
-                this.node.setScale(layoutScale, layoutScale, 1);
+                this.node.setScale(this._initialScale, this._initialScale, 1);
             } else {
                 if (parentTf) parentTf.setContentSize(sizeRef, maxHeight);
                 // Scale để vừa maxWidth nếu cần — áp dụng trên cơ sở initial scale
@@ -642,12 +644,13 @@ export class SpriteNumber extends Component {
 
         // Kích hoạt hiệu ứng giật nếu đủ điều kiện và GIÁ TRỊ THỰC SỰ THAY ĐỔI
         // (tránh jolt khi setData cùng value — xảy ra khi bet đổi nhưng server values không đổi)
+        // Capture scale SAU khi layout xong — nếu lấy trước sẽ tween về scale cũ và phá shrink/maxWidth.
         if (this.joltEnabled && value !== this._prevRenderedValue) {
             const now = Date.now();
             const interval = this._getRandomJoltInterval();
             if (now - this._lastJoltTime >= interval * 1000) {
                 this._lastJoltTime = now;
-                this.playJolt(joltReturnScale);
+                this.playJolt(this.node.scale.clone());
             }
         }
         this._prevRenderedValue = value;
@@ -795,25 +798,21 @@ export class SpriteNumber extends Component {
     }
 
     /**
-     * shrinkToFit: chỉ scale glyph để vừa khung; spacing giữ theo pixel hiển thị.
-     * visualWidth = sumSpriteWidth * scale + sumVisualGaps
+     * shrinkToFit: scale digit children (đồng nhất glyph + gap) để vừa khung contentSize.
+     * Không scale parent — nếu scale parent thì contentSize co theo → vẫn tràn tương đối.
      */
     private _computeShrinkScaleRatio(sumSpriteWidth: number, sumVisualGaps: number, maxHeight: number): number {
         const containerW = this.maxWidth > 0 ? this.maxWidth : this._shrinkContainerW;
         const containerH = this._shrinkContainerH;
+        const totalWidth = sumSpriteWidth + sumVisualGaps;
         let scaleRatio = 1;
-        if (containerW > 0 && sumSpriteWidth > 0) {
-            const availableW = containerW - sumVisualGaps;
-            if (availableW > 0 && sumSpriteWidth > availableW) {
-                scaleRatio = Math.min(scaleRatio, availableW / sumSpriteWidth);
-            } else if (availableW <= 0) {
-                scaleRatio = Math.min(scaleRatio, containerW / sumSpriteWidth);
-            }
+        if (containerW > 0 && totalWidth > containerW) {
+            scaleRatio = Math.min(scaleRatio, containerW / totalWidth);
         }
         if (containerH > 0 && maxHeight > containerH) {
             scaleRatio = Math.min(scaleRatio, containerH / maxHeight);
         }
-        return scaleRatio;
+        return Math.max(0.01, scaleRatio);
     }
 
     /**

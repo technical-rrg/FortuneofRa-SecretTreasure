@@ -580,15 +580,15 @@ export interface SpinResponse {
     forceFeatureEntry?: ForceFeatureEntryData;
     /** Số Sticky xuất hiện tự nhiên trên reel spin này (dùng cho gauge + force check). */
     naturalStickyCount?: number;
-    /** Số Sticky earned spin này — server field WildCount (= StickyEarned). */
+    /** Số Red Sticky landed spin này — server StickyEarned (normal spin only). */
     stickyEarnedThisSpin?: number;
-    /** Alias server WildCount (= stickyEarnedThisSpin). */
+    /** Legacy alias (= stickyEarnedThisSpin). */
     wildCount?: number;
-    /** Lighting stage 0..10 — tính từ PotCount qua gaugeStageFromAccumulated(). */
+    /** Lighting stage 0..10 — từ StickyAccumulated qua gaugeStageFromAccumulated(). */
     lightingStage?: number;
-    /** Tổng tích lũy gauge — alias server PotCount (= StickyAccumulated). */
+    /** Tổng Red Sticky tích lũy — server StickyAccumulated (normal spin only). */
     stickyAccumulated?: number;
-    /** Server field PotCount (= StickyAccumulated, cumulative). */
+    /** Legacy alias (= stickyAccumulated). */
     potCount?: number;
 }
 

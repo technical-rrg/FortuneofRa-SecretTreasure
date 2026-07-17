@@ -166,24 +166,33 @@ export class WinPresenter extends Component {
         this._isPresenting = false;
         this._highlightAnimDone = false;
         this._pendingPresentEndGen = -1;
-        // Log.d(`[WinPresenter] WIN_PRESENT_START`);
         // Lưu lại lines để dùng sau jackpot popup
         this._lastMatchedLines  = response.matchedLinePays;
         this._lastWaysPayWins   = response.waysPayWins ?? [];
+        const waysLen = response.waysPayWins?.length ?? 0;
+        const linesLen = response.matchedLinePays?.length ?? 0;
         // Không có tiền thắng → kết thúc ngay để GameManager mở Spin
         if (response.totalWin <= 0) {
             if (!this._isFreeSpinMode && this.winLabel) this.winLabel.string = L('no_win');
+            Log.d(`[WinHL] WIN_PRESENT_START no-win → finish | gen=${myGen}`);
             this._finishPresentation(myGen);
             return;
         }
 
-        // Nếu response có wild trail (normal spin) và chưa nhận FLY_DONE cho gen này → chờ
-        const hasWildTrail = !this._isFreeSpinMode && response.wildTrailCount && response.wildTrailCount > 0;
-        Log.d(`[WinPresenter] _onWinStart check: _isFreeSpinMode=${this._isFreeSpinMode}, wildTrailCount=${response.wildTrailCount}, _isWildTrailAnimating=${this._isWildTrailAnimating}, hasWildTrail=${hasWildTrail}, _wildTrailFlyDoneGen=${this._wildTrailFlyDoneGen}, myGen=${myGen}`);
-        if ((this._isWildTrailAnimating || hasWildTrail) && this._wildTrailFlyDoneGen !== myGen) {
+        // GameManager đã defer WIN_PRESENT_START đến sau WILD_TRAIL_FLY_DONE.
+        // Chỉ delay thêm khi trail VẪN đang bay (_isWildTrailAnimating).
+        // ★ BUG FIX: không so sánh _wildTrailFlyDoneGen !== myGen — _generation bị bump
+        // ngay đầu hàm nên sau FLY_DONE so sánh luôn fail → pending forever → chỉ thấy
+        // tiền cộng (UIController) mà không emit WIN_SHOW_ALL_WAYS/LINES.
+        Log.d(
+            `[WinHL] WIN_PRESENT_START | gen=${myGen} totalWin=${response.totalWin} ` +
+            `ways=${waysLen} lines=${linesLen} wildTrailCount=${response.wildTrailCount ?? 0} ` +
+            `animating=${this._isWildTrailAnimating} flyDoneGen=${this._wildTrailFlyDoneGen}`
+        );
+        if (this._isWildTrailAnimating) {
             this._pendingWinResponse = response;
             this._pendingWinGen = myGen;
-            Log.d(`[WinPresenter] Wild trail đang diễn — delay highlight cho đến khi xong`);
+            Log.d(`[WinHL] DELAY highlight — wild trail still animating | gen=${myGen}`);
             return;
         }
 
@@ -263,32 +272,20 @@ export class WinPresenter extends Component {
         // cycling chạy đồng thời sẽ emit line lẻ ngay lập tức trước khi bị _stopCycling.
         const shouldCycle = !willAutoSpin && !this._isAutoSpinMode;
         const waysForCycle = response.waysPayWins ?? [];
-        Log.e(
-            `[WinPresenter][CYCLE-DEBUG] _emitHighlights: shouldCycle=${shouldCycle} ` +
-            `willAutoSpin=${willAutoSpin} _isAutoSpinMode=${this._isAutoSpinMode} ` +
-            `waysForCycle.length=${waysForCycle.length} matchedLinePays.length=${response.matchedLinePays?.length ?? 0} ` +
-            `myGen=${myGen} showAllDuration=${showAllDuration}`
+        Log.d(
+            `[WinHL] _emitHighlights | gen=${myGen} ways=${waysForCycle.length} lines=${response.matchedLinePays?.length ?? 0} ` +
+            `showAll=${showAllDuration}s cycle=${shouldCycle}`
         );
         if (shouldCycle && waysForCycle.length > 1) {
-            Log.e(`[WinPresenter][CYCLE-DEBUG] Scheduling _startWaysCycle in ${showAllDuration}s`);
             this.scheduleOnce(() => {
-                if (this._generation !== myGen) {
-                    Log.e(`[WinPresenter][CYCLE-DEBUG] Ways cycle callback skipped: gen changed ${myGen}→${this._generation}`);
-                    return;
-                }
+                if (this._generation !== myGen) return;
                 this._startWaysCycle(waysForCycle, myGen);
             }, showAllDuration);
         } else if (shouldCycle && response.matchedLinePays.length > 1) {
-            Log.e(`[WinPresenter][CYCLE-DEBUG] Scheduling _startLineCycle in ${showAllDuration}s`);
             this.scheduleOnce(() => {
-                if (this._generation !== myGen) {
-                    Log.e(`[WinPresenter][CYCLE-DEBUG] Line cycle callback skipped: gen changed ${myGen}→${this._generation}`);
-                    return;
-                }
+                if (this._generation !== myGen) return;
                 this._startLineCycle(response.matchedLinePays, myGen);
             }, showAllDuration);
-        } else {
-            Log.e(`[WinPresenter][CYCLE-DEBUG] NO cycling scheduled`);
         }
     }
 
@@ -313,26 +310,19 @@ export class WinPresenter extends Component {
                 allCombos.push({ ...way, cells: combo });
             }
         }
-        Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: ways=${ways.length} allCombos=${allCombos.length} gen=${gen}`);
-        if (allCombos.length < 2) {
-            Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: skip cycle (need ≥2 combos)`);
-            return;
-        }
+        if (allCombos.length < 2) return;
 
         let idx = 0;
 
         // Emit combination đầu tiên ngay lập tức
-        Log.e(`[WinPresenter][CYCLE-DEBUG] _startWaysCycle: emit WIN_CYCLE_ONE_WAY idx=${idx} comboCells=${allCombos[idx].cells.map(c=>`(${c.reel},${c.row})`).join(',')}`);
         EventBus.instance.emit(GameEvents.WIN_CYCLE_ONE_WAY, allCombos[idx]);
         idx = (idx + 1) % allCombos.length;
 
         this._cycleCallback = () => {
             if (this._generation !== gen) {
-                Log.e(`[WinPresenter][CYCLE-DEBUG] Ways cycle tick skipped: gen changed ${gen}→${this._generation}`);
                 this._stopCycling();
                 return;
             }
-            Log.e(`[WinPresenter][CYCLE-DEBUG] Ways cycle tick: emit WIN_CYCLE_ONE_WAY idx=${idx} comboCells=${allCombos[idx].cells.map(c=>`(${c.reel},${c.row})`).join(',')}`);
             EventBus.instance.emit(GameEvents.WIN_CYCLE_ONE_WAY, allCombos[idx]);
             idx = (idx + 1) % allCombos.length;
         };
@@ -342,10 +332,6 @@ export class WinPresenter extends Component {
     private _startLineCycle(lines: SpinResponse['matchedLinePays'], gen: number): void {
         this._stopCycling();
         if (lines.length < 2) return;
-        console.log(
-            `%c[HighlightDebug][WinPresenter] _startLineCycle lines=${lines.length} gen=${gen}`,
-            'color:#fa0;font-weight:bold'
-        );
 
         let lineIdx = 0;
 
@@ -361,10 +347,6 @@ export class WinPresenter extends Component {
                 return;
             }
             const line = lines[lineIdx];
-            console.log(
-                `%c[HighlightDebug][WinPresenter] _cycleCallback line#${line.payLineIndex} idx=${lineIdx}`,
-                'color:#fa0'
-            );
             EventBus.instance.emit(GameEvents.UI_UPDATE_WIN_LABEL, line);
             lineIdx = (lineIdx + 1) % lines.length;
         };
@@ -470,7 +452,7 @@ export class WinPresenter extends Component {
 
     private _onWildTrailStart(): void {
         this._isWildTrailAnimating = true;
-        Log.d(`[WinPresenter] Wild trail bắt đầu — block highlight`);
+        Log.d(`[WinHL] WILD_TRAIL_START — block highlight until fly done`);
     }
 
     private _onCreditFlyInStart(): void {
@@ -556,15 +538,19 @@ export class WinPresenter extends Component {
     private _onWildTrailFlyDone(): void {
         this._isWildTrailAnimating = false;
         this._wildTrailFlyDoneGen = this._generation;
-        Log.d(`[WinPresenter] Wild trail xong — kiểm tra pending highlight`);
+        Log.d(
+            `[WinHL] WILD_TRAIL_FLY_DONE | gen=${this._generation} ` +
+            `pending=${!!this._pendingWinResponse} pendingGen=${this._pendingWinGen}`
+        );
 
         // Nếu có win response đang chờ → emit highlight ngay
+        // (WIN_PRESENT_START đến khi trail còn animating — order FLY_DONE listeners)
         if (this._pendingWinResponse && this._pendingWinGen === this._generation) {
             const response = this._pendingWinResponse;
             const myGen = this._pendingWinGen;
             this._pendingWinResponse = null;
             this._pendingWinGen = -1;
-
+            Log.d(`[WinHL] flush pending highlight after fly done | gen=${myGen}`);
             this._emitHighlights(response, myGen);
         }
     }

@@ -205,8 +205,8 @@ export class GameData {
 
     // ─── FEATURE ENTRY LOGIC ADDED — Reel UI Gauge state ─────────────────────
     /**
-     * Tổng PotCount (= StickyAccumulated) từ server — dùng tính lighting stage gauge.
-     * Reset về 0 sau Pick Game (server gửi PotCount=0).
+     * StickyAccumulated từ server — dùng tính lighting stage gauge (10 ô).
+     * Chỉ track Normal Spin; reset khi vào feature (server gửi 0).
      */
     featureGaugeAccumulated: number = 0;
     /** Lighting stage hiện tại của gauge (0..10). */

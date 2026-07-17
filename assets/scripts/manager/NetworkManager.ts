@@ -310,35 +310,123 @@ export interface INetworkAdapter {
     sendCashRaceMyRankGetFirst(): Promise<CashRaceMyRankGetFirstResponse | null>;
 }
 
-// ─── Gauge API field helpers (PotCount / WildCount) ─────────────────────────
-/** GFSpinResponse.Res + LastSpinResponse — backend Q&A: PotCount, WildCount (PascalCase). */
-const GAUGE_POT_COUNT_KEYS = ['PotCount', 'potCount', 'StickyAccumulated', 'stickyAccumulated'] as const;
-const GAUGE_WILD_COUNT_KEYS = ['WildCount', 'wildCount', 'StickyEarned', 'stickyEarned', 'StickyEarnedCount', 'stickyEarnedCount'] as const;
+// ─── Gauge API field helpers (StickyAccumulated / StickyEarned) ─────────────
+/** Normal-spin only. Sticky* là nguồn chính; PotCount/WildCount chỉ fallback legacy. */
+const GAUGE_ACCUMULATED_KEYS = [
+    'StickyAccumulated', 'stickyAccumulated',
+    'PotCount', 'potCount',
+] as const;
+const GAUGE_EARNED_KEYS = [
+    'StickyEarned', 'stickyEarned', 'StickyEarnedCount', 'stickyEarnedCount',
+    'WildCount', 'wildCount',
+] as const;
 
-function _pickGaugeNumber(src: any, keys: readonly string[]): number | undefined {
+interface GaugePick {
+    value: number;
+    key: string;
+    sourceIndex: number;
+}
+
+function _pickGaugeNumberWithKey(src: any, keys: readonly string[]): { value: number; key: string } | undefined {
     if (!src || typeof src !== 'object') return undefined;
     for (const k of keys) {
         const v = src[k];
-        if (typeof v === 'number' && Number.isFinite(v)) return v;
-        if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) return Number(v);
+        if (typeof v === 'number' && Number.isFinite(v)) return { value: v, key: k };
+        if (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) {
+            return { value: Number(v), key: k };
+        }
     }
     return undefined;
 }
 
-/** Ưu tiên nguồn đầu tiên có giá trị: Res → LastSpinResponse → Ack root. */
-function resolveGaugeApiFields(...sources: any[]): { potCount?: number; wildCount?: number } {
-    let potCount: number | undefined;
-    let wildCount: number | undefined;
-    for (const src of sources) {
-        if (potCount === undefined) potCount = _pickGaugeNumber(src, GAUGE_POT_COUNT_KEYS);
-        if (wildCount === undefined) wildCount = _pickGaugeNumber(src, GAUGE_WILD_COUNT_KEYS);
-        if (potCount !== undefined && wildCount !== undefined) break;
-    }
-    return { potCount, wildCount };
+function _pickGaugeNumber(src: any, keys: readonly string[]): number | undefined {
+    return _pickGaugeNumberWithKey(src, keys)?.value;
 }
 
-function logFeatureGauge(potCount?: number, wildCount?: number): void {
-    Log.e(`[FeatureGauge] PotCount=${potCount ?? 'n/a'} WildCount=${wildCount ?? 'n/a'}`);
+/** Dump mọi key liên quan gauge trong object (để đối chiếu raw server). */
+function _dumpGaugeRelatedKeys(src: any, label: string): string {
+    if (!src || typeof src !== 'object') return `${label}=<null>`;
+    const hits: string[] = [];
+    for (const k of Object.keys(src)) {
+        if (/pot|wild|sticky|gauge|lighting|earned|accumul/i.test(k)) {
+            hits.push(`${k}=${JSON.stringify(src[k])}`);
+        }
+    }
+    return hits.length ? `${label}{${hits.join(', ')}}` : `${label}{<no pot/wild/sticky keys>}`;
+}
+
+/** Ưu tiên nguồn đầu tiên có giá trị: Res → LastSpinResponse → Ack root. */
+function resolveGaugeApiFields(...sources: any[]): {
+    /** StickyAccumulated (cumulative Red Sticky) — drive 10 ô gauge. */
+    stickyAccumulated?: number;
+    /** StickyEarned (Red Sticky landed this spin). */
+    stickyEarned?: number;
+    accumulatedPick?: GaugePick;
+    earnedPick?: GaugePick;
+    /** @deprecated alias — giữ tương thích call site cũ. */
+    potCount?: number;
+    /** @deprecated alias — giữ tương thích call site cũ. */
+    wildCount?: number;
+    potPick?: GaugePick;
+    wildPick?: GaugePick;
+} {
+    let accumulatedPick: GaugePick | undefined;
+    let earnedPick: GaugePick | undefined;
+    for (let i = 0; i < sources.length; i++) {
+        const src = sources[i];
+        if (!accumulatedPick) {
+            const p = _pickGaugeNumberWithKey(src, GAUGE_ACCUMULATED_KEYS);
+            if (p) accumulatedPick = { ...p, sourceIndex: i };
+        }
+        if (!earnedPick) {
+            const w = _pickGaugeNumberWithKey(src, GAUGE_EARNED_KEYS);
+            if (w) earnedPick = { ...w, sourceIndex: i };
+        }
+        if (accumulatedPick && earnedPick) break;
+    }
+    return {
+        stickyAccumulated: accumulatedPick?.value,
+        stickyEarned: earnedPick?.value,
+        accumulatedPick,
+        earnedPick,
+        potCount: accumulatedPick?.value,
+        wildCount: earnedPick?.value,
+        potPick: accumulatedPick,
+        wildPick: earnedPick,
+    };
+}
+
+function logFeatureGauge(
+    stickyAccumulated?: number,
+    stickyEarned?: number,
+    detail?: {
+        accumulatedPick?: GaugePick;
+        earnedPick?: GaugePick;
+        potPick?: GaugePick;
+        wildPick?: GaugePick;
+        sources?: any[];
+        sourceLabels?: string[];
+    },
+): void {
+    const accPick = detail?.accumulatedPick ?? detail?.potPick;
+    const earnPick = detail?.earnedPick ?? detail?.wildPick;
+    const accSrc = accPick
+        ? ` from ${detail?.sourceLabels?.[accPick.sourceIndex] ?? `src[${accPick.sourceIndex}]`}.${accPick.key}`
+        : ' (missing)';
+    const earnSrc = earnPick
+        ? ` from ${detail?.sourceLabels?.[earnPick.sourceIndex] ?? `src[${earnPick.sourceIndex}]`}.${earnPick.key}`
+        : ' (missing)';
+    const stage = stickyAccumulated != null ? gaugeStageFromAccumulated(stickyAccumulated) : 'n/a';
+    Log.e(
+        `[FeatureGauge] StickyAccumulated=${stickyAccumulated ?? 'n/a'}${accSrc}` +
+        ` | StickyEarned=${stickyEarned ?? 'n/a'}${earnSrc}` +
+        ` | stage=${stage}/10`
+    );
+    if (detail?.sources?.length) {
+        const labels = detail.sourceLabels ?? detail.sources.map((_, i) => `src[${i}]`);
+        const dumps = detail.sources.map((s, i) => _dumpGaugeRelatedKeys(s, labels[i] ?? `src[${i}]`));
+        Log.e(`[FeatureGauge] RAW keys: ${dumps.join(' || ')}`);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -359,11 +447,16 @@ class MockNetworkAdapter implements INetworkAdapter {
     private _buyQueueIdx: number = 0;
     /** Backup queue state để restore sau khi buy free spin kết thúc */
 
-    /** Log gauge từ mock SpinResponse (client camelCase potCount/wildCount). */
+    /** Log gauge từ mock SpinResponse (stickyAccumulated / stickyEarned). */
     private _finishMockSpin(resp: SpinResponse): SpinResponse {
         if (GameData.instance.currentMode === 'normal' && (resp.reelIndex ?? 0) === 0) {
             const g = resolveGaugeApiFields(resp);
-            logFeatureGauge(g.potCount, g.wildCount);
+            logFeatureGauge(g.stickyAccumulated, g.stickyEarned, {
+                accumulatedPick: g.accumulatedPick,
+                earnedPick: g.earnedPick,
+                sources: [resp],
+                sourceLabels: ['MockSpin'],
+            });
         }
         return resp;
     }
@@ -955,12 +1048,17 @@ class RealNetworkAdapter implements INetworkAdapter {
         const enterPotVisualLevel = (raw as any).PotVisualLevel ?? ls?.PotVisualLevel;
         const enterStickyAccumulated = ls?.StickyAccumulated ?? (ls as any)?.stickyAccumulated;
         const enterGauge = resolveGaugeApiFields(ls, raw);
-        logFeatureGauge(enterGauge.potCount, enterGauge.wildCount);
+        logFeatureGauge(enterGauge.stickyAccumulated, enterGauge.stickyEarned, {
+            accumulatedPick: enterGauge.accumulatedPick,
+            earnedPick: enterGauge.earnedPick,
+            sources: [ls, raw],
+            sourceLabels: ['LastSpinResponse', 'EnterRoot'],
+        });
 
         if (enterPotVisualLevel != null) {
             data.potLevel = Math.max(0, Math.min(6, enterPotVisualLevel as number));
         }
-        const enterAccumulated = enterGauge.potCount ?? enterStickyAccumulated ?? null;
+        const enterAccumulated = enterGauge.stickyAccumulated ?? enterStickyAccumulated ?? null;
         if (enterAccumulated != null) {
             data.featureGaugeAccumulated = enterAccumulated as number;
             data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
@@ -1056,9 +1154,15 @@ class RealNetworkAdapter implements INetworkAdapter {
 
         // Update jackpot values from Before/After (PascalCase per AckSpin doc)
         // raw.After = { MINI: n, MINOR: n, MAJOR: n, GRAND: n } — keys có thể xáo trộn
+        const prevJackpot = data.jackpotValues?.slice?.() ?? [];
         const jackpotAfter = _normalizeJackpotValues(raw.After);
         if (jackpotAfter) {
+            const changed = jackpotAfter.some((v, i) => v !== prevJackpot[i]);
             data.jackpotValues = jackpotAfter;
+            Log.e(
+                `[Jackpot] Spin After=[${jackpotAfter.join(',')}] prev=[${prevJackpot.join(',')}]` +
+                ` changed=${changed} Before=${raw.Before == null ? 'null' : JSON.stringify(raw.Before)}`
+            );
             EventBus.instance.emit(GameEvents.JACKPOT_VALUES_UPDATED, jackpotAfter);
         } else if (raw.After) {
             const JP_KEY_MAP: Record<string, number> = {
@@ -1073,9 +1177,18 @@ class RealNetworkAdapter implements INetworkAdapter {
                 if (idx !== undefined) vals[idx] = raw.After[k];
             }
             if (vals.some(v => v > 0)) {
+                const changed = vals.some((v, i) => v !== prevJackpot[i]);
                 data.jackpotValues = vals;
+                Log.e(
+                    `[Jackpot] Spin After(fallback)=[${vals.join(',')}] prev=[${prevJackpot.join(',')}]` +
+                    ` changed=${changed} raw.After=${JSON.stringify(raw.After)}`
+                );
                 EventBus.instance.emit(GameEvents.JACKPOT_VALUES_UPDATED, vals);
+            } else {
+                Log.e(`[Jackpot] Spin After parse fail raw.After=${JSON.stringify(raw.After)}`);
             }
+        } else {
+            Log.e('[Jackpot] Spin — server không gửi After');
         }
 
         // Convert server format → internal SpinResponse
@@ -1314,7 +1427,12 @@ class RealNetworkAdapter implements INetworkAdapter {
 
         // Update jackpot values — Wins is number[] array: [mini, minor, major, grand]
         if (raw.Wins && Array.isArray(raw.Wins) && raw.Wins.length > 0) {
+            const prev = data.jackpotValues?.slice?.() ?? [];
+            const changed = raw.Wins.some((v, i) => v !== prev[i]);
             data.jackpotValues = raw.Wins;
+            if (changed) {
+                Log.e(`[Jackpot] Poll Wins changed [${prev.join(',')}] → [${raw.Wins.join(',')}]`);
+            }
             EventBus.instance.emit(GameEvents.JACKPOT_VALUES_UPDATED, raw.Wins);
         }
 
@@ -1332,20 +1450,7 @@ class RealNetworkAdapter implements INetworkAdapter {
         // Emit Cash Race CR update — always emit, even when CR=null.
         // When CR=null (race ended / user never participated), the widget
         // must know so it can hide itself and stop calling CashRaceMyRankGetFirst.
-        if (raw.CR) {
-            Log.e('[CashRace][Jackpot] CR field present → State=', raw.CR.Race?.State, '| TotalPrize=', raw.CR.Race?.TotalPrize, '| MyRank=', raw.CR.MyRank);
-        } else {
-            // CR=null có thể do 3 trường hợp:
-            //   ReqRace=false → client không yêu cầu (không bao giờ xảy ra ở đây vì ReqRace=true)
-            //   ReqRace=true  → server biết có race nhưng:
-            //     a) State=1 WAIT   → race chưa vào notice period (trước Notice time)  ← BÌNH THƯỜNG
-            //     b) State=5 CLOSED → race đã kết thúc
-            //     c) User chưa từng tham gia race nào
-            Log.e('[CashRace][Jackpot] CR=null | ReqRace=', raw.ReqRace,
-                raw.ReqRace
-                    ? '→ race tồn tại nhưng chưa đến notice time (State=WAIT), đã đóng, hoặc user chưa tham gia'
-                    : '→ không có race nào');
-        }
+        // CashRace đi kèm response Jackpot poll (field CR) — không log mỗi lần poll.
         EventBus.instance.emit(GameEvents.CASH_RACE_CR_UPDATED, raw.CR ?? null);
 
         if (raw.SMM) {
@@ -2188,7 +2293,7 @@ class RealNetworkAdapter implements INetworkAdapter {
      * - isForcedFeatureEntry: server flag, hoặc suy luận (nextStage=FEATURE_SELECT
      *   ở Normal Spin, naturalCount < 6, nhưng tổng stickyCells >= 6).
      * - forceFeatureEntry: chia existing (tự nhiên) / fill (đổ thêm) + gán credit.
-     * - gauge: PotCount (= StickyAccumulated) → 10 UI đèn; WildCount (= StickyEarned/spin).
+     * - gauge: StickyAccumulated → 10 UI đèn; StickyEarned → earned/spin (normal only).
      *   PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
      * - force entry: IsForceFeatureEnter; NoramlSpinLinkReel chứa đủ 6 ô + credit.
      */
@@ -2215,26 +2320,32 @@ class RealNetworkAdapter implements INetworkAdapter {
         }
         resp.naturalStickyCount = naturalCount;
 
-        // 2) Gauge: PotCount / WildCount từ GFSpinResponse.Res (AckSpin.Res), fallback Ack root.
-        // API doc: WildCount trong Res. PotCount theo backend Q&A (cùng Res / LastSpinResponse).
+        // 2) Gauge: StickyAccumulated / StickyEarned từ AckSpin.Res (normal spin only).
+        // StickyAccumulated → 10 ô FeatureEntryGauge; StickyEarned → earned spin này.
+        // PotCount/WildCount chỉ fallback legacy (thường = 0).
         const potVisualLevel = anyRes.PotVisualLevel ?? anyRes.potVisualLevel;
         const gauge = resolveGaugeApiFields(res, rawOuter);
-        const potCount = gauge.potCount;
-        const wildCount = gauge.wildCount;
+        const stickyAccumulated = gauge.stickyAccumulated;
+        const stickyEarned = gauge.stickyEarned;
         if (isNormalSpin) {
-            logFeatureGauge(potCount, wildCount);
+            logFeatureGauge(stickyAccumulated, stickyEarned, {
+                accumulatedPick: gauge.accumulatedPick,
+                earnedPick: gauge.earnedPick,
+                sources: [res, rawOuter],
+                sourceLabels: ['AckSpin.Res', 'AckSpin.root'],
+            });
         }
         if (potVisualLevel != null) {
             resp.potVisualLevel = potVisualLevel;
         }
-        if (potCount != null) {
-            resp.potCount = potCount;
-            resp.stickyAccumulated = potCount;
-            resp.lightingStage = gaugeStageFromAccumulated(potCount);
+        if (stickyAccumulated != null) {
+            resp.stickyAccumulated = stickyAccumulated;
+            resp.potCount = stickyAccumulated;
+            resp.lightingStage = gaugeStageFromAccumulated(stickyAccumulated);
         }
-        if (wildCount != null) {
-            resp.wildCount = wildCount;
-            resp.stickyEarnedThisSpin = wildCount;
+        if (stickyEarned != null) {
+            resp.stickyEarnedThisSpin = stickyEarned;
+            resp.wildCount = stickyEarned;
         }
 
         // 3) Chỉ xét Force Feature Entry cho Normal Spin

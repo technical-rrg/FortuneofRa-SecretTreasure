@@ -35,7 +35,7 @@ const _matchWhitelist = (args: any[]): boolean => {
 };
 
 /** TEMP DEBUG: chỉ cho qua log chứa tag này — tắt hết log khác. */
-const DEBUG_ONLY_TAG = 'remain-pos';
+const DEBUG_ONLY_TAG = 'jackpot';
 
 export const Log = {
     d: (...args: any[]) => { if (_orig && _matchWhitelist(args)) { _orig.log(...args); } },
@@ -50,7 +50,7 @@ export const Log = {
         return false;
     },
     // TEMP: chặn enable tag khác — chỉ giữ DEBUG_ONLY_TAG
-    enable: (_tag: string): void => { /* blocked while Remain-pos debug */ },
+    enable: (_tag: string): void => { /* blocked while Jackpot debug */ },
     disable: (tag: string): void => { if (tag) _white.delete(String(tag).toLowerCase()); },
     setWhitelist: (tags: readonly string[] | string[]): void => {
         _white.clear();
@@ -62,5 +62,5 @@ export const Log = {
     clearWhitelist: (): void => { _white.clear(); },
 };
 
-// TEMP DEBUG session: chỉ [REMAIN-POS]
+// TEMP DEBUG session: chỉ Jackpot spin/update
 Log.setWhitelist([DEBUG_ONLY_TAG]);

@@ -95,6 +95,9 @@ export class SlotDebugPanel extends Component {
     /** Force Pick Game — gửi [-1,-1,-1,-1,-1] trong normal spin. */
     @property(Button) btnForcePickGame: Button = null!;
 
+    /** Debug Array toàn -1 (6 phần tử) — gửi [-1,-1,-1,-1,-1,-1]. */
+    @property(Button) btnAllNegOnes6: Button = null!;
+
     /** Big Win — Cleopatra (PS=15) trên cả 5 reels. */
     @property(Button) btnPhoenix5: Button = null!;
 
@@ -183,6 +186,7 @@ export class SlotDebugPanel extends Component {
             this._bind(this.btnRandomSpin,      this._onRandomSpin);
             this._bind(this.btnAllZeros,        this._onAllZeros);
             this._bind(this.btnForcePickGame,   this._onForcePickGame);
+            this._bind(this.btnAllNegOnes6,     this._onAllNegOnes6);
 
             this._bind(this.btnPhoenix5,        this._onPhoenix5);
             this._bind(this.btnCoin5,           this._onCoin5);
@@ -228,6 +232,10 @@ export class SlotDebugPanel extends Component {
 
     private _onForcePickGame(): void {
         this._firePreset(new Array(REEL_COUNT).fill(-1), 'Force Pick Game [-1×5]');
+    }
+
+    private _onAllNegOnes6(): void {
+        this._firePreset([-1, -1, -1, -1, -1, -1], 'All Neg Ones [-1×6]');
     }
 
     private _onPhoenix5(): void {

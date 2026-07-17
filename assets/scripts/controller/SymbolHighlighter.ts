@@ -268,11 +268,6 @@ export class SymbolHighlighter extends Component {
     /** Cycling từng line một → chỉ highlight cells của line đó */
     private _onLineHighlight(linePay: MatchedLinePay): void {
         const cells = this._getWinningCells(linePay);
-        Log.e(`[SymbolHighlighter][CYCLE-DEBUG] _onLineHighlight: line#${linePay.payLineIndex} cells=[${cells.map(c=>`(${c.col},${c.row})`).join(',')}]`);
-        if (DEBUG) console.log(
-            `%c[HighlightDebug] _onLineHighlight line#${linePay.payLineIndex} cells=[${cells.map(c=>`(${c.col},${c.row})`).join(',')}]`,
-            'color:#ff0;font-weight:bold'
-        );
         // Force-clean toàn bộ spine cũ trước khi activate line mới — tránh orphan spine nodes
         // (entries có thể đã bị xóa khỏi active/pending nhưng spineNode vẫn còn trên PaylineManager)
         this._deactivateAllSpines();
@@ -311,7 +306,7 @@ export class SymbolHighlighter extends Component {
     }
 
     private _onShowAllLines(lines: MatchedLinePay[], duration?: number): void {
-        Log.e(`[SymbolHighlighter][CYCLE-DEBUG] _onShowAllLines: lines=${lines?.length ?? 0} duration=${duration ?? 'undefined'}`);
+        Log.d(`[WinHL] SymbolHighlighter SHOW_ALL_LINES | lines=${lines?.length ?? 0} duration=${duration ?? 'default'}`);
         this._currentLineWinCount = lines?.length ?? 0;
         // ── DEBUG: log toàn bộ kết quả spin ──────────────────────────────────────
         // {
@@ -371,7 +366,6 @@ export class SymbolHighlighter extends Component {
      * Được gọi khi WinPresenter emit WIN_SHOW_ALL_WAYS.
      */
     private _onShowAllWays(ways: WaysPayWin[], duration?: number): void {
-        Log.e(`[SymbolHighlighter][CYCLE-DEBUG] _onShowAllWays: ways=${ways?.length ?? 0} duration=${duration ?? 'undefined'}`);
         const allCells: CellPos[] = [];
         for (const way of ways) {
             for (const { reel, row } of way.cells) {
@@ -382,41 +376,11 @@ export class SymbolHighlighter extends Component {
                 }
             }
         }
-
-        // ══ DEBUG LOG ══
-        const _SYM = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
-        const _vGrid = this.reels.map((reel, col) => {
-            const ids = [reel.symbolNodes[1], reel.symbolNodes[2], reel.symbolNodes[3]]
-                .map(n => n?.getComponent(SymbolView)?.symbolId ?? -1);
-            return `R${col}[T=${_SYM(ids[0])} M=${_SYM(ids[1])} B=${_SYM(ids[2])}]`;
-        });
-        if (DEBUG) {
-            const _reelIdx = this.reels.map(r => (r as any).reelIndex ?? '?');
-            console.log(
-                `%c[SymHighlight] _onShowAllWays: ${ways.length} way(s)`,
-                'color:#0ff;font-weight:bold'
-            );
-        }
-        // ══════════════
-
-        // ══ WILD MISMATCH DEBUG LOG ══
-        const SYM_W = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id]??'?'})`;
-        for (const way of ways) {
-            const wayCells = way.cells.map(({ reel, row }) => ({ col: reel, row: 2 - row }));
-            const cellDetails = wayCells.map(({ col, row }) => {
-                const reel = this.reels[col];
-                const node = reel?.symbolNodes[row + 1];
-                const actualSymId = node?.getComponent(SymbolView)?.symbolId ?? -1;
-                const expectedSymId = way.symbolId;
-                const isMatch = actualSymId === expectedSymId || (way.containsWild && actualSymId === SymbolId.WILD);
-                return `    col${col}:row${row} actual=${SYM_W(actualSymId)} expected=${SYM_W(expectedSymId)} ${isMatch ? '✅' : '❌ MISMATCH'}`;
-            }).join('\n');
-            Log.e(
-                `[WILD-DEBUG][ShowAllWays] Way symbol=${SYM_W(way.symbolId)} reelCount=${way.reelCount} ways=${way.ways} containsWild=${way.containsWild}\n` +
-                `  cells:\n${cellDetails}`
-            );
-        }
-        // ══════════════
+        const wildWays = ways.filter(w => w.containsWild || w.symbolId === SymbolId.WILD).length;
+        Log.d(
+            `[WinHL] SymbolHighlighter SHOW_ALL_WAYS | ways=${ways?.length ?? 0} cells=${allCells.length} ` +
+            `wildWays=${wildWays} duration=${duration ?? 'default'}`
+        );
 
         this._applyHighlight(allCells);
         // Zoom cho gold coin được xử lý trong _applyGreenTint (gọi từ _activateSpinesForCells)
@@ -437,9 +401,11 @@ export class SymbolHighlighter extends Component {
      * hay chờ setCompleteListener. Loop / chỉ Wild → emit ngay.
      */
     private _finishShowAllHighlightWatch(loopSpine: boolean): void {
-        Log.e(`[HighlightDebug] showAll spawn done active=${this._activeSpines.length} pending=${this._pendingListeners.length} entries=[${this._activeSpines.map(e=>`sym${e.symId}(${e.symbolNode.name})`).join(',')}]`);
         // Wild / loop không tự complete — emit ngay. Còn lại chờ setCompleteListener / bounce complete.
         const nonWildActive = this._activeSpines.filter(e => e.symId !== SymbolId.WILD);
+        Log.d(
+            `[WinHL] showAll spawn done | active=${this._activeSpines.length} nonWild=${nonWildActive.length} loop=${loopSpine}`
+        );
         if (loopSpine || nonWildActive.length === 0) {
             EventBus.instance.emit(GameEvents.WIN_HIGHLIGHT_ANIM_DONE);
         } else {
@@ -452,30 +418,8 @@ export class SymbolHighlighter extends Component {
      * Được gọi khi WinPresenter emit WIN_CYCLE_ONE_WAY.
      */
     private _onCycleOneWay(way: WaysPayWin): void {
-        Log.e(`[SymbolHighlighter][CYCLE-DEBUG] _onCycleOneWay: symbolId=${way.symbolId} reelCount=${way.reelCount} ways=${way.ways} cells=[${way.cells.map(c=>`(${c.reel},${c.row})`).join(',')}]`);
         // grid row ngược với visual row: displayRow = 2 - gridRow
         const cells: CellPos[] = way.cells.map(({ reel, row }) => ({ col: reel, row: 2 - row }));
-
-        // ══ DEBUG LOG: Calculator data vs Visual display ══
-        // In ra symbol ID mà calculator tính (way.cells) và symbol ID thực tế trên screen
-        const SYM = (id: number) => `${id}(${['9','10','J','Q','K','A','Horus','Anubis','Sobek','Ramses','Cleo','Wild','StkR','StkY','StkG','+1','JP0','JPMini','JPMinor','JPMaj','JPGrand'][id] ?? '?'})`;
-        const visualGrid = this.reels.map((reel, col) => {
-            const nodes = [reel.symbolNodes[1], reel.symbolNodes[2], reel.symbolNodes[3]];
-            const ids   = nodes.map(n => n?.getComponent(SymbolView)?.symbolId ?? -1);
-            return `R${col}[Top=${SYM(ids[0])} Mid=${SYM(ids[1])} Bot=${SYM(ids[2])}]`;
-        });
-        if (DEBUG) console.log(`[SymHighlight] _onCycleOneWay: sym=${way.symbolId} reels=${way.reelCount}`);
-        // ══════════════
-        if (way.containsWild || way.symbolId === SymbolId.WILD) {
-            for (const c of cells) {
-                const reel = this.reels[c.col];
-                const node = reel?.symbolNodes[c.row + 1];
-                const actual = node?.getComponent(SymbolView)?.symbolId ?? -1;
-                if (actual !== SymbolId.WILD && actual !== way.symbolId) {
-                    Log.e(`[WILD-MISMATCH][CycleOneWay] col=${c.col} row=${c.row} actual=${SYM(actual)} expectedWild or ${SYM(way.symbolId)}`);
-                }
-            }
-        }
 
         // Deactivate spine cho symbol không còn trong way mới (cả active + pending)
         // Freemode: giữ STICKY_YELLOW entries (loop spine) — không deactivate khi cycle sang way khác
@@ -1301,7 +1245,6 @@ export class SymbolHighlighter extends Component {
         this._yellowClones.delete(entry.symbolNode);
         this._yellowCloneTweens.delete(entry.symbolNode);
         if (entry.view) entry.view.setSpriteVisible(true);
-        Log.e(`[HighlightDebug] _deactivateEntry sym=${entry.symId} spineNode=${entry.spineNode.name}`);
         this._destroySpineNode(entry.spineNode);
         let idx = this._activeSpines.indexOf(entry);
         if (idx >= 0) this._activeSpines.splice(idx, 1);

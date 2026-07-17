@@ -2,7 +2,7 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "cde420bd-704d-4f45-bde7-cfc4c1495747",
+  "uuid": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e",
   "files": [
     ".json",
     ".png"
@@ -10,14 +10,14 @@
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "cde420bd-704d-4f45-bde7-cfc4c1495747@6c48a",
-      "displayName": "fx-longspin",
+      "uuid": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e@6c48a",
+      "displayName": "Focus",
       "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
         "wrapModeT": "clamp-to-edge",
-        "imageUuidOrDatabaseUri": "cde420bd-704d-4f45-bde7-cfc4c1495747",
+        "imageUuidOrDatabaseUri": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e",
         "isUuid": true,
         "visible": false,
         "minfilter": "linear",
@@ -34,8 +34,8 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "cde420bd-704d-4f45-bde7-cfc4c1495747@f9941",
-      "displayName": "fx-longspin",
+      "uuid": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e@f9941",
+      "displayName": "Focus",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {
@@ -43,12 +43,12 @@
         "rotated": false,
         "offsetX": 0,
         "offsetY": 0,
-        "trimX": 2,
-        "trimY": 2,
-        "width": 1836,
-        "height": 1519,
-        "rawWidth": 1840,
-        "rawHeight": 1523,
+        "trimX": 0,
+        "trimY": 0,
+        "width": 103,
+        "height": 103,
+        "rawWidth": 103,
+        "rawHeight": 103,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -918,
-            -759.5,
+            -51.5,
+            -51.5,
             0,
-            918,
-            -759.5,
+            51.5,
+            -51.5,
             0,
-            -918,
-            759.5,
+            -51.5,
+            51.5,
             0,
-            918,
-            759.5,
+            51.5,
+            51.5,
             0
           ],
           "indexes": [
@@ -82,38 +82,38 @@
             3
           ],
           "uv": [
-            2,
-            1521,
-            1838,
-            1521,
-            2,
-            2,
-            1838,
-            2
+            0,
+            103,
+            103,
+            103,
+            0,
+            0,
+            103,
+            0
           ],
           "nuv": [
-            0.0010869565217391304,
-            0.0013131976362442547,
-            0.9989130434782608,
-            0.0013131976362442547,
-            0.0010869565217391304,
-            0.9986868023637557,
-            0.9989130434782608,
-            0.9986868023637557
+            0,
+            0,
+            1,
+            0,
+            0,
+            1,
+            1,
+            1
           ],
           "minPos": [
-            -918,
-            -759.5,
+            -51.5,
+            -51.5,
             0
           ],
           "maxPos": [
-            918,
-            759.5,
+            51.5,
+            51.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "cde420bd-704d-4f45-bde7-cfc4c1495747@6c48a",
+        "imageUuidOrDatabaseUri": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e@6c48a",
         "atlasUuid": "",
         "trimType": "auto"
       },
@@ -129,10 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "cde420bd-704d-4f45-bde7-cfc4c1495747@6c48a",
-    "compressSettings": {
-      "useCompressTexture": true,
-      "presetId": "e1dQ4fcpBFz7qqhgyYUmjY"
-    }
+    "redirect": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e@6c48a"
   }
 }

@@ -1115,6 +1115,11 @@ export class GameManager extends Component {
             this._pendingWinPresentRespWild = null;
             const hasRedSticky = !this._isFreeSpin()
                 && (resp.stickyCells?.some((c: StickyCell) => c.symbolId === SymbolId.STICKY_RED) ?? false);
+            Log.d(
+                `[WinHL] GM fly-done → emit WIN_PRESENT_START | totalWin=${resp.totalWin} ` +
+                `ways=${resp.waysPayWins?.length ?? 0} lines=${resp.matchedLinePays?.length ?? 0} ` +
+                `wildTrailCount=${resp.wildTrailCount ?? 0} hasRedSticky=${hasRedSticky}`
+            );
             this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
         }
     }
@@ -2424,11 +2429,11 @@ export class GameManager extends Component {
 
     /**
      * ★ FEATURE ENTRY — Reel UI Gauge.
-     * 10 ô lighting tính từ PotCount (= StickyAccumulated) theo ngưỡng
+     * 10 ô lighting từ StickyAccumulated (Red Sticky tích lũy) theo ngưỡng
      * [10,20,40,60,80,100,120,140,160,200].
-     * WildCount (= StickyEarned) = số earned spin này (log/animation).
+     * StickyEarned = số Red Sticky landed spin này (log/animation).
+     * Chỉ track ở Normal Spin; Free/Feature Spin = 0, reset khi vào feature.
      * PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
-     * Reset gauge sau Pick Game — client dùng PotCount=0 từ server, không tự tính.
      */
     private _updateFeatureGauge(resp: SpinResponse | null): void {
         if (!resp) return;
@@ -2436,8 +2441,8 @@ export class GameManager extends Component {
         if (data.currentMode !== 'normal') return;
         if ((resp.reelIndex ?? 0) !== 0) return;
 
-        const earned = resp.wildCount ?? resp.stickyEarnedThisSpin ?? 0;
-        const serverAccumulated = resp.potCount ?? resp.stickyAccumulated ?? null;
+        const earned = resp.stickyEarnedThisSpin ?? resp.wildCount ?? 0;
+        const serverAccumulated = resp.stickyAccumulated ?? resp.potCount ?? null;
         const accumulated = serverAccumulated != null
             ? (serverAccumulated as number)
             : data.featureGaugeAccumulated + earned;
@@ -2454,13 +2459,13 @@ export class GameManager extends Component {
         });
     }
 
-    /** Khôi phục gauge từ LastSpinResponse (PotCount) khi /Enter. */
+    /** Khôi phục gauge từ LastSpinResponse.StickyAccumulated khi /Enter. */
     private _syncEnterGaugeState(lastSpin: any): void {
         const data = GameData.instance;
-        const potCount = lastSpin?.PotCount ?? lastSpin?.potCount
-            ?? lastSpin?.StickyAccumulated ?? lastSpin?.stickyAccumulated ?? null;
-        if (potCount != null) {
-            data.featureGaugeAccumulated = potCount as number;
+        const accumulated = lastSpin?.StickyAccumulated ?? lastSpin?.stickyAccumulated
+            ?? lastSpin?.PotCount ?? lastSpin?.potCount ?? null;
+        if (accumulated != null) {
+            data.featureGaugeAccumulated = accumulated as number;
             data.featureGaugeStage = gaugeStageFromAccumulated(data.featureGaugeAccumulated);
         }
     }

@@ -57,7 +57,7 @@ export const ServerConfig = {
      * ★ Khi chạy localization-tool-update để tạo .ts mới từ Excel,
      *   set USE_CDN_LOCALE = false để game dùng đúng file đó thay vì bị CDN override.
      */
-    USE_CDN_LOCALE: true,
+    USE_CDN_LOCALE: false,
 
     /** Bật/tắt log của Jackpot polling (mỗi 2s sẽ rất nhiều log) */
     LOG_JACKPOT_POLLING: false,

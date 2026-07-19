@@ -14,9 +14,10 @@
  *   1. Gắn SymbolHighlighter vào 1 Node nào đó (ví dụ cùng node với SlotMachineController).
  *   2. Kéo ReelController vào mảng "reels".
  *   3. Tạo fillBlack nodes (Sprite màu đen) → kéo vào "fillBlackNodes".
- *   4. Spine effect: TẠO Prefab riêng trong MainBundle (VD: SymbolSpine/0 … SymbolSpine/12).
- *      Điền path vào "spineEffectPrefabPaths" (index = SymbolId).
- *      KHÔNG kéo Prefab/Node vào Base — lazy bundle.load khi highlight lần đầu.
+ *   4. Spine effect: Prefab trong MainBundle/SymbolSpine/{id}.
+ *      Có prefab → clone/borrow từ pool, play spine highlight.
+ *      Không có prefab → fallback clone sprite + zoom nhún (code).
+ *      Lazy bundle.load lần đầu; node trả về pool sau khi xong.
  *
  * ── NODE LAYOUT ReelController ──
  *   symbolNodes[0] = ExtraTop1  (buffer/clip)
@@ -53,16 +54,16 @@ const { ccclass, property } = _decorator;
 /** DEBUG flag - tắt trong production để tối ưu performance */
 const DEBUG = false;
 
-/** Tạm tắt spine win highlight — dùng sprite bounce cho tới khi có asset spine symbol mới */
-const USE_SPINE_WIN_HIGHLIGHT = false;
-
 /** Bundle chứa prefab spine symbol (đã load sẵn bởi LoadingController). */
 const SPINE_BUNDLE = 'MainBundle';
 
+/** Prefix tên node spine highlight — phân biệt với WaysPayDisplay / WildTrail trên cùng parent. */
+const HL_SPINE_NAME_PREFIX = '__HLSpine_';
+
 /**
- * Path mặc định trong MainBundle theo SymbolId.
+ * Path mặc định trong MainBundle theo SymbolId (= file trong SymbolSpine/).
  * Prefab name = path (không extension). Override bằng spineEffectPrefabPaths trong Inspector.
- * Chỉ các id có asset mới được map — id khác = không có spine.
+ * Id không có trong map / load fail → bounce bằng code.
  */
 const DEFAULT_SPINE_PREFAB_PATHS: Readonly<Record<number, string>> = {
     [SymbolId.MINOR_9]:         'SymbolSpine/0',
@@ -74,6 +75,7 @@ const DEFAULT_SPINE_PREFAB_PATHS: Readonly<Record<number, string>> = {
     [SymbolId.MAJOR_HORUS]:     'SymbolSpine/6',
     [SymbolId.MAJOR_ANUBIS]:    'SymbolSpine/7',
     [SymbolId.MAJOR_CLEOPATRA]: 'SymbolSpine/10',
+    [SymbolId.WILD]:            'SymbolSpine/11',
     [SymbolId.STICKY_RED]:      'SymbolSpine/12',
 };
 
@@ -215,8 +217,12 @@ export class SymbolHighlighter extends Component {
 
     /** Prefab đã lazy-load theo SymbolId — không serialize trên Base. */
     private _spinePrefabCache: Map<number, Prefab> = new Map();
+    /** SymbolId đã thử load nhưng không có prefab — fallback bounce, không retry mỗi cycle. */
+    private _spinePrefabMissing: Set<number> = new Set();
     /** In-flight load promises theo path — tránh double bundle.load. */
     private _spinePrefabLoading: Map<string, Promise<Prefab | null>> = new Map();
+    /** Pool spine node theo SymbolId — reuse sau mỗi lần highlight. */
+    private _spineNodePool: Map<number, Node[]> = new Map();
 
     // ── LIFECYCLE ────────────────────────────────────────────────────────────
 
@@ -428,7 +434,7 @@ export class SymbolHighlighter extends Component {
 
         // Deactivate spine/bounce cho symbol không còn trong way mới (cả active + pending)
         // Freemode: giữ STICKY_YELLOW entries (loop spine) — không deactivate khi cycle sang way khác
-        const isFreeMode = GameData.instance.currentMode === 'freespin' || GameData.instance.currentMode === 'freespin_gold';
+        const isFreeMode = this._isFreeSpinMode();
         const nodeSet = new Set(cells.map(c => this.reels[c.col]?.symbolNodes[c.row + 1]).filter((n): n is Node => !!n));
         for (const entry of [...this._activeSpines, ...this._pendingListeners]) {
             if (!nodeSet.has(entry.symbolNode)) {
@@ -440,15 +446,14 @@ export class SymbolHighlighter extends Component {
         // Dọn bounce clone còn sót (không còn entry track) cho cell ngoài way hiện tại
         this._clearUntrackedBounceClones(nodeSet);
         // Cleanup orphan spine nodes trên PaylineManager (không còn entry nào track).
-        // ★ KHÔNG đụng highlight của WaysPayDisplay — chúng cũng là sp.Skeleton children
-        //   của cùng PaylineManager. Chỉ dọn orphan khi dùng spine win highlight của highlighter.
-        if (USE_SPINE_WIN_HIGHLIGHT && this.paylineManagerNode) {
+        // ★ Chỉ dọn node `__HLSpine_*` của highlighter — KHÔNG đụng WaysPayDisplay / WildTrail.
+        if (this.paylineManagerNode) {
             const trackedSpines = new Set([...this._activeSpines, ...this._pendingListeners].map(e => e.spineNode));
             const orphans = this.paylineManagerNode.children.filter(
-                child => child.getComponent(sp.Skeleton) && !trackedSpines.has(child),
+                child => child.name.startsWith(HL_SPINE_NAME_PREFIX) && !trackedSpines.has(child),
             );
             for (const child of orphans) {
-                this._destroySpineNode(child);
+                this._returnSpineToPool(child, this._parseHlSpineSymId(child.name));
             }
         }
 
@@ -545,7 +550,7 @@ export class SymbolHighlighter extends Component {
             this._yellowClones.delete(entry.symbolNode);
             this._yellowCloneTweens.delete(entry.symbolNode);
             if (entry.view) entry.view.setSpriteVisible(true);
-            this._destroySpineNode(entry.spineNode);
+            this._returnSpineToPool(entry.spineNode, entry.symId);
         }
         // Belt-and-suspenders: dọn mọi bounce/yellow clone còn sót sau khi clear entries
         this._forceClearAllHighlightClones();
@@ -600,30 +605,45 @@ export class SymbolHighlighter extends Component {
         }
     }
 
-    /** Quét node `__HLClone_*` orphan trên PaylineManager (không còn trong map). */
+    /** Quét node `__HLClone_*` / `__HLSpine_*` orphan trên PaylineManager (không còn trong map). */
     private _sweepOrphanHighlightClones(): void {
         if (!this.paylineManagerNode?.isValid) return;
         const tracked = new Set<Node>([
             ...this._spriteBounceClones.values(),
             ...this._yellowClones.values(),
+            ...this._activeSpines.map(e => e.spineNode),
+            ...this._pendingListeners.map(e => e.spineNode),
         ]);
         const orphans = this.paylineManagerNode.children.filter(
-            (child) => child.name.startsWith('__HLClone_') && !tracked.has(child),
+            (child) =>
+                (child.name.startsWith('__HLClone_') || child.name.startsWith(HL_SPINE_NAME_PREFIX))
+                && !tracked.has(child),
         );
         for (const child of orphans) {
             if (!isValid(child)) continue;
+            if (child.name.startsWith(HL_SPINE_NAME_PREFIX)) {
+                this._returnSpineToPool(child, this._parseHlSpineSymId(child.name));
+                continue;
+            }
             Tween.stopAllByTarget(child);
             this._bounceOrigPos.delete(child);
             child.destroy();
         }
     }
 
+    private _isFreeSpinMode(): boolean {
+        const mode = GameData.instance.currentMode;
+        return mode === 'freespin' || mode === 'freespin_gold';
+    }
+
     /** Path prefab trong MainBundle cho SymbolId (Inspector override → default map → null). */
     private _getSpinePrefabPath(symId: number): string | null {
+        if (symId < 0) return null;
         const override = this.spineEffectPrefabPaths[symId];
         if (typeof override === 'string' && override.trim().length > 0) {
             return override.trim();
         }
+        // STICKY_YELLOW không có SymbolSpine → fallback clone + zoom nhún (không map sang Wild)
         return DEFAULT_SPINE_PREFAB_PATHS[symId] ?? null;
     }
 
@@ -631,14 +651,19 @@ export class SymbolHighlighter extends Component {
     private _ensureSpinePrefab(symId: number): Promise<Prefab | null> {
         const cached = this._spinePrefabCache.get(symId);
         if (cached) return Promise.resolve(cached);
+        if (this._spinePrefabMissing.has(symId)) return Promise.resolve(null);
 
         const path = this._getSpinePrefabPath(symId);
-        if (!path) return Promise.resolve(null);
+        if (!path) {
+            this._spinePrefabMissing.add(symId);
+            return Promise.resolve(null);
+        }
 
         const inflight = this._spinePrefabLoading.get(path);
         if (inflight) {
             return inflight.then((prefab) => {
                 if (prefab) this._spinePrefabCache.set(symId, prefab);
+                else this._spinePrefabMissing.add(symId);
                 return prefab;
             });
         }
@@ -647,6 +672,7 @@ export class SymbolHighlighter extends Component {
             const bundle = assetManager.getBundle(SPINE_BUNDLE);
             if (!bundle) {
                 Log.w(`[SymbolHighlighter] Bundle '${SPINE_BUNDLE}' missing — cannot lazy-load ${path}`);
+                this._spinePrefabMissing.add(symId);
                 resolve(null);
                 return;
             }
@@ -654,10 +680,12 @@ export class SymbolHighlighter extends Component {
                 this._spinePrefabLoading.delete(path);
                 if (err || !prefab) {
                     Log.w(`[SymbolHighlighter] Lazy load failed: ${path}`, err);
+                    this._spinePrefabMissing.add(symId);
                     resolve(null);
                     return;
                 }
                 this._spinePrefabCache.set(symId, prefab);
+                this._spinePrefabMissing.delete(symId);
                 Log.d(`[SymbolHighlighter] Lazy-loaded spine prefab: ${path}`);
                 resolve(prefab);
             });
@@ -668,9 +696,40 @@ export class SymbolHighlighter extends Component {
 
     /** Đảm bảo tất cả prefab cho danh sách SymbolId đã có trong cache. */
     private async _ensureSpinePrefabs(symIds: number[]): Promise<void> {
-        const unique = [...new Set(symIds.filter((id) => id >= 0 && this._getSpinePrefabPath(id)))];
+        const unique = [...new Set(symIds.filter((id) => id >= 0 && this._getSpinePrefabPath(id) && !this._spinePrefabMissing.has(id)))];
         if (unique.length === 0) return;
         await Promise.all(unique.map((id) => this._ensureSpinePrefab(id)));
+    }
+
+    /** true nếu SymbolId có (hoặc có thể có) prefab SymbolSpine — chưa biết missing. */
+    private _canTrySpine(symId: number): boolean {
+        return symId >= 0 && !!this._getSpinePrefabPath(symId) && !this._spinePrefabMissing.has(symId);
+    }
+
+    /** Parse SymbolId từ tên `__HLSpine_{symId}`. */
+    private _parseHlSpineSymId(name: string): number {
+        if (!name.startsWith(HL_SPINE_NAME_PREFIX)) return -1;
+        const id = Number(name.slice(HL_SPINE_NAME_PREFIX.length));
+        return Number.isFinite(id) ? id : -1;
+    }
+
+    /** Borrow từ pool; hết pool thì instantiate từ prefab đã cache. */
+    private _borrowSpineNode(symId: number): Node | null {
+        const pool = this._spineNodePool.get(symId);
+        if (pool) {
+            while (pool.length > 0) {
+                const n = pool.pop()!;
+                if (n?.isValid) {
+                    n.name = `${HL_SPINE_NAME_PREFIX}${symId}`;
+                    n.active = false;
+                    n.setScale(1, 1, 1);
+                    n.setPosition(0, 0, 0);
+                    n.setRotationFromEuler(0, 0, 0);
+                    return n;
+                }
+            }
+        }
+        return this._spawnSpineFromPrefab(symId);
     }
 
     /** Instantiate spine effect từ prefab đã cache theo SymbolId. */
@@ -678,17 +737,41 @@ export class SymbolHighlighter extends Component {
         const prefab = this._spinePrefabCache.get(symId);
         if (!prefab) return null;
         const spineNode = instantiate(prefab);
+        spineNode.name = `${HL_SPINE_NAME_PREFIX}${symId}`;
         spineNode.active = false;
         return spineNode;
     }
 
-    /** Destroy spine node đã instantiate từ prefab. */
-    private _destroySpineNode(spineNode: Node | null | undefined): void {
+    /** Trả spine về pool để dùng lại (không destroy). */
+    private _returnSpineToPool(spineNode: Node | null | undefined, symId: number): void {
         if (!spineNode || !spineNode.isValid) return;
         const skel = spineNode.getComponent(sp.Skeleton);
-        if (skel) skel.setCompleteListener(null);
+        if (skel) {
+            skel.setCompleteListener(null);
+            skel.clearTracks();
+        }
+        Tween.stopAllByTarget(spineNode);
         spineNode.active = false;
-        spineNode.destroy();
+        if (spineNode.parent) spineNode.removeFromParent();
+        spineNode.setParent(this.node);
+        spineNode.setPosition(0, 0, 0);
+        spineNode.setScale(1, 1, 1);
+        spineNode.setRotationFromEuler(0, 0, 0);
+
+        const id = symId >= 0 ? symId : this._parseHlSpineSymId(spineNode.name);
+        if (id < 0) {
+            spineNode.destroy();
+            return;
+        }
+        spineNode.name = `${HL_SPINE_NAME_PREFIX}${id}`;
+        let pool = this._spineNodePool.get(id);
+        if (!pool) {
+            pool = [];
+            this._spineNodePool.set(id, pool);
+        }
+        if (!pool.includes(spineNode)) {
+            pool.push(spineNode);
+        }
     }
 
     /**
@@ -715,29 +798,25 @@ export class SymbolHighlighter extends Component {
 
     /**
      * Với mỗi winning cell:
-     *   - Nếu USE_SPINE_WIN_HIGHLIGHT=false → giữ sprite, nhún nhẹ (bounce) thay spine.
+     *   - Có prefab trong SymbolSpine → borrow từ pool (hoặc instantiate) rồi play spine.
+     *   - Không có prefab → giữ sprite, nhún nhẹ (bounce) như trước.
      *   - Nếu node đã có spine active (từ lần highlight trước) → replay animation.
-     *   - Nếu chưa có → lazy-load prefab (lần đầu) rồi instantiate.
      *   - Animation xong: move sang _pendingListeners, spine GIỮ frame cuối trên node.
-     *   - symbol-changed: điều kiện DUY NHẤT để destroy spine + restore sprite.
+     *   - symbol-changed: điều kiện DUY NHẤT để trả spine về pool + restore sprite.
      *
      * @returns Promise resolve khi spawn sync đã chạy xong (sau lazy-load nếu cần).
      */
     private _activateSpinesForCells(cells: CellPos[], highlightDuration: number, loopSpine: boolean = false): Promise<void> {
-        if (!USE_SPINE_WIN_HIGHLIGHT) {
-            this._activateSpinesForCellsSync(cells, highlightDuration, loopSpine);
-            return Promise.resolve();
-        }
-
         // Collect SymbolIds cần load trước khi spawn (tránh hitch giữa các cell)
         const neededIds: number[] = [];
         for (const { col, row } of cells) {
             const reel = this.reels[col];
             const symbolNode = reel?.symbolNodes[row + 1];
             if (!symbolNode) continue;
-            if (this._findEntryOnNode(symbolNode)) continue; // replay — đã có instance
+            const existing = this._findEntryOnNode(symbolNode);
+            if (existing && !existing.spriteBounce) continue; // replay spine — đã có instance
             const symId = symbolNode.getComponent(SymbolView)?.symbolId ?? -1;
-            if (symId >= 0 && this._getSpinePrefabPath(symId) && !this._spinePrefabCache.has(symId)) {
+            if (this._canTrySpine(symId) && !this._spinePrefabCache.has(symId)) {
                 neededIds.push(symId);
             }
         }
@@ -755,7 +834,7 @@ export class SymbolHighlighter extends Component {
         });
     }
 
-    /** Phần sync sau khi prefab đã sẵn sàng (hoặc sprite-bounce mode). */
+    /** Phần sync sau khi prefab đã sẵn sàng (hoặc sprite-bounce fallback). */
     private _activateSpinesForCellsSync(cells: CellPos[], highlightDuration: number, loopSpine: boolean = false): void {
         // KHÔNG gọi _deactivateAllSpines — spine từ cycle trước vẫn tiếp tục giữ frame cuối
         if (DEBUG) console.log(`[HighlightDebug] _activateSpinesForCells cells=[${cells.map(c=>`(${c.col},${c.row})`).join(',')}]`);
@@ -780,18 +859,21 @@ export class SymbolHighlighter extends Component {
                 continue;
             }
 
-            if (!USE_SPINE_WIN_HIGHLIGHT) {
+            // Không có SymbolSpine prefab → bounce bằng code (giữ hành vi cũ)
+            if (!this._canTrySpine(symId) || !this._spinePrefabCache.has(symId)) {
                 this._activateSpriteBounceForCell(symbolNode, view, symId, highlightDuration, loopSpine, existing);
                 continue;
             }
 
-            if (existing) {
+            // Đang bounce mà giờ đã có spine → chuyển sang spine
+            if (existing?.spriteBounce) {
+                this._deactivateEntry(existing);
+            } else if (existing) {
                 if (DEBUG) console.log(`[HighlightDebug] cell(${col},${row}) EXISTING → REPLAY`);
                 const ts = this._getTimeScaleForSym(existing.symId, highlightDuration);
                 this._replayEntry(existing, ts);
                 // Freemode + STICKY_YELLOW: clone symbolNode cho paylineManagerNode
-                const isFreeYellowExisting = existing.symId === SymbolId.STICKY_YELLOW
-                    && (GameData.instance.currentMode === 'freespin' || GameData.instance.currentMode === 'freespin_gold');
+                const isFreeYellowExisting = existing.symId === SymbolId.STICKY_YELLOW && this._isFreeSpinMode();
                 if (isFreeYellowExisting && this.paylineManagerNode) {
                     let clone = this._yellowClones.get(symbolNode);
                     if (!clone || !isValid(clone)) {
@@ -824,7 +906,7 @@ export class SymbolHighlighter extends Component {
             // không xóa. SymbolHighlighter sẽ spawn spine highlight của riêng mình lên trên.
             // Chỉ destroy nếu spine đó không còn active (đã freeze ở frame cuối).
             const wildTrailSpine = this._findSpineNodeOnNode(symbolNode);
-            if (wildTrailSpine && !wildTrailSpine.active) {
+            if (wildTrailSpine && !wildTrailSpine.active && !wildTrailSpine.name.startsWith(HL_SPINE_NAME_PREFIX)) {
                 wildTrailSpine.destroy();
                 if (view) view.setSpriteVisible(true);
             }
@@ -834,7 +916,7 @@ export class SymbolHighlighter extends Component {
                 continue;
             }
 
-            const spineNode = this._spawnSpineFromPrefab(symId);
+            const spineNode = this._borrowSpineNode(symId);
             if (!spineNode) {
                 if (DEBUG) console.log(`[HighlightDebug] cell(${col},${row}) SKIP no prefab for symId=${symId}`);
                 // Prefab chưa có / load fail → fallback bounce để vẫn có feedback
@@ -845,8 +927,9 @@ export class SymbolHighlighter extends Component {
             // Freemode + STICKY_YELLOW: giữ sprite visible, reparent symbolNode lên paylineManagerNode
             // để nằm trên spine effect highlight (sibling index cao hơn).
             // Các symbol khác: ẩn sprite — spine thay thế hoàn toàn.
-            const isFreeYellow = symId === SymbolId.STICKY_YELLOW
-                && (GameData.instance.currentMode === 'freespin' || GameData.instance.currentMode === 'freespin_gold');
+            const isFreeYellow = symId === SymbolId.STICKY_YELLOW && this._isFreeSpinMode();
+            // Freemode + STICKY_YELLOW (khi có spine): giữ sprite visible, clone nằm trên effect.
+            // Không có spine → đã fallback bounce ở trên (clone + zoom nhún).
             if (!isFreeYellow) {
                 if (view) view.setSpriteVisible(false);
             }
@@ -1012,7 +1095,7 @@ export class SymbolHighlighter extends Component {
         }
     }
 
-    /** Sprite bounce thay spine khi USE_SPINE_WIN_HIGHLIGHT=false. */
+    /** Sprite bounce fallback khi không có prefab SymbolSpine cho SymbolId. */
     private _activateSpriteBounceForCell(
         symbolNode: Node,
         view: SymbolView | null,
@@ -1079,7 +1162,10 @@ export class SymbolHighlighter extends Component {
         const origPos = this._bounceOrigPos.get(bounceNode)!;
         bounceNode.setPosition(origPos);
 
-        const dur = Math.max(0.18, Math.min(0.32, highlightDuration * 0.12));
+        // STICKY_RED: duration cố định — không phụ thuộc highlightDuration (tránh lúc nhanh lúc chậm giữa các spin)
+        const dur = entry.symId === SymbolId.STICKY_RED
+            ? 0.2
+            : Math.max(0.18, Math.min(0.32, highlightDuration * 0.12));
         const liftY = 10;
         const bounceOnce = tween(bounceNode)
             .to(dur, {
@@ -1154,9 +1240,9 @@ export class SymbolHighlighter extends Component {
             ?? null;
     }
 
-    /** Trả về tên animation spine cho symbol — WILD dùng "win" khi highlight, các symbol khác dùng spineAnimName. */
+    /** Trả về tên animation spine cho symbol — WILD highlight dùng "win1", các symbol khác dùng spineAnimName. */
     private _getSpineAnimName(symId: number): string {
-        return symId === SymbolId.WILD ? 'Win' : this.spineAnimName;
+        return symId === SymbolId.WILD ? 'win1' : this.spineAnimName;
     }
 
     /**
@@ -1254,7 +1340,7 @@ export class SymbolHighlighter extends Component {
             return;
         }
 
-        this._destroySpineNode(entry.spineNode);
+        this._returnSpineToPool(entry.spineNode, entry.symId);
 
         // Xóa khỏi cả 2 danh sách
         let idx = this._activeSpines.indexOf(entry);
@@ -1334,7 +1420,7 @@ export class SymbolHighlighter extends Component {
         this._yellowClones.delete(entry.symbolNode);
         this._yellowCloneTweens.delete(entry.symbolNode);
         if (entry.view) entry.view.setSpriteVisible(true);
-        this._destroySpineNode(entry.spineNode);
+        this._returnSpineToPool(entry.spineNode, entry.symId);
         let idx = this._activeSpines.indexOf(entry);
         if (idx >= 0) this._activeSpines.splice(idx, 1);
         idx = this._pendingListeners.indexOf(entry);
@@ -1487,14 +1573,24 @@ export class SymbolHighlighter extends Component {
             }
         }
 
-        // Khớp SymbolView._playLandBounce: đẩy nhanh → hold ngắn → rơi chậm + nhảy Y
+        // Khớp SymbolView._playLandBounce: grow 0.08 + hold 0.12 + shrink 0.32
         const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
-        const growDur = 0.12 * m;
-        const holdDur = 0.05 * m;
+        const growDur = 0.08 * m;
+        const holdDur = 0.12 * m;
         const shrinkDur = 0.32 * m;
         const bounceScale = 1.12;
-        const jumpY = 14;
+        const jumpY = 16;
         const topNode = SymbolView.landBounceParent;
+
+        // Dọn clone/tween feature-bounce cũ còn sót trên WaysPayDisplay
+        if (topNode?.isValid) {
+            for (const child of [...topNode.children]) {
+                if (!child?.isValid || !child.name.startsWith('__FSRedBounce_')) continue;
+                Tween.stopAllByTarget(child);
+                if (child.parent) child.removeFromParent();
+                child.destroy();
+            }
+        }
 
         for (const reel of this.reels) {
             // symbolNodes[1]=Top, [2]=Mid, [3]=Bot (visible rows)
@@ -1524,6 +1620,7 @@ export class SymbolHighlighter extends Component {
                     view.setSpriteVisible(false);
                 }
 
+                Tween.stopAllByTarget(bounceTarget);
                 bounceTarget.setScale(base, base, 1);
                 const basePos = bounceTarget.position.clone();
                 const peakPos = new Vec3(basePos.x, basePos.y + jumpY, basePos.z);
@@ -1566,7 +1663,9 @@ export class SymbolHighlighter extends Component {
     private _onLongSpinHintShow(positions: { reelIndex: number; rowIndex: number }[]): void {
         const cells: CellPos[] = positions.map(p => ({ col: p.reelIndex, row: this._toDisplayRow(p.rowIndex) }));
         if (cells.length === 0) return;
+        // Log.e(`[SPIN-HANG][WinHL] LONG_SPIN_HINT_SHOW cells=${cells.map(c => `r${c.col}row${c.row}`).join(',')}`);
         // duration=10 → timeScale=1.0 (tốc độ animation bình thường)
+        // Hint chỉ được emit SAU onStopComplete — an toàn tween/spine trên symbol node
         this._activateSpinesForCells(cells, 10.0);
     }
 

@@ -149,16 +149,20 @@ export class GameManager extends Component {
     };
     /** Fallback đảm bảo spin cycle LUÔN kết thúc dù WinPresenter/JackpotPresenter chưa có trong scene */
     private _spinCycleFallback = () => {
-        if (!this._isSpinning) return; // Guard: tránh fire stale timer từ spin trước
+        if (!this._isSpinning) {
+            this._logSpinState('spinCycleFallback SKIP — not spinning');
+            return; // Guard: tránh fire stale timer từ spin trước
+        }
         // Nếu jackpot/popup đang mở: KHÔNG can thiệp — chờ popup tự đóng và _onJackpotEnd sẽ handle.
         // Reschedule để vẫn có fallback phòng khi popup bị treo.
         if (this._gameState === GameState.POPUP) {
-            // Log removed for performance
+            this._logSpinState('spinCycleFallback RESCHEDULE — gameState=POPUP');
             this.scheduleOnce(this._spinCycleFallback, 3.0);
             return;
         }
         // CreditFlyEffect chỉ phụ thuộc vào REELS_STOPPED (reel cuối dừng hẳn),
         // không phụ thuộc vào longSpin VFX.
+        this._logSpinState('spinCycleFallback FIRE → _afterWinProcessed');
         this._afterWinProcessed();
     };
     /** Safety timeout: nếu REELS_STOPPED không đến → chỉ recover khi reel thật sự đã idle. */
@@ -171,7 +175,8 @@ export class GameManager extends Component {
         const slotMachines = scene?.getComponentsInChildren(SlotMachineController) ?? [];
         if (slotMachines.some((smc) => smc.tryRecoverReelsStopped())) return;
 
-        Log.e('[GameManager] REELS_STOPPED watchdog expired — reels still moving, keep waiting');
+        this._logSpinState('REELS_STOPPED watchdog — reels still moving, reschedule 1s');
+        this.unschedule(this._reelsStoppedTimeout);
         this.scheduleOnce(this._reelsStoppedTimeout, 1.0);
     };
     /** Cờ chờ FLY_DONE trước khi auto-spin; fallback timer sẽ hủy nếu FLY_DONE đến trước */
@@ -759,13 +764,18 @@ export class GameManager extends Component {
     }
 
     private _logSpinState(reason: string): void {
-        const auto = AutoSpinManager.instance;
-        Log.e(
-            `[SPIN-STATE][GM] ${reason} | isSpinning=${this._isSpinning} gameState=${this._gameState}` +
-            ` stage=${this._currentStage} mode=${GameData.instance.currentMode} reelsStoppedProcessed=${this._reelsStoppedProcessed}` +
-            ` pendingRetry=${this._pendingSpinRequestAfterSettled} autoActive=${auto.isAutoSpinActive} autoCount=${auto.autoSpinCount}` +
-            ` speed=${auto.speedMode} | ${this._getSlotReelDebugState()}`
-        );
+        // TEMP SPIN-HANG debug — bỏ comment khối dưới khi cần trace treo spin
+        // const auto = AutoSpinManager.instance;
+        // Log.e(
+        //     `[SPIN-HANG][GM] ${reason} | isSpinning=${this._isSpinning} gameState=${this._gameState}` +
+        //     ` stage=${this._currentStage} mode=${GameData.instance.currentMode} reelsStoppedProcessed=${this._reelsStoppedProcessed}` +
+        //     ` potTransit=${this._isPotTransitioning} pendingAfterWin=${this._pendingAfterWinProcessed}` +
+        //     ` pendingWild=${!!this._pendingWinPresentRespWild} pendingGold=${!!this._pendingWinPresentResp}` +
+        //     ` pendingFeature=${!!this._pendingWinPresentRespFeature} wildFlyDone=${this._wildTrailFlyDoneReceivedThisSpin}` +
+        //     ` pendingRetry=${this._pendingSpinRequestAfterSettled} autoActive=${auto.isAutoSpinActive} autoCount=${auto.autoSpinCount}` +
+        //     ` speed=${auto.speedMode} | ${this._getSlotReelDebugState()}`
+        // );
+        void reason;
     }
 
     private _clearFeatureSelectTransientState(): void {
@@ -901,7 +911,7 @@ export class GameManager extends Component {
             return;
         }
         if (!this._areSlotReelsSettled()) {
-            Log.e('[SPIN-STATE][GM] SPIN_REQUEST ignored — slot reels are still settling');
+            // Log.e('[SPIN-HANG][GM] SPIN_REQUEST ignored — slot reels are still settling');
             this._logSpinState('SPIN_REQUEST ignored because slot reels are still settling');
             EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, false);
             if (this._shouldRetrySpinRequestAfterSettled()) {
@@ -911,6 +921,7 @@ export class GameManager extends Component {
         }
         // Block spin khi đang xử lý result hoặc popup
         if (this._gameState === GameState.RESULT || this._gameState === GameState.POPUP) {
+            this._logSpinState(`SPIN_REQUEST ignored because gameState=${this._gameState}`);
             return;
         }
 
@@ -1116,12 +1127,14 @@ export class GameManager extends Component {
             this._pendingWinPresentRespWild = null;
             const hasRedSticky = !this._isFreeSpin()
                 && (resp.stickyCells?.some((c: StickyCell) => c.symbolId === SymbolId.STICKY_RED) ?? false);
-            Log.d(
-                `[WinHL] GM fly-done → emit WIN_PRESENT_START | totalWin=${resp.totalWin} ` +
-                `ways=${resp.waysPayWins?.length ?? 0} lines=${resp.matchedLinePays?.length ?? 0} ` +
-                `wildTrailCount=${resp.wildTrailCount ?? 0} hasRedSticky=${hasRedSticky}`
+            this._logSpinState(
+                `WILD_TRAIL_FLY_DONE → emit WIN_PRESENT_START | totalWin=${resp.totalWin}` +
+                ` ways=${resp.waysPayWins?.length ?? 0} lines=${resp.matchedLinePays?.length ?? 0}` +
+                ` hasRedSticky=${hasRedSticky}`
             );
             this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
+        } else {
+            this._logSpinState('WILD_TRAIL_FLY_DONE — no pending WIN_PRESENT');
         }
     }
 
@@ -1132,11 +1145,12 @@ export class GameManager extends Component {
      * Nếu _afterWinProcessed đã bị defer vì pot transition chưa xong → flush ngay.
      */
     private _onPotTransitionEnd(): void {
-        Log.e(`[GameManager] POT_TRANSITION_END — _isPotTransitioning=${this._isPotTransitioning}, _pendingAfterWinProcessed=${this._pendingAfterWinProcessed}`);
+        this._logSpinState('POT_TRANSITION_END');
         this.unschedule(this._potTransitionEndFallback);
         this._isPotTransitioning = false;
         if (this._pendingAfterWinProcessed) {
             this._pendingAfterWinProcessed = false;
+            this._logSpinState('POT_TRANSITION_END → flush pending _afterWinProcessed');
             this._afterWinProcessed();
         }
     }
@@ -1180,7 +1194,7 @@ export class GameManager extends Component {
         if (idx < 1 || idx > 3) return;
         const slotMachines = this.node.scene?.getComponentsInChildren(SlotMachineController) ?? [];
         if (slotMachines.some((smc) => !smc.canRunPerReelEffects(idx))) {
-            Log.e(`[SPIN-STATE][GM] WILD_TRAIL_ONE held/ignored because longspin previous reels are not settled | reel=${idx} | ${this._getSlotReelDebugState()}`);
+            // Log.e(`[SPIN-HANG][GM] WILD_TRAIL_ONE held/ignored because longspin previous reels are not settled | reel=${idx} | ${this._getSlotReelDebugState()}`);
             return;
         }
         if (this._wildTrailReelsProcessed.has(idx)) return;
@@ -1293,7 +1307,7 @@ export class GameManager extends Component {
         }
         if (!this._isTopUp() && !this._areSlotReelsSettled()) {
             this._logSpinState('REELS_STOPPED ignored because slot reels are not settled yet');
-            Log.e('[SPIN-STATE][GM] REELS_STOPPED ignored — slot reels are not settled yet');
+            // Log.e('[SPIN-HANG][GM] REELS_STOPPED ignored — slot reels are not settled yet');
             this.scheduleOnce(this._reelsStoppedTimeout, 0.2);
             return;
         }
@@ -1583,14 +1597,21 @@ export class GameManager extends Component {
         this.unschedule(this._spinCycleFallback);
         const _fallbackDelay = _hasWildTrail ? 4.0 : 2.0;
         this.scheduleOnce(this._spinCycleFallback, _fallbackDelay);
+        this._logSpinState(
+            `post-REELS_STOPPED schedule spinCycleFallback=${_fallbackDelay}s` +
+            ` wildTrail=${_hasWildTrail} redSticky=${hasRedSticky} featureSelect=${isFeatureSelect}` +
+            ` totalWin=${resp.totalWin} ways=${resp.waysPayWins?.length ?? 0} lines=${resp.matchedLinePays?.length ?? 0}`
+        );
 
         if (_hasWildTrail) {
             // Defer WIN_PRESENT_START — sẽ được emit trong _onWildTrailFlyDoneCancelFallback khi particle hạ cánh
             // Vẫn phải chờ sticky red land-bounce xong (nếu có) trước khi highlight.
             if (this._wildTrailFlyDoneReceivedThisSpin) {
+                this._logSpinState('emit WIN_PRESENT_START via wildTrail already done + redBounce gate');
                 this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
             } else {
                 this._pendingWinPresentRespWild = resp;
+                this._logSpinState('DEFER WIN_PRESENT_START — wait WILD_TRAIL_FLY_DONE');
             }
         } else if (isFeatureSelect) {
             const hasWin = ((resp.waysPayWins ?? []).length > 0) || resp.matchedLinePays.length > 0 || resp.totalWin > 0;
@@ -1600,21 +1621,25 @@ export class GameManager extends Component {
                 this.unschedule(this._spinCycleFallback);
                 this.unschedule(this._featureSelectWinPresentationFallback);
                 this.scheduleOnce(this._featureSelectWinPresentationFallback, 8.0);
+                this._logSpinState('FEATURE_SELECT hasWin → emit WIN_PRESENT then credit fly');
                 this._emitWinPresentAfterRedLandBounce(resp, hasRedSticky);
             } else {
                 // Không có win → credit fly trước như cũ, WIN_PRESENT_START sau CREDIT_FLY_IN_DONE
                 this._pendingWinPresentRespFeature = resp;
                 // Không có highlight → đẩy nhanh vào feature select, không chờ fallback 2.0s
                 const fsDelay = hasRedSticky ? 0.2 : 0.1;
+                this._logSpinState(`FEATURE_SELECT noWin → _afterWinProcessed in ${fsDelay}s`);
                 this.scheduleOnce(() => {
                     if (!this._isSpinning) return;
                     this._afterWinProcessed();
                 }, fsDelay);
             }
         } else if (hasRedSticky) {
+            this._logSpinState('emit WIN_PRESENT_START after red land bounce');
             this._emitWinPresentAfterRedLandBounce(resp, true);
         } else {
             // Luôn emit WIN_PRESENT_START để UI cập nhật label (cả win lẫn no-win)
+            this._logSpinState('EMIT WIN_PRESENT_START immediate');
             EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
         }
 
@@ -1747,11 +1772,15 @@ export class GameManager extends Component {
      */
     private _emitWinPresentAfterRedLandBounce(resp: SpinResponse, waitForRed: boolean): void {
         const emitHighlight = () => {
-            if (!this._isSpinning) return;
+            if (!this._isSpinning) {
+                this._logSpinState('redBounce emitHighlight SKIP — not spinning');
+                return;
+            }
             SymbolView.logLandBounceParentState('pre-highlight');
             SymbolView.ensureRedLandBouncesRestored();
             SymbolView.restoreAllLandBounces();
             SymbolView.logLandBounceParentState('pre-WIN_PRESENT_START');
+            this._logSpinState(`EMIT WIN_PRESENT_START (after redBounce wait=${waitForRed})`);
             EventBus.instance.emit(GameEvents.WIN_PRESENT_START, resp);
         };
 
@@ -1809,10 +1838,11 @@ export class GameManager extends Component {
     }
 
     private _onWinPresentEnd(): void {
-        Log.e(`[DEBUG-PICK] _onWinPresentEnd fired — stage=${this._currentStage}, isSpinning=${this._isSpinning}`);
+        this._logSpinState('WIN_PRESENT_END received → check progressive then _afterWinProcessed');
         this.unschedule(this._spinCycleFallback);
         if (this._pendingFeatureSelectAfterHighlight) {
             this.unschedule(this._featureSelectWinPresentationFallback);
+            this._logSpinState('WIN_PRESENT_END → featureSelect after highlight path');
             this._checkProgressiveWin(() => {
                 this._afterWinProcessed();
                 this.scheduleOnce(() => this._startFeatureSelectCreditFly('WIN_PRESENT_END'), 0);
@@ -1892,6 +1922,7 @@ export class GameManager extends Component {
 
     /** Progressive Win đóng xong → tiếp tục flow */
     private _onProgressiveWinEnd(): void {
+        this._logSpinState('PROGRESSIVE_WIN_END received');
         if (this._isSpinning) {
             // Normal spin path: _afterWinProcessed chưa chạy → để nó hoàn tất cycle
             this._gameState = GameState.RESULT;
@@ -2105,8 +2136,12 @@ export class GameManager extends Component {
     private _checkProgressiveWin(onNone: () => void): void {
         const data = GameData.instance;
         const resp = data.lastSpinResponse;
-        Log.e(`[DEBUG-PICK] _checkProgressiveWin ENTER — stage=${this._currentStage}, totalWin=${resp?.totalWin ?? 'null'}, caller=${new Error().stack?.split('\n')[2]?.trim() ?? 'unknown'}`);
-        if (!resp || resp.totalWin <= 0) { Log.e('[DEBUG-PICK] _checkProgressiveWin SKIP — no win'); onNone(); return; }
+        this._logSpinState(`_checkProgressiveWin ENTER totalWin=${resp?.totalWin ?? 'null'}`);
+        if (!resp || resp.totalWin <= 0) {
+            this._logSpinState('_checkProgressiveWin SKIP — no win → continue');
+            onNone();
+            return;
+        }
 
         // Trong free spin, Pick Game, hoặc vừa kết thúc feature:
         // KHÔNG hiện progressive each round, chờ đến cuối feature.
@@ -2116,8 +2151,9 @@ export class GameManager extends Component {
             this._currentStage === SlotStageType.POT_WIN ||
             this._currentStage === SlotStageType.PICK ||
             this._currentStage === SlotStageType.PICK_END) {
-            Log.e(`[DEBUG-PICK] _checkProgressiveWin SKIP — Pick Game stage=${this._currentStage}`);
-            onNone(); return;
+            this._logSpinState(`_checkProgressiveWin SKIP — feature/pick stage=${this._currentStage}`);
+            onNone();
+            return;
         }
 
         let tier: ProgressiveWinTier | null = null;
@@ -2125,18 +2161,20 @@ export class GameManager extends Component {
             // Real API: thử winGrade từ server trước; fallback ratio nếu null.
             const grade = resp.winGrade;
             tier = grade ? this._winGradeToTier(grade) : null;
-            Log.d(`[GameManager] _checkProgressiveWin REAL_API — winGrade="${grade}" mappedTier=${tier ?? 'null'} totalWin=${resp.totalWin}`);
             if (!tier) {
                 tier = this._getProgressiveTierFromRatio(resp.totalWin, BetManager.instance.totalBet);
-                Log.d(`[GameManager] _checkProgressiveWin REAL_API — fallback ratio tier=${tier ?? 'null'}`);
             }
         } else {
             // Mock / cheat mode: tính từ ratio totalWin / totalBet.
             tier = this._getProgressiveTierFromRatio(resp.totalWin, BetManager.instance.totalBet);
         }
-        if (!tier) { onNone(); return; }
+        if (!tier) {
+            this._logSpinState('_checkProgressiveWin no tier → continue _afterWinProcessed');
+            onNone();
+            return;
+        }
 
-        Log.e(`[DEBUG-PICK] _checkProgressiveWin EMIT — tier=${tier}, amount=${resp.totalWin}`);
+        this._logSpinState(`_checkProgressiveWin OPEN POPUP tier=${tier} amount=${resp.totalWin} — wait PROGRESSIVE_WIN_END`);
         this._gameState = GameState.POPUP;
         EventBus.instance.emit(GameEvents.PROGRESSIVE_WIN_SHOW, tier, resp.totalWin);
         // PROGRESSIVE_WIN_END → _onProgressiveWinEnd → onNone đã được gọi từ đó riêng
@@ -2222,17 +2260,24 @@ export class GameManager extends Component {
     }
 
     private _afterWinProcessed(): void {
-        if (!this._isSpinning) return; // guard: tránh gọi 2 lần
+        this._logSpinState('_afterWinProcessed ENTER');
+        if (!this._isSpinning) {
+            this._logSpinState('_afterWinProcessed SKIP — already not spinning');
+            return; // guard: tránh gọi 2 lần
+        }
         // Guard: chỉ xử lý win sau khi REELS_STOPPED đã fire (reel cuối dừng hẳn)
         if (!this._reelsStoppedProcessed) {
-            Log.e(`[GOLD-FLY][_afterWinProcessed] SKIP — _reelsStoppedProcessed=false, reel chưa dừng hẳn`);
+            this._logSpinState('_afterWinProcessed SKIP — reelsStoppedProcessed=false');
             return;
         }
 
         // Nếu pot transition animation chưa xong → defer cho đến khi POT_TRANSITION_END
         const data = GameData.instance;
         const resp = data.lastSpinResponse;
-        if (!resp) return;
+        if (!resp) {
+            this._logSpinState('_afterWinProcessed SKIP — no lastSpinResponse');
+            return;
+        }
 
         const hasLineOrWaysWin = resp.matchedLinePays.length > 0 || ((resp.waysPayWins ?? []).length > 0);
         const canContinueDuringPotTransition =
@@ -2243,6 +2288,7 @@ export class GameManager extends Component {
 
         if (this._isPotTransitioning && !canContinueDuringPotTransition) {
             this._pendingAfterWinProcessed = true;
+            this._logSpinState('_afterWinProcessed DEFER — pot transitioning');
             return;
         }
 
@@ -2257,6 +2303,7 @@ export class GameManager extends Component {
         // không override → chờ popup đóng rồi mới reset
         if (this._gameState !== GameState.POPUP) {
             this._gameState = GameState.IDLE;
+            this._logSpinState(`_afterWinProcessed DONE → IDLE + UI_SPIN_BUTTON_STATE(true) nextStage=${resp.nextStage}`);
             EventBus.instance.emit(GameEvents.UI_SPIN_BUTTON_STATE, true);
 
             // Emit NORMAL_SPIN_DONE để AutoSpinManager có thể trigger auto spin tiếp theo.
@@ -2268,6 +2315,8 @@ export class GameManager extends Component {
             )) {
                 EventBus.instance.emit(GameEvents.NORMAL_SPIN_DONE);
             }
+        } else {
+            this._logSpinState(`_afterWinProcessed kept POPUP — spin button NOT enabled | nextStage=${resp.nextStage}`);
         }
     }
 

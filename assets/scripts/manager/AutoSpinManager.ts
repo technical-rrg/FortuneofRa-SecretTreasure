@@ -332,7 +332,7 @@ export class AutoSpinManager {
     }
 
     private _onNormalSpinDone(): void {
-        Log.e(`[SPIN-STATE][AUTO] NORMAL_SPIN_DONE received | freeSpinMode=${this._isFreeSpinMode} active=${this._isAutoSpinActive} count=${this._autoSpinCount} paused=${this._isPaused} speed=${this._speedMode}`);
+        // Log.e(`[SPIN-HANG][AUTO] NORMAL_SPIN_DONE received | freeSpinMode=${this._isFreeSpinMode} active=${this._isAutoSpinActive} count=${this._autoSpinCount} paused=${this._isPaused} speed=${this._speedMode}`);
         // Chỉ trigger khi đang active và đang Normal spin
         if (this._isFreeSpinMode) return;
         if (!this._isAutoSpinActive) return;
@@ -345,11 +345,11 @@ export class AutoSpinManager {
         }
         this._save();
         EventBus.instance.emit(GameEvents.AUTO_SPIN_CHANGED, this._autoSpinCount);
-        Log.e(`[SPIN-STATE][AUTO] NORMAL_SPIN_DONE applied | active=${this._isAutoSpinActive} count=${this._autoSpinCount}`);
+        // Log.e(`[SPIN-HANG][AUTO] NORMAL_SPIN_DONE applied | active=${this._isAutoSpinActive} count=${this._autoSpinCount}`);
 
         if (this._autoSpinCount > 0) {
             setTimeout(() => {
-                Log.e(`[SPIN-STATE][AUTO] emit SPIN_REQUEST after NORMAL_SPIN_DONE | active=${this._isAutoSpinActive} count=${this._autoSpinCount}`);
+                // Log.e(`[SPIN-HANG][AUTO] emit SPIN_REQUEST after NORMAL_SPIN_DONE | active=${this._isAutoSpinActive} count=${this._autoSpinCount}`);
                 EventBus.instance.emit(GameEvents.SPIN_REQUEST);
             }, this.getNextSpinDelayMs());
         }

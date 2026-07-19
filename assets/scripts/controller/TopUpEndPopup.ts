@@ -92,6 +92,9 @@ export class TopUpEndPopup extends Component {
     @property({ tooltip: 'Thời gian count-up từ 0 đến totalWin (giây)' })
     countUpDuration: number = 1.5;
 
+    @property({ tooltip: 'Thời gian fade-out amountLabel khi spine Out (giây).\n≤0 = dùng đúng duration animation Out của spine.' })
+    amountFadeOutDuration: number = 0;
+
     // ── INTERNAL ─────────────────────────────────────────────────────────────
 
     private _isOpen: boolean = false;
@@ -102,6 +105,7 @@ export class TopUpEndPopup extends Component {
     private _countUpTarget: number = 0;
     private _countUpSoundEnded: boolean = false;
     private _showCount: number = 0;
+    private _amountOpacity: UIOpacity | null = null;
 
     // ── LIFECYCLE ────────────────────────────────────────────────────────────
 
@@ -155,10 +159,10 @@ export class TopUpEndPopup extends Component {
 
         if (this.spine) {
             this.spine.node.active = true;
-            this.spine.setAnimation(0, 'in', false);
+            this.spine.setAnimation(0, 'In', false);
             this.spine.setCompleteListener(() => {
                 this.spine!.setCompleteListener(null);
-                this.spine!.setAnimation(0, 'loop', true);
+                this.spine!.setAnimation(0, 'Loop', true);
                 this._waitForClose();
             });
         } else {
@@ -174,6 +178,7 @@ export class TopUpEndPopup extends Component {
         Log.d(`[coinloop][TopUpEndPopup._animateAmountLabel] showCount=${this._showCount} stopCoinLoop before new count-up target=${totalWin}`);
         SoundManager.instance?.stopCoinLoop();
         this.amountLabel.node.active = true;
+        this._resetAmountLabelOpacity();
         this._countUpTarget = totalWin;
 
         // Khoá width theo giá trị đích để layout không nhảy trong khi count-up
@@ -233,6 +238,32 @@ export class TopUpEndPopup extends Component {
         }
     }
 
+    private _ensureAmountOpacity(): UIOpacity | null {
+        if (!this.amountLabel) return null;
+        if (!this._amountOpacity || !this._amountOpacity.isValid) {
+            this._amountOpacity =
+                this.amountLabel.node.getComponent(UIOpacity) ??
+                this.amountLabel.node.addComponent(UIOpacity);
+        }
+        return this._amountOpacity;
+    }
+
+    private _resetAmountLabelOpacity(): void {
+        const op = this._ensureAmountOpacity();
+        if (!op) return;
+        Tween.stopAllByTarget(op);
+        op.opacity = 255;
+    }
+
+    /** Fade amountLabel alpha → 0 trong lúc spine Out */
+    private _fadeAmountLabelOut(duration: number): void {
+        const op = this._ensureAmountOpacity();
+        if (!op) return;
+        Tween.stopAllByTarget(op);
+        const dur = Math.max(0.01, duration);
+        tween(op).to(dur, { opacity: 0 }).start();
+    }
+
     // ── PRIVATE ──────────────────────────────────────────────────────────────
 
     private _onClickOverlay(): void {
@@ -275,13 +306,18 @@ export class TopUpEndPopup extends Component {
 
         if (this.spine) {
             this.spine.setCompleteListener(null);
-            this.spine.setAnimation(0, 'out', false);
+            const entry = this.spine.setAnimation(0, 'out', false);
+            const spineOutDur = entry?.animation?.duration ?? 0.3;
+            const fadeDur = this.amountFadeOutDuration > 0 ? this.amountFadeOutDuration : spineOutDur;
+            this._fadeAmountLabelOut(fadeDur);
             this.spine.setCompleteListener(() => {
                 this.spine!.setCompleteListener(null);
                 this._finishClose();
             });
         } else {
-            this._finishClose();
+            const fadeDur = this.amountFadeOutDuration > 0 ? this.amountFadeOutDuration : 0.3;
+            this._fadeAmountLabelOut(fadeDur);
+            this.scheduleOnce(() => this._finishClose(), fadeDur);
         }
     }
 
@@ -308,6 +344,7 @@ export class TopUpEndPopup extends Component {
             this._autoCloseCb = null;
         }
         this._stopCountUp();
+        if (this._amountOpacity) Tween.stopAllByTarget(this._amountOpacity);
         if (this.amountLabel && !this._countUpSoundEnded) {
             this.amountLabel.endCountUp();
             this._countUpSoundEnded = true;

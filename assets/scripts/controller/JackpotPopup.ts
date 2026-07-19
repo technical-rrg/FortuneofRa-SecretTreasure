@@ -26,7 +26,8 @@
  *   4. Bấm vào (hoặc timeout):
  *      - Nếu đang count-up → nhảy thẳng tới tiền max rồi đóng ngay.
  *      - Nếu count-up xong → đóng popup.
- *   5. Spine play "out" → delay outAnimCloseDelay → deactivate node → callback().
+ *   5. Spine play "out" (nếu có) → delay outAnimCloseDelay → deactivate node → callback().
+ *      Không có anim "out" → đóng ngay, không treo game.
  */
 
 import { _decorator, Component, Node, Label, ParticleSystem, tween, Vec3, Tween, screen } from 'cc';
@@ -289,11 +290,11 @@ export class JackpotPopup extends Component {
             this._attachAmountDisplayParentToSpine(spine);
             this._playParticleEffects();
             this._playParticleInOut();
-            spine.setAnimation(0, 'in', false);
+            spine.setAnimation(0, 'In', false);
             spine.setCompleteListener(() => {
                 Log.d('[JackpotPopup] ✓ "in" animation complete → playing "loop"');
                 spine.setCompleteListener(null);
-                spine.setAnimation(0, 'loop', true);
+                spine.setAnimation(0, 'Loop', true);
                 if (this.amountDisplay) this.amountDisplay.node.active = true;
                 this._startCountUp(amount, () => {
                     this._waitForClose();
@@ -482,8 +483,20 @@ export class JackpotPopup extends Component {
         const spine = this._activeSpine;
         if (spine) {
             spine.setCompleteListener(null);
-              this._stopParticleInOut();
-            spine.setAnimation(0, 'out', false);
+            this._stopParticleInOut();
+
+            // Không có anim "out"/"Out" → đóng ngay, tránh treo game
+            const outAnimName = spine.findAnimation('out')
+                ? 'out'
+                : (spine.findAnimation('Out') ? 'Out' : null);
+            if (!outAnimName) {
+                Log.w('[JackpotPopup] ⚠️  No "out" animation → closing immediately');
+                SoundManager.instance?.playBannerDisappear();
+                this._finishClose();
+                return;
+            }
+
+            spine.setAnimation(0, outAnimName, false);
             // Phát sx_banner_disappear ngay khi spine animation "out" bắt đầu
             SoundManager.instance?.playBannerDisappear();
             // Scale amountDisplay thu nhỏ theo chiều X về 0 (Y giữ nguyên), nhanh hơn 'out'
@@ -493,12 +506,6 @@ export class JackpotPopup extends Component {
                     .to(0.1, { scale: new Vec3(0, 1, 1) })
                     .start();
             }
-
-            // Stop particleNodeInOut when 'out' animation completes
-            spine.setCompleteListener(() => {
-                spine.setCompleteListener(null);
-              
-            });
 
             if (this._outAnimCloseCb) this.unschedule(this._outAnimCloseCb);
             this._outAnimCloseCb = () => {

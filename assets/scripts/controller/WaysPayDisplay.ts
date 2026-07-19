@@ -1,11 +1,11 @@
 /**
- * WaysPayDisplay — Highlight ô symbol thắng cho Gold of Fortune (Ways Pay 243).
+ * WaysPayDisplay — Highlight ô symbol thắng (Ways Pay + Line Pay).
  *
  * Dùng Spine skeleton loop trên overlay nodes. Pool lazy: tạo khi cần, reuse khi return.
  *
  * FLOW:
- *   1. WIN_SHOW_ALL_WAYS  → hiện TOÀN BỘ ô thắng (union của mọi WaysPayWin)
- *   2. WIN_CYCLE_ONE_WAY  → diff update: giữ ô chung, return ô thừa, show ô mới
+ *   1. WIN_SHOW_ALL_WAYS / WIN_SHOW_ALL_LINES → hiện TOÀN BỘ ô thắng
+ *   2. WIN_CYCLE_ONE_WAY / UI_UPDATE_WIN_LABEL → diff update từng way/line
  *   3. REELS_START_SPIN   → trả tất cả về pool
  *
  * SETUP:
@@ -27,8 +27,8 @@
 import { _decorator, Component, Node, sp, instantiate } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
-import { SymbolId, WaysPayWin } from '../data/SlotTypes';
 import { GameData } from '../data/GameData';
+import { MatchedLinePay, WaysPayWin } from '../data/SlotTypes';
 import { ReelController } from './ReelController';
 import { SymbolView } from './SymbolView';
 
@@ -80,6 +80,9 @@ export class WaysPayDisplay extends Component {
         const bus = EventBus.instance;
         bus.on(GameEvents.WIN_SHOW_ALL_WAYS,  this._onShowAllWays,  this);
         bus.on(GameEvents.WIN_CYCLE_ONE_WAY,  this._onCycleOneWay,  this);
+        // Real API dùng MatchedLinePays → WIN_SHOW_ALL_LINES / UI_UPDATE_WIN_LABEL
+        bus.on(GameEvents.WIN_SHOW_ALL_LINES, this._onShowAllLines, this);
+        bus.on(GameEvents.UI_UPDATE_WIN_LABEL, this._onCycleOneLine, this);
         bus.on(GameEvents.REELS_START_SPIN,   this._onSpinStart,    this);
         bus.on(GameEvents.WIN_HIGHLIGHT_CLEAR, this._onSpinStart,   this);
         bus.on(GameEvents.FREE_SPIN_START,    this._onFeatureStart, this);
@@ -123,7 +126,9 @@ export class WaysPayDisplay extends Component {
      */
     private _onShowAllWays(ways: WaysPayWin[], _duration?: number): void {
         if (!this._ready) return;
-        this._applyCells(this._collectCells(ways));
+        this._applyCells(this._collectWayCells(ways));
+        // SymbolHighlighter (cùng event) có thể append clone/spine sau → pin lại underlay cuối frame
+        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
     }
 
     /**
@@ -131,17 +136,62 @@ export class WaysPayDisplay extends Component {
      */
     private _onCycleOneWay(way: WaysPayWin): void {
         if (!this._ready) return;
-        this._applyCells(this._collectCells([way]));
+        this._applyCells(this._collectWayCells([way]));
+        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
+    }
+
+    /** Real API line win: hiện union ô thắng của mọi MatchedLinePay. */
+    private _onShowAllLines(lines: MatchedLinePay[], _duration?: number): void {
+        if (!this._ready) return;
+        this._applyCells(this._collectLineCells(lines));
+        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
+    }
+
+    /** Cycle từng line (UI_UPDATE_WIN_LABEL): chỉ giữ ô của line hiện tại. */
+    private _onCycleOneLine(linePay: MatchedLinePay): void {
+        if (!this._ready || !linePay) return;
+        this._applyCells(this._collectLineCells([linePay]));
+        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
     }
 
     /** Gom unique display cells từ ways (grid row → visual row). */
-    private _collectCells(ways: WaysPayWin[]): Set<string> {
+    private _collectWayCells(ways: WaysPayWin[]): Set<string> {
         const shown = new Set<string>();
         for (const way of ways) {
             for (const { reel, row } of way.cells) {
                 // grid row (0=center-1, 2=center+1) ngược với visual row (0=Top=center+1).
-                const displayRow = 2 - row;
+                const displayRow = GameData.instance.toDisplayRow(row);
                 shown.add(`${reel},${displayRow}`);
+            }
+        }
+        return shown;
+    }
+
+    /** Gom unique display cells từ MatchedLinePay (server indices hoặc payline def). */
+    private _collectLineCells(lines: MatchedLinePay[]): Set<string> {
+        const shown = new Set<string>();
+        const maxCol = Math.max(0, this.reels.length - 1);
+        const paylines = GameData.instance.config?.paylines ?? [];
+
+        for (const line of lines) {
+            if (!line) continue;
+            const serverIdx = line.matchedSymbolsIndices;
+            if (serverIdx && serverIdx.length >= 3) {
+                const valid = serverIdx.every(s =>
+                    s.Item1 >= 0 && s.Item1 <= maxCol &&
+                    s.Item2 >= 0 && s.Item2 <= 2
+                );
+                if (valid) {
+                    for (const s of serverIdx) {
+                        shown.add(`${s.Item1},${GameData.instance.toDisplayRow(s.Item2)}`);
+                    }
+                    continue;
+                }
+            }
+            const payline = paylines[line.payLineIndex];
+            if (!payline) continue;
+            for (let col = 0; col < payline.length; col++) {
+                shown.add(`${col},${GameData.instance.toDisplayRow(payline[col])}`);
             }
         }
         return shown;
@@ -150,6 +200,7 @@ export class WaysPayDisplay extends Component {
     /**
      * Diff update overlays: giữ node đã có, chỉ return ô thừa, show ô mới.
      * Tránh destroy/recreate liên tục khi cycle (gây flicker / mất effect).
+     * FreeMode: luôn hiện Highlight cho mọi ô thắng (kể cả có STICKY_YELLOW).
      */
     private _applyCells(wanted: Set<string>): void {
         // Return overlays không còn trong wanted
@@ -166,6 +217,8 @@ export class WaysPayDisplay extends Component {
             const [colStr, rowStr] = key.split(',');
             this._showOverlay(Number(colStr), Number(rowStr));
         }
+        // Giữ Highlight underlay dưới clone/spine của SymbolHighlighter
+        this._pinOverlaysToBottom();
     }
 
     /** Reset khi spin mới bắt đầu */
@@ -239,15 +292,11 @@ export class WaysPayDisplay extends Component {
         const symNode = this.reels[col]?.symbolNodes[row + VISIBLE_ROW_OFFSET];
         if (!symNode) return;
 
-        // FreeSpin: STICKY_YELLOW → green tint thay vì spine overlay
-        const view = symNode.getComponent(SymbolView);
-        if (this._shouldUseGreenTint(view?.symbolId ?? -1)) return;
-
         const node = this._borrowHighlight();
         if (!node) return;
 
         // Đặt node vào đúng vị trí world của symbol,
-        // sibling = 0 để highlight nằm dưới symbol spine trong PaylineManager
+        // sibling thấp để highlight nằm dưới symbol spine / bounce clone
         node.setWorldPosition(symNode.getWorldPosition());
         node.setSiblingIndex(0);
         node.active = true;
@@ -258,14 +307,17 @@ export class WaysPayDisplay extends Component {
         this._overlays[col][row] = node;
     }
 
-    /**
-     * Trả node tại (col, row) về pool:
-     * dừng Spine, inactive, reparent về this.node.
-     */
-    private _shouldUseGreenTint(symId: number): boolean {
-        const mode = GameData.instance.currentMode;
-        const isFreeSpin = mode === 'freespin' || mode === 'freespin_gold';
-        return isFreeSpin && symId === SymbolId.STICKY_YELLOW;
+    /** Đẩy mọi underlay Highlight xuống dưới cùng (dưới __HLSpine_* / __HLClone_*). */
+    private _pinOverlaysToBottom(): void {
+        let idx = 0;
+        for (let col = 0; col < this._overlays.length; col++) {
+            for (let row = 0; row < this._overlays[col].length; row++) {
+                const n = this._overlays[col][row];
+                if (n?.isValid && n.parent === this.node) {
+                    n.setSiblingIndex(idx++);
+                }
+            }
+        }
     }
 
     private _returnOverlay(col: number, row: number): void {

@@ -413,7 +413,7 @@ export class TopUpManager extends Component {
                     if (this._stoppedCount >= this._spunCount) {
                         this._isSpinning = false;
                         this._setMaskEnabled(false);
-                        Log.e(`[SPIN-STATE][TopUpManager] emit REELS_STOPPED all reels stopped | stopped=${this._stoppedCount}/${this._spunCount} active=${this.node?.active ?? false}`);
+                        // Log.e(`[SPIN-HANG][TopUpManager] emit REELS_STOPPED all reels stopped | stopped=${this._stoppedCount}/${this._spunCount} active=${this.node?.active ?? false}`);
                         EventBus.instance.emit(GameEvents.REELS_STOPPED);
                         Log.d('[TopUpManager] All reels stopped → emit REELS_STOPPED');
                     }
@@ -441,7 +441,7 @@ export class TopUpManager extends Component {
         if (this._spunCount === 0) {
             this._isSpinning = false;
             this._setMaskEnabled(false);
-            Log.e(`[SPIN-STATE][TopUpManager] emit REELS_STOPPED no reels to spin | stopped=${this._stoppedCount}/${this._spunCount} active=${this.node?.active ?? false}`);
+            // Log.e(`[SPIN-HANG][TopUpManager] emit REELS_STOPPED no reels to spin | stopped=${this._stoppedCount}/${this._spunCount} active=${this.node?.active ?? false}`);
             EventBus.instance.emit(GameEvents.REELS_STOPPED);
             Log.d('[TopUpManager] No reels to spin → emit REELS_STOPPED');
         }

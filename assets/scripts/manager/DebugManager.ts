@@ -66,6 +66,9 @@ const { ccclass } = _decorator;
  *   O → MONSTER WIN
  *   X → MAX WIN
  *
+ * [TEST TOPUP END POPUP]
+ *   Y → TopUpEndPopup (CONGRATS)
+ *
  */
 
 const LANG_SHORTCUTS: { key: KeyCode; lang: LanguageCode; label: string }[] = [
@@ -157,6 +160,8 @@ export class DebugManager {
             bus.on(GameEvents.PROGRESSIVE_WIN_END,      () => this._openPopupCount = Math.max(0, this._openPopupCount - 1), this);
             bus.on(GameEvents.FREE_SPIN_END_POPUP,      () => this._openPopupCount++, this);
             bus.on(GameEvents.FREE_SPIN_END_POPUP_CLOSED, () => this._openPopupCount = Math.max(0, this._openPopupCount - 1), this);
+            bus.on(GameEvents.TOPUP_END_POPUP,          () => this._openPopupCount++, this);
+            bus.on(GameEvents.TOPUP_END_POPUP_CLOSED,   () => this._openPopupCount = Math.max(0, this._openPopupCount - 1), this);
             bus.on(GameEvents.SHOW_SYSTEM_POPUP,        () => this._openPopupCount++, this);
 
             Log.d(
@@ -166,7 +171,7 @@ export class DebugManager {
                 ' | F1=en | F2=ko | F3=zh-cn | F4=zh-tw | F5=fil | F6=ja | F7=th' +
                 ' | P=DISCONNECTED | Q=RELOGIN | W=INSUFFICIENT_BALANCE | E=EXPIRED | R=WRONG_PARSHEET | T=INVALID_REQUEST' +
                 ' | B=BIG_WIN | M=MEGA_WIN | J=MAJOR_WIN | S=SUPER_WIN | E=EPIC_WIN | U=ULTRA_WIN | O=MONSTER_WIN | X=MAX_WIN' +
-                ' | V=BROADCAST_MOCK (cycle)'
+                ' | Y=TOPUP_END_POPUP | V=BROADCAST_MOCK (cycle)'
             );
         } catch (err) {
             Log.w('[DebugManager] Failed to setup keyboard shortcuts:', err);
@@ -221,6 +226,7 @@ export class DebugManager {
                     break;
                 }
                 if (this._triggerProgressiveWinTest(event.keyCode)) break;
+                if (this._triggerTopUpEndPopupTest(event.keyCode)) break;
                 if (this._triggerBroadcastTest(event.keyCode)) break;
                 this._triggerPopupTest(event.keyCode);
                 break;
@@ -265,6 +271,20 @@ export class DebugManager {
         );
 
         EventBus.instance.emit(GameEvents.PROGRESSIVE_WIN_SHOW, found.tier, amount);
+        return true;
+    }
+
+    /** Y — Show TopUpEndPopup với amount test (count-up + spine) */
+    private _triggerTopUpEndPopupTest(keyCode: KeyCode): boolean {
+        if (keyCode !== KeyCode.KEY_Y) return false;
+
+        // Hardcoded decimal để verify truncate 3 chữ số thập phân
+        const amount = 999999.448;
+        Log.d(
+            `%c[DEBUG] TopUpEndPopup test → amount=${amount}`,
+            'color:#fa0;font-weight:bold'
+        );
+        EventBus.instance.emit(GameEvents.TOPUP_END_POPUP, amount);
         return true;
     }
 

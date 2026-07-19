@@ -22,7 +22,7 @@ export const ENABLE_DEBUG_TOOLS: boolean = true;
 // ═══════════════════════════════════════════════════════════
 export const ServerConfig = {
     /** Base URL của Slot Game Server */
-    SERVER_URL: 'https://dev-slot.newworld.id',
+    SERVER_URL: 'https://dev-slot.realreelsgaming.com',
 
     /** Slot Game ID cho Secret Treasure (truy vấn Game Code Table) */
     SLOT_ID: 18,

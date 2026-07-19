@@ -1639,19 +1639,19 @@
       }
     ],
     "spineJpMini": {
-      "__uuid__": "649d3f5d-17c6-43fb-821d-bdc783f0e974",
+      "__uuid__": "8731c8ab-d387-4a84-9449-c72430a1488b",
       "__expectedType__": "sp.SkeletonData"
     },
     "spineJpMinor": {
-      "__uuid__": "921a1b01-d5e9-4213-89ac-1964f8b8515f",
+      "__uuid__": "fd57b534-a9c0-4837-a6e2-5b22cf9b7747",
       "__expectedType__": "sp.SkeletonData"
     },
     "spineJpMajor": {
-      "__uuid__": "c48f588b-ffab-406b-a953-82362f80ec29",
+      "__uuid__": "34aa35dc-cc1b-45bc-8845-40916dead1e8",
       "__expectedType__": "sp.SkeletonData"
     },
     "spineJpGrand": {
-      "__uuid__": "1abae404-ed2d-4dee-a8a9-97c7099dace0",
+      "__uuid__": "c9d8e4ea-cddb-4cee-86c3-583852502d21",
       "__expectedType__": "sp.SkeletonData"
     },
     "useTopUpTransition": true,

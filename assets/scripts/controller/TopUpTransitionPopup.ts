@@ -1,4 +1,4 @@
-import { _decorator, Component, Node, tween, UIOpacity, BlockInputEvents, Tween, sp } from 'cc';
+import { _decorator, Component, Node, tween, UIOpacity, BlockInputEvents, Tween, sp, Sprite, Color } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 
@@ -13,7 +13,7 @@ export enum TransitionMode {
 @ccclass('TopUpTransitionPopup')
 export class TopUpTransitionPopup extends Component {
 
-    @property({ type: Node, tooltip: 'Overlay tối phủ toàn màn hình — active=false ban đầu, hiện ngay trước effectNode.' })
+    @property({ type: Node, tooltip: 'Fill đen phủ toàn màn hình — fade in/out bằng UIOpacity (không fade alpha content).' })
     overlayNode: Node | null = null;
 
     @property({ type: Node, tooltip: 'Node effect transition trước khi vào Top Up UI.' })
@@ -34,7 +34,7 @@ export class TopUpTransitionPopup extends Component {
     @property({ tooltip: 'Thời gian giữ effect ở giữa SAU khi fade-in xong (giây).' })
     duration: number = 1.0;
 
-    @property({ tooltip: 'Fade in/out duration (giây).' })
+    @property({ tooltip: 'Fade in/out duration của fill đen (giây).' })
     fadeDuration: number = 0.35;
 
     private _closed: boolean = false;
@@ -60,15 +60,23 @@ export class TopUpTransitionPopup extends Component {
         return node.getComponent(UIOpacity) ?? node.addComponent(UIOpacity);
     }
 
+    /** Sprite fill đen đặc (a=255) — fade chỉ qua UIOpacity, không đụng color.a. */
+    private _prepareBlackFill(node: Node): UIOpacity {
+        const spr = node.getComponent(Sprite);
+        if (spr) spr.color = new Color(0, 0, 0, 255);
+        return this._ensureOpacity(node);
+    }
+
     private _stopFadeTweens(): void {
-        const target = this.effectNode ?? this.node;
-        Tween.stopAllByTarget(target);
-        const targetOp = target.getComponent(UIOpacity);
-        if (targetOp) Tween.stopAllByTarget(targetOp);
         if (this.overlayNode) {
             Tween.stopAllByTarget(this.overlayNode);
             const overlayOp = this.overlayNode.getComponent(UIOpacity);
             if (overlayOp) Tween.stopAllByTarget(overlayOp);
+        }
+        if (this.effectNode) {
+            Tween.stopAllByTarget(this.effectNode);
+            const effectOp = this.effectNode.getComponent(UIOpacity);
+            if (effectOp) Tween.stopAllByTarget(effectOp);
         }
     }
 
@@ -78,10 +86,11 @@ export class TopUpTransitionPopup extends Component {
         this.unscheduleAllCallbacks();
         this._stopFadeTweens();
 
-        const target = this.effectNode ?? this.node;
-        target.active = false;
-        const targetOp = target.getComponent(UIOpacity);
-        if (targetOp) targetOp.opacity = 255;
+        if (this.effectNode) {
+            this.effectNode.active = false;
+            const effectOp = this.effectNode.getComponent(UIOpacity);
+            if (effectOp) effectOp.opacity = 255;
+        }
 
         if (this.overlayNode) {
             this.overlayNode.active = false;
@@ -114,35 +123,44 @@ export class TopUpTransitionPopup extends Component {
         this._stopFadeTweens();
         this._setMode(mode);
 
-        const target = this.effectNode ?? this.node;
         const fadeIn = Math.max(0.05, this.fadeDuration);
         const holdTime = Math.max(0.15, this.duration);
 
         this.node.active = true;
 
-        if (this.overlayNode) {
-            this.overlayNode.active = true;
-            const overlayOp = this._ensureOpacity(this.overlayNode);
-            overlayOp.opacity = 0;
-            tween(overlayOp).to(fadeIn, { opacity: 255 }, { easing: 'sineOut' }).start();
+        // Effect hiện full opacity — không fade alpha content
+        const target = this.effectNode;
+        if (target) {
+            target.active = true;
+            const targetOp = this._ensureOpacity(target);
+            targetOp.opacity = 255;
         }
-
-        target.active = true;
-        const targetOp = this._ensureOpacity(target);
-        targetOp.opacity = 0;
-
-        // Fade-in xong → READY (đổi UI) → hold → fade-out → DONE
-        tween(targetOp)
-            .to(fadeIn, { opacity: 255 }, { easing: 'sineOut' })
-            .call(() => {
-                this._emitReady();
-                this.scheduleOnce(() => this._fadeOutAndClose(), holdTime);
-            })
-            .start();
 
         if (this.spineAnimation) {
             this.spineAnimation.clearTrack(0);
             this.spineAnimation.setAnimation(0, 'animation', false);
+        }
+
+        // Chỉ fade fill đen
+        if (this.overlayNode) {
+            this.overlayNode.active = true;
+            // Overlay dưới effect để effect/spine vẫn thấy trên nền đen
+            this.overlayNode.setSiblingIndex(0);
+            if (target) target.setSiblingIndex(this.node.children.length - 1);
+
+            const overlayOp = this._prepareBlackFill(this.overlayNode);
+            overlayOp.opacity = 0;
+            tween(overlayOp)
+                .to(fadeIn, { opacity: 255 }, { easing: 'sineOut' })
+                .call(() => {
+                    this._emitReady();
+                    this.scheduleOnce(() => this._fadeOutAndClose(), holdTime);
+                })
+                .start();
+        } else {
+            // Không có overlay → READY ngay
+            this._emitReady();
+            this.scheduleOnce(() => this._fadeOutAndClose(), holdTime);
         }
 
         // Safety: nếu tween bị cắt vẫn emit READY
@@ -152,18 +170,18 @@ export class TopUpTransitionPopup extends Component {
     private _fadeOutAndClose(): void {
         if (this._closed) return;
 
-        const target = this.effectNode ?? this.node;
         const fadeOut = Math.max(0.05, this.fadeDuration);
-        const targetOp = this._ensureOpacity(target);
-
-        tween(targetOp)
-            .to(fadeOut, { opacity: 0 }, { easing: 'sineIn' })
-            .call(() => this._forceClose())
-            .start();
 
         if (this.overlayNode?.active) {
-            const overlayOp = this._ensureOpacity(this.overlayNode);
-            tween(overlayOp).to(fadeOut, { opacity: 0 }, { easing: 'sineIn' }).start();
+            const overlayOp = this._prepareBlackFill(this.overlayNode);
+            tween(overlayOp)
+                .to(fadeOut, { opacity: 0 }, { easing: 'sineIn' })
+                .call(() => this._forceClose())
+                .start();
+            // Ẩn effect khi bắt đầu fade-out đen (không tween alpha content)
+            if (this.effectNode) this.effectNode.active = false;
+        } else {
+            this._forceClose();
         }
     }
 }

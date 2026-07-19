@@ -294,27 +294,27 @@ export class UIController extends Component {
     // ─── BUTTON HANDLERS ───
 
     private _onSpinClick(): void {
-        Log.e(`[SPIN-STATE][UI] spin click | spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${AutoSpinManager.instance.isAutoSpinActive} autoCount=${AutoSpinManager.instance.autoSpinCount} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] spin click | spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${AutoSpinManager.instance.isAutoSpinActive} autoCount=${AutoSpinManager.instance.autoSpinCount} interactable=${this.spinButton?.interactable ?? false}`);
         // Trong freeSpin: không cho hủy auto spin
         if (this._isFeatureMode()) return;
         // Nếu đang auto spin active → pause
         if (AutoSpinManager.instance.isAutoSpinActive) {
-            Log.e('[SPIN-STATE][UI] spin click pauses auto spin');
+            // Log.e('[SPIN-HANG][UI] spin click pauses auto spin');
             AutoSpinManager.instance.pauseAutoSpin();
             return;
         }
         // Nếu reel đang quay (normal spin) → quick stop ngay lập tức
         if (this._isSpinning) {
-            Log.e('[SPIN-STATE][UI] spin click emits REELS_QUICK_STOP');
+            // Log.e('[SPIN-HANG][UI] spin click emits REELS_QUICK_STOP');
             EventBus.instance.emit(GameEvents.REELS_QUICK_STOP);
             return;
         }
-        Log.e('[SPIN-STATE][UI] spin click emits SPIN_REQUEST');
+        // Log.e('[SPIN-HANG][UI] spin click emits SPIN_REQUEST');
         EventBus.instance.emit(GameEvents.SPIN_REQUEST);
     }
 
     private _onReelsStartSpin(): void {
-        Log.e(`[SPIN-STATE][UI] REELS_START_SPIN received | before uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] REELS_START_SPIN received | before uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
         this._isSpinning = true;
         // Mở khóa nút Spin ngay — _onSpinButtonState(false) chạy trước nên có thể đã khóa nút
         if (this.spinButton && !this._isFeatureMode()) {
@@ -333,13 +333,13 @@ export class UIController extends Component {
         if (this.roundWinLabel) this.roundWinLabel.string = '';
         if (this.multiplierLabel) this.multiplierLabel.string = '';
         this._setSpinButtonSprite(false);
-        Log.e(`[SPIN-STATE][UI] REELS_START_SPIN applied | uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] REELS_START_SPIN applied | uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
     }
 
     private _onReelsStopped(): void {
-        Log.e(`[SPIN-STATE][UI] REELS_STOPPED received | before uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] REELS_STOPPED received | before uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
         this._isSpinning = false;
-        Log.e(`[SPIN-STATE][UI] REELS_STOPPED applied | uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] REELS_STOPPED applied | uiSpinning=${this._isSpinning} spinEnabled=${this._spinEnabled} interactable=${this.spinButton?.interactable ?? false}`);
     }
 
     private _onAutoSpinChanged(count: number): void {
@@ -498,7 +498,7 @@ export class UIController extends Component {
     }
 
     private _onSpinButtonState(enabled: boolean): void {
-        Log.e(`[SPIN-STATE][UI] UI_SPIN_BUTTON_STATE received | enabled=${enabled} spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${AutoSpinManager.instance.isAutoSpinActive} autoCount=${AutoSpinManager.instance.autoSpinCount} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] UI_SPIN_BUTTON_STATE received | enabled=${enabled} spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${AutoSpinManager.instance.isAutoSpinActive} autoCount=${AutoSpinManager.instance.autoSpinCount} interactable=${this.spinButton?.interactable ?? false}`);
         this._spinEnabled = enabled;
         const isAutoSpinActive = AutoSpinManager.instance.isAutoSpinActive;
         if (this.spinButton) {
@@ -519,7 +519,7 @@ export class UIController extends Component {
         if (this.autoSpinFreeButton) this.autoSpinFreeButton.interactable = enabled && !this._isFeatureMode() && !isAutoSpinActive;
         // betSettingButton: chỉ enabled khi idle, không auto spin, không free spin
         if (this.betSettingButton) this.betSettingButton.interactable = enabled && !this._isFeatureMode() && !isAutoSpinActive;
-        Log.e(`[SPIN-STATE][UI] UI_SPIN_BUTTON_STATE applied | enabled=${enabled} spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${isAutoSpinActive} interactable=${this.spinButton?.interactable ?? false}`);
+        // Log.e(`[SPIN-HANG][UI] UI_SPIN_BUTTON_STATE applied | enabled=${enabled} spinEnabled=${this._spinEnabled} uiSpinning=${this._isSpinning} freeSpin=${this._isFreeSpinMode} autoActive=${isAutoSpinActive} interactable=${this.spinButton?.interactable ?? false}`);
     }
 
     private _onWinPresentStart(resp: { totalWin: number; featureMultiple?: number }): void {

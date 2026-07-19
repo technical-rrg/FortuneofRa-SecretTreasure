@@ -176,7 +176,7 @@ export class WinPresenter extends Component {
         // Không có tiền thắng → kết thúc ngay để GameManager mở Spin
         if (response.totalWin <= 0) {
             if (!this._isFreeSpinMode && this.winLabel) this.winLabel.string = L('no_win');
-            Log.d(`[WinHL] WIN_PRESENT_START no-win → finish | gen=${myGen}`);
+            // Log.e(`[SPIN-HANG][WinHL] WIN_PRESENT_START no-win → finish | gen=${myGen}`);
             this._finishPresentation(myGen);
             return;
         }
@@ -186,15 +186,15 @@ export class WinPresenter extends Component {
         // ★ BUG FIX: không so sánh _wildTrailFlyDoneGen !== myGen — _generation bị bump
         // ngay đầu hàm nên sau FLY_DONE so sánh luôn fail → pending forever → chỉ thấy
         // tiền cộng (UIController) mà không emit WIN_SHOW_ALL_WAYS/LINES.
-        Log.d(
-            `[WinHL] WIN_PRESENT_START | gen=${myGen} totalWin=${response.totalWin} ` +
-            `ways=${waysLen} lines=${linesLen} wildTrailCount=${response.wildTrailCount ?? 0} ` +
-            `animating=${this._isWildTrailAnimating} flyDoneGen=${this._wildTrailFlyDoneGen}`
-        );
+        // Log.e(
+        //     `[SPIN-HANG][WinHL] WIN_PRESENT_START | gen=${myGen} totalWin=${response.totalWin} ` +
+        //     `ways=${waysLen} lines=${linesLen} wildTrailCount=${response.wildTrailCount ?? 0} ` +
+        //     `animating=${this._isWildTrailAnimating} flyDoneGen=${this._wildTrailFlyDoneGen}`
+        // );
         if (this._isWildTrailAnimating) {
             this._pendingWinResponse = response;
             this._pendingWinGen = myGen;
-            Log.d(`[WinHL] DELAY highlight — wild trail still animating | gen=${myGen}`);
+            // Log.e(`[SPIN-HANG][WinHL] DELAY highlight — wild trail still animating | gen=${myGen}`);
             return;
         }
 
@@ -251,19 +251,29 @@ export class WinPresenter extends Component {
         // tính từ lúc bắt đầu highlight all, không phân biệt Normal/Quick/Turbo.
         if (isAutoSpinWithWin) {
             // AutoSpin + có win: delay cố định tùy theo speed mode
+            // Log.e(`[SPIN-HANG][WinHL] schedule WIN_PRESENT_END in ${showAllDuration}s (autoWin) | gen=${myGen}`);
             this.scheduleOnce(() => {
-                if (this._generation !== myGen) return;
+                if (this._generation !== myGen) {
+                    // Log.e(`[SPIN-HANG][WinHL] WIN_PRESENT_END skipped — gen stale | gen=${myGen} cur=${this._generation}`);
+                    return;
+                }
                 this._isPresenting = false;
+                // Log.e(`[SPIN-HANG][WinHL] EMIT WIN_PRESENT_END (autoWin) | gen=${myGen}`);
                 EventBus.instance.emit(GameEvents.WIN_COUNTUP_DONE, response.totalWin);
                 EventBus.instance.emit(GameEvents.WIN_PRESENT_END);
             }, showAllDuration);
         } else {
             // Các trường hợp khác: dùng logic cũ (spinEnableDelay / showAllHighlightDuration)
             const presentEndDelay = Math.max(this._getSpinEnableDelay(), this.showAllHighlightDuration);
+            // Log.e(`[SPIN-HANG][WinHL] schedule WIN_PRESENT_END in ${presentEndDelay}s | gen=${myGen}`);
             this.scheduleOnce(() => {
-                if (this._generation !== myGen) return;
+                if (this._generation !== myGen) {
+                    // Log.e(`[SPIN-HANG][WinHL] WIN_PRESENT_END skipped — gen stale | gen=${myGen} cur=${this._generation}`);
+                    return;
+                }
 
                 this._isPresenting = false;
+                // Log.e(`[SPIN-HANG][WinHL] EMIT WIN_PRESENT_END | gen=${myGen}`);
                 EventBus.instance.emit(GameEvents.WIN_COUNTUP_DONE, response.totalWin);
                 EventBus.instance.emit(GameEvents.WIN_PRESENT_END);
             }, presentEndDelay);
@@ -444,11 +454,14 @@ export class WinPresenter extends Component {
     }
 
     private _finishPresentation(gen: number): void {
-        if (this._generation !== gen) return;
+        if (this._generation !== gen) {
+            // Log.e(`[SPIN-HANG][WinHL] _finishPresentation skipped — gen stale | gen=${gen} cur=${this._generation}`);
+            return;
+        }
         this._stopCycling();
         this.unscheduleAllCallbacks();
         this._isPresenting = false;
-        // Log.d(`[WinPresenter] WIN_PRESENT_END`);
+        // Log.e(`[SPIN-HANG][WinHL] EMIT WIN_PRESENT_END (_finishPresentation) | gen=${gen}`);
         EventBus.instance.emit(GameEvents.WIN_PRESENT_END);
     }
 

@@ -489,8 +489,10 @@ export class SlotMachineController extends Component {
 
     /** Chỉ dựng chuỗi debug khi whitelist bật — tránh GC hitch giữa lúc reel quay. */
     private _logSpinState(msg: string): void {
-        if (!Log.isEnabled('spin-state')) return;
-        Log.e(`${msg} | ${this.debugStateSummary}`);
+        // TEMP SPIN-HANG debug — bỏ comment khối dưới khi cần trace treo spin
+        // if (!Log.isEnabled('spin-hang')) return;
+        // Log.e(`${msg} | ${this.debugStateSummary}`);
+        void msg;
     }
 
     tryRecoverReelsStopped(): boolean {
@@ -498,13 +500,28 @@ export class SlotMachineController extends Component {
         if (!this.areReelsVisuallyIdle) return false;
 
         if (!this._allReelsStopped) {
+            // Đánh dấu mọi reel IDLE còn thiếu trước khi force emit
+            this._recoverMissedIdleStops();
+            if (this._allReelsStopped) {
+                // recover đã emit REELS_STOPPED
+                return true;
+            }
+            if (this._stoppedCount < this.reels.length) {
+                for (let i = 0; i < this.reels.length; i++) {
+                    if (!this._stoppedReelSet.has(i)) {
+                        this._logSpinState(`[SPIN-HANG][SlotMC] force-count idle reel=${i}`);
+                        this._stoppedReelSet.add(i);
+                        this._stoppedCount++;
+                    }
+                }
+            }
             this._stoppedCount = this.reels.length;
             this._allReelsStopped = true;
             this._waitingReels = [];
             this._pendingOutOfOrderStops.clear();
             this._stopLongSpinVFX(false);
         }
-        this._logSpinState('[SPIN-STATE][SlotMC] recover/resent REELS_STOPPED');
+        this._logSpinState('[SPIN-HANG][SlotMC] recover/resent REELS_STOPPED');
         EventBus.instance.emit(GameEvents.REELS_STOPPED);
         return true;
     }
@@ -652,12 +669,12 @@ export class SlotMachineController extends Component {
     /** Quick stop — người chơi nhấn Spin lại khi reel đang quay → decel ngay lập tức.
      *  Chỉ hoạt động trong normal spin, không áp dụng cho FreeSpin/TopUp/PickGame. */
     private _onQuickStop(): void {
-        this._logSpinState('[SPIN-STATE][SlotMC] QUICK_STOP received');
+        this._logSpinState('[SPIN-HANG][SlotMC] QUICK_STOP received');
         if (this._isFreeSpin || this._isTopUp || this._isPickGame) return;
         for (const reel of this.reels) {
             reel.forceQuickStop();
         }
-        this._logSpinState('[SPIN-STATE][SlotMC] QUICK_STOP applied');
+        this._logSpinState('[SPIN-HANG][SlotMC] QUICK_STOP applied');
     }
 
     /**
@@ -794,7 +811,7 @@ export class SlotMachineController extends Component {
 
         // Guard: reel chưa dừng hẳn từ spin trước → defer 0.2s rồi thử lại
         if (!this.areAllReelsStopped) {
-            this._logSpinState('[SPIN-STATE][SlotMC] REELS_START_SPIN deferred');
+            this._logSpinState('[SPIN-HANG][SlotMC] REELS_START_SPIN deferred');
             this.scheduleOnce(() => this._onReelsStartSpin(), 0.2);
             return;
         }
@@ -811,7 +828,7 @@ export class SlotMachineController extends Component {
         this._hintPositions = [];
         this._stopHintBounce();
         this._resetVFX();
-        this._logSpinState('[SPIN-STATE][SlotMC] REELS_START_SPIN accepted');
+        this._logSpinState('[SPIN-HANG][SlotMC] REELS_START_SPIN accepted');
 
         // Áp dụng speed mode trước khi spin
         this._applySpeedMode();
@@ -888,7 +905,7 @@ export class SlotMachineController extends Component {
     private _onSpinResponse(response: SpinResponse): void {
         if (this._isTopUp) return; // TopUp mode: SlotMachineController không dừng reels
 
-        this._logSpinState(`[SPIN-STATE][SlotMC] SPIN_RESPONSE received | rands=${response.rands?.join(',')} reelIndex=${response.reelIndex}`);
+        this._logSpinState(`[SPIN-HANG][SlotMC] SPIN_RESPONSE received | rands=${response.rands?.join(',')} reelIndex=${response.reelIndex}`);
 
         // ★ Progressive Long Spin: tính toán reel nào cần long spin dựa trên tổng red SYMBOLS
         if (this._isLongSpinActive) {
@@ -922,7 +939,7 @@ export class SlotMachineController extends Component {
             ? Math.min(...Array.from(this._longSpinReelSet))
             : -1;
         this._longSpinBoundary = longSpinBoundary;
-        this._logSpinState(`[SPIN-STATE][SlotMC] longspin boundary resolved | boundary=${longSpinBoundary} longSet=[${Array.from(this._longSpinReelSet).join(',')}]`);
+        this._logSpinState(`[SPIN-HANG][SlotMC] longspin boundary resolved | boundary=${longSpinBoundary} longSet=[${Array.from(this._longSpinReelSet).join(',')}]`);
 
 
         for (let i = 0; i < this.reels.length; i++) {
@@ -986,16 +1003,13 @@ export class SlotMachineController extends Component {
     }
 
     /**
-     * Gọi từ onSymbolsSettled — SAU _finishDecel đã gán đúng symbol cho tất cả nodes.
-     * Đây là nơi an toàn để emit LONG_SPIN_HINT_SHOW: node visual-bottom đã có symId đúng.
+     * Gọi từ onSymbolsSettled — SAU _finishDecel đã gán đúng symbol.
+     * LONG_SPIN_HINT_SHOW cố ý KHÔNG emit ở đây: highlight/spine async có thể
+     * Tween.stopAllByTarget symbolNode giữa lúc stop-bounce → mất onStopComplete → treo spin.
+     * Hint được emit trong _processReelStopped (sau bounce / fallback).
      */
-    private _onReelSymbolsSettled(reelIndex: number): void {
-        if (this._isLongSpinActive) {
-            const hintPos = this._hintPositions.find(p => p.reelIndex === reelIndex);
-            if (hintPos) {
-                EventBus.instance.emit(GameEvents.LONG_SPIN_HINT_SHOW, [hintPos]);
-            }
-        }
+    private _onReelSymbolsSettled(_reelIndex: number): void {
+        // no-op — hint moved to _processReelStopped
     }
 
     private _canAcceptLongSpinStop(reelIndex: number): boolean {
@@ -1012,7 +1026,7 @@ export class SlotMachineController extends Component {
             for (const reelIndex of pending) {
                 if (!this._canAcceptLongSpinStop(reelIndex)) continue;
                 this._pendingOutOfOrderStops.delete(reelIndex);
-                this._logSpinState(`[SPIN-STATE][SlotMC] flush pending out-of-order REEL_STOPPED reel=${reelIndex}`);
+                this._logSpinState(`[SPIN-HANG][SlotMC] flush pending out-of-order REEL_STOPPED reel=${reelIndex}`);
                 this._processReelStopped(reelIndex);
                 flushed = true;
                 break;
@@ -1022,22 +1036,47 @@ export class SlotMachineController extends Component {
 
     private _onReelStopped(reelIndex: number): void {
         if (this._stoppedReelSet.has(reelIndex)) {
-            this._logSpinState(`[SPIN-STATE][SlotMC] duplicate REEL_STOPPED ignored reel=${reelIndex}`);
+            this._logSpinState(`[SPIN-HANG][SlotMC] duplicate REEL_STOPPED ignored reel=${reelIndex}`);
             return;
         }
         if (!this._canAcceptLongSpinStop(reelIndex)) {
             this._pendingOutOfOrderStops.add(reelIndex);
-            this._logSpinState(`[SPIN-STATE][SlotMC] out-of-order REEL_STOPPED held reel=${reelIndex}`);
+            this._logSpinState(`[SPIN-HANG][SlotMC] out-of-order REEL_STOPPED held reel=${reelIndex}`);
             return;
         }
         this._processReelStopped(reelIndex);
     }
 
+    /**
+     * Reel đã IDLE nhưng chưa vào stoppedSet (onStopComplete bị mất vì tween bị kill).
+     * Gọi sau mỗi stop / khi recover để không kẹt stopped=4/5.
+     */
+    private _recoverMissedIdleStops(): void {
+        for (let i = 0; i < this.reels.length; i++) {
+            if (this._stoppedReelSet.has(i)) continue;
+            if (this._pendingOutOfOrderStops.has(i)) continue;
+            if (this._waitingReels.some((w) => w.reelIndex === i)) continue;
+            const reel = this.reels[i];
+            if (!reel?.isIdle) continue;
+            this._logSpinState(`[SPIN-HANG][SlotMC] recover missed IDLE stop reel=${i}`);
+            this._processReelStopped(i);
+        }
+    }
+
     private _processReelStopped(reelIndex: number): void {
+        if (this._stoppedReelSet.has(reelIndex)) return;
         this._stoppedReelSet.add(reelIndex);
         this._stoppedCount++;
-        this._logSpinState(`[SPIN-STATE][SlotMC] REEL_STOPPED reel=${reelIndex}`);
+        this._logSpinState(`[SPIN-HANG][SlotMC] REEL_STOPPED reel=${reelIndex}`);
         EventBus.instance.emit(GameEvents.REEL_STOPPED, reelIndex);
+
+        // Long-spin hint SAU khi stop bounce xong — an toàn với spine/highlight
+        if (this._isLongSpinActive) {
+            const hintPos = this._hintPositions.find(p => p.reelIndex === reelIndex);
+            if (hintPos) {
+                EventBus.instance.emit(GameEvents.LONG_SPIN_HINT_SHOW, [hintPos]);
+            }
+        }
 
         // ★ Hiện credit label ngay khi reel dừng (per-reel) — chỉ cho STICKY_RED
         this._showCreditsForReel(reelIndex);
@@ -1052,11 +1091,11 @@ export class SlotMachineController extends Component {
                 const delay = this._longSpinReelSet.has(reelIndex) ? this.longSpinNextReelDelay : 0;
                 // Log removed for performance
                 if (this._pendingOutOfOrderStops.has(next.reelIndex)) {
-                    this._logSpinState(`[SPIN-STATE][SlotMC] skip stopAt for pending out-of-order reel=${next.reelIndex}`);
+                    this._logSpinState(`[SPIN-HANG][SlotMC] skip stopAt for pending out-of-order reel=${next.reelIndex}`);
                 } else if (delay > 0) {
                     this.scheduleOnce(() => {
                         if (this._pendingOutOfOrderStops.has(next.reelIndex) || this._stoppedReelSet.has(next.reelIndex)) {
-                            this._logSpinState(`[SPIN-STATE][SlotMC] scheduled stopAt skipped for already pending/stopped reel=${next.reelIndex}`);
+                            this._logSpinState(`[SPIN-HANG][SlotMC] scheduled stopAt skipped for already pending/stopped reel=${next.reelIndex}`);
                             return;
                         }
                         this.reels[next.reelIndex].stopAt(next.centerIndex, next.isLong);
@@ -1089,10 +1128,11 @@ export class SlotMachineController extends Component {
         }
 
         this._flushPendingLongSpinStops();
+        this._recoverMissedIdleStops();
 
         if (this._stoppedCount === this.reels.length && !this._allReelsStopped) {
             this._allReelsStopped = true;
-            this._logSpinState('[SPIN-STATE][SlotMC] EMIT REELS_STOPPED');
+            this._logSpinState('[SPIN-HANG][SlotMC] EMIT REELS_STOPPED');
             EventBus.instance.emit(GameEvents.REELS_STOPPED);
         }
     }

@@ -40,7 +40,7 @@ import { TopUpTransitionPopup, TransitionMode } from './TopUpTransitionPopup';
 const { ccclass, property } = _decorator;
 
 /** Base scale khi sticky vàng/xanh nằm trên overlay (đồng đỏ = 1). */
-const TOPUP_YELLOW_COIN_SCALE = 1.2;
+const TOPUP_YELLOW_COIN_SCALE = 1;
 const TOPUP_GREEN_COIN_SCALE = 1;
 
 @ccclass('StickyOverlayController')
@@ -73,8 +73,8 @@ export class StickyOverlayController extends Component {
     @property({ tooltip: 'Scale bắt đầu khi đồng vàng/xanh pop-in (nhỏ → to).' })
     goldCoinPopStartScale: number = 0.35;
 
-    @property({ tooltip: 'Overshoot scale khi đồng vàng/xanh nhún xuất hiện (nhân với base).' })
-    goldCoinBounceOvershoot: number = 1.12;
+    @property({ tooltip: 'Overshoot scale khi đồng vàng/xanh nhún xuất hiện (nhân với base, tối đa = base).' })
+    goldCoinBounceOvershoot: number = 1;
 
     @property({ tooltip: 'Thời gian scale UP khi đồng vàng/xanh xuất hiện (giây).' })
     goldCoinBounceUpDuration: number = 0.28;
@@ -817,9 +817,9 @@ export class StickyOverlayController extends Component {
         }
 
         if (isGoldCoin) {
-            // Pop-in: bắt đầu nhỏ → phóng lên overshoot → settle về base (1.2 vàng / 1 xanh)
+            // Pop-in: bắt đầu nhỏ → phóng lên tối đa base (1) → settle về base
             const startS = baseScale * Math.max(0.05, this.goldCoinPopStartScale);
-            const overshoot = baseScale * this.goldCoinBounceOvershoot;
+            const overshoot = Math.min(baseScale * this.goldCoinBounceOvershoot, 1);
             const upDur = this.goldCoinBounceUpDuration;
             const downDur = this.goldCoinBounceDownDuration;
             slotNode.setScale(startS, startS, 1);

@@ -22,7 +22,8 @@ const { ccclass, property } = _decorator;
 
 enum ReelState { IDLE, LAUNCHING, SPINNING, STOPPING }
 
-const DIM_SYMBOL_COLOR = new Color(0x61, 0x61, 0x61, 255);
+/** Màu symbol thường khi reel đang quay (tối hơn để nổi bật sticky vàng/xanh). */
+const DIM_SYMBOL_COLOR = new Color(0x40, 0x40, 0x40, 255);
 const LIT_SYMBOL_COLOR = new Color(255, 255, 255, 255);
 
 @ccclass('TopUpReelController')

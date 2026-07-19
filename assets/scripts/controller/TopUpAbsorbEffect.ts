@@ -41,8 +41,8 @@ import { SoundManager }            from '../manager/SoundManager';
 
 const { ccclass, property } = _decorator;
 
-/** Khớp StickyOverlay: vàng 1.2, xanh 1. */
-const TOPUP_YELLOW_COIN_SCALE = 1.2;
+/** Khớp StickyOverlay: vàng/xanh scale tối đa khi xuất hiện = 1. */
+const TOPUP_YELLOW_COIN_SCALE = 1;
 const TOPUP_GREEN_COIN_SCALE = 1;
 
 function topUpAbsorbCoinScale(symbolId: number): number {
@@ -353,7 +353,7 @@ export class TopUpAbsorbEffect extends Component {
     ): Promise<void> {
         Log.d(`[TopUpAbsorb] absorb dst=${dstNode.name} target=${creditTarget} sources=${JSON.stringify(sources.map(s => ({ reel: s.reel, row: s.row, sym: s.symbolId, credit: s.credit ?? 0 })))}`);
 
-        // Coin vang/xanh da hien tren StickyOverlay (vang 1.2 / xanh 1).
+        // Coin vang/xanh da hien tren StickyOverlay (scale toi da = 1).
         // Stop landing bounce first so the absorb scale is not overwritten by a previous tween.
         const absorbScale = topUpAbsorbCoinScale(dstSymbolId);
         Tween.stopAllByTarget(dstNode);
@@ -679,12 +679,13 @@ export class TopUpAbsorbEffect extends Component {
         for (const cell of toShow) {
             const node = this._getSlotNode(cell.reel, cell.row);
             if (!node || !node.active) continue;
-            ps.push(this._bounceCoin(node));
+            ps.push(this._bounceCoin(node, 1));
         }
         await Promise.all(ps);
     }
 
-    private _bounceCoin(node: Node): Promise<void> {
+    /** @param peakMultiplier Nhân peak scale; vàng/xanh xuất hiện dùng 1 (không vượt base). */
+    private _bounceCoin(node: Node, peakMultiplier: number = 1.25): Promise<void> {
         return new Promise(resolve => {
             if (!isValid(node) || !node.activeInHierarchy) {
                 Log.w(`[TopUpAbsorb] _bounceCoin: node invalid or inactive (${node?.name}), skip`);
@@ -693,12 +694,14 @@ export class TopUpAbsorbEffect extends Component {
             }
             Tween.stopAllByTarget(node);
             const baseScale = node.scale.clone();
+            const peakX = baseScale.x * peakMultiplier;
+            const peakY = baseScale.y * peakMultiplier;
 
             let resolved = false;
             const doResolve = () => { if (!resolved) { resolved = true; resolve(); } };
 
             tween(node)
-                .to(0.10, { scale: new Vec3(baseScale.x * 1.25, baseScale.y * 1.25, baseScale.z) })
+                .to(0.10, { scale: new Vec3(peakX, peakY, baseScale.z) })
                 .to(0.08, { scale: new Vec3(baseScale.x * 0.95, baseScale.y * 0.95, baseScale.z) })
                 .to(0.06, { scale: baseScale })
                 .call(() => doResolve())

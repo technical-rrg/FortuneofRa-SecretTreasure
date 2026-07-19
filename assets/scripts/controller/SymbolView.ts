@@ -138,7 +138,8 @@ export class SymbolView extends Component {
     /** Thời lượng 1 lần land bounce (grow + hold + shrink), đã nhân speed mode. */
     static getLandBounceDuration(): number {
         const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
-        return (0.12 + 0.05 + 0.32) * m;
+        // Khớp _playLandBounce: grow 0.08 + hold 0.12 + shrink 0.32
+        return (0.08 + 0.12 + 0.32) * m;
     }
 
     static hasActiveRedLandBounces(): boolean {
@@ -315,6 +316,10 @@ export class SymbolView extends Component {
     private _debugLabel: Label | null = null;
     private _pendingLandBounce: boolean = false;
     private _landBouncePlayed: boolean = false;
+    /** Tăng mỗi lần bounce mới / bị interrupt — hủy finishBounce & scheduleOnce cũ. */
+    private _landBounceGen: number = 0;
+    /** true khi land-bounce đang chạy (kể cả bounce trên node gốc, không clone). */
+    private _landBounceInFlight: boolean = false;
     /** Parent reel cố định — không đổi khi reparent tạm sang WaysPayDisplay */
     private _reelHomeParent: Node | null = null;
     private _reelHomeLocalPos: Vec3 = new Vec3();
@@ -367,9 +372,16 @@ export class SymbolView extends Component {
         const wasRed = view?.symbolId === SymbolId.STICKY_RED;
         const hadLandClone = SymbolView._landBounceClones.has(node);
 
+        // Invalidate gen trước — scheduleOnce/finishBounce cũ không được đụng clone/counter mới
+        const wasInFlight = !!view?._landBounceInFlight;
+        if (view) view._invalidateLandBounce();
+
         if (hadLandClone) {
             SymbolView._destroyLandBounceClone(node);
-            if (wasRed) SymbolView._endRedLandBounce();
+        }
+        // End counter nếu đang mid-bounce (clone hoặc bounce trên node gốc)
+        if (wasRed && (hadLandClone || wasInFlight)) {
+            SymbolView._endRedLandBounce();
         }
 
         const data = SymbolView._pendingLandBounces.get(node);
@@ -400,6 +412,13 @@ export class SymbolView extends Component {
             const base = view?.defaultScale ?? 1;
             node.setScale(base, base, 1);
         }
+    }
+
+    /** Hủy callback/tween land-bounce đang chạy trên instance này. */
+    private _invalidateLandBounce(): void {
+        this._landBounceGen++;
+        this._landBounceInFlight = false;
+        if (this.node?.isValid) Tween.stopAllByTarget(this.node);
     }
 
     /**
@@ -764,7 +783,11 @@ export class SymbolView extends Component {
     private _playLandBounce(reparentToTop: boolean = true): void {
         const s = this.defaultScale;
 
+        // Dọn clone/tween/schedule cũ trước khi nhún mới (tránh dư âm → lúc nhanh lúc chậm)
         SymbolView.restoreLandBounceIfNeeded(this.node);
+        this._landBounceGen++;
+        const myGen = this._landBounceGen;
+        Tween.stopAllByTarget(this.node);
 
         // Play sound when a sticky yellow coin lands in FreeSpin Gold
         if (this._currentSymbolId === SymbolId.STICKY_YELLOW && GameData.instance.currentMode === 'freespin_gold') {
@@ -773,6 +796,7 @@ export class SymbolView extends Component {
 
         const isRedSticky = this._currentSymbolId === SymbolId.STICKY_RED;
         if (isRedSticky) SymbolView._beginRedLandBounce(this.node);
+        this._landBounceInFlight = true;
 
         this._ensureReelHomeCached();
         const topNode = SymbolView.landBounceParent;
@@ -806,7 +830,9 @@ export class SymbolView extends Component {
             }
         }
 
+        // Reset scale/pos + cắt mọi tween còn sót trên target (clone mới hoặc node gốc)
         this.node.setScale(s, s, 1);
+        Tween.stopAllByTarget(bounceTarget);
         bounceTarget.setScale(s, s, 1);
         // Đẩy lên nhanh → hold ngắn → rơi xuống chậm hơn
         const growDur = 0.08 * m;
@@ -820,16 +846,21 @@ export class SymbolView extends Component {
         let bounceFinished = false;
 
         const finishBounce = () => {
-            if (bounceFinished) return;
+            // Gen lệch = bounce đã bị thay/interrupt — không destroy clone mới / không đếm counter 2 lần
+            if (myGen !== this._landBounceGen || bounceFinished) return;
             bounceFinished = true;
+            this._landBounceInFlight = false;
             SymbolView._destroyLandBounceClone(this.node); // cũng setSpriteVisible(true) trên gốc
             if (this.node?.isValid) {
+                Tween.stopAllByTarget(this.node);
                 this.node.setScale(s, s, 1);
                 if (usedClone) this.setSpriteVisible(true);
             }
             // Clone đã destroy; nếu bounce trên node gốc thì trả vị trí về base
             if (bounceTarget === this.node && this.node?.isValid) {
                 this.node.setPosition(basePos);
+            } else if (bounceTarget?.isValid && bounceTarget !== this.node) {
+                Tween.stopAllByTarget(bounceTarget);
             }
             if (isRedSticky) SymbolView._endRedLandBounce();
         };
@@ -849,7 +880,7 @@ export class SymbolView extends Component {
 
         // Fallback: tween bị cắt giữa chừng → vẫn xóa clone + giảm counter
         this.scheduleOnce(() => {
-            if (!this.node?.isValid || bounceFinished) return;
+            if (!this.node?.isValid || myGen !== this._landBounceGen || bounceFinished) return;
             finishBounce();
         }, bounceDuration + 0.08);
     }

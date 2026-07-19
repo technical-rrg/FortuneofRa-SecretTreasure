@@ -90,8 +90,8 @@ export class WildTrailController extends Component {
     @property({ tooltip: 'Thời gian particle bay từ bat đến hũ (giây)' })
     flyDuration: number = 0.85;
 
-    @property({ tooltip: 'Tên Spine animation phát khi wild trail bay ra (mặc định: Impact).' })
-    wildTrailAnimName: string = 'Impact';
+    @property({ tooltip: 'Tên Spine animation phát khi wild trail bay ra (mặc định: win2).' })
+    wildTrailAnimName: string = 'win2';
 
     @property({
         type: Node,
@@ -293,8 +293,8 @@ export class WildTrailController extends Component {
 
     /**
      * Zoom nhẹ symbol node rồi spawn particle bay đến potNode.
-     * Gọi onDone() khi cả Impact spine và particle đều đã xong.
-     * Impact là one-shot: animation xong phải return spine về pool và bật lại sprite Wild.
+     * Gọi onDone() khi cả win2 spine và particle đều đã xong.
+     * win2 là one-shot: animation xong phải return spine về pool và bật lại sprite Wild.
      */
     /**
      * Hướng cong theo vị trí reel (world X): -1 = trái, +1 = phải.
@@ -340,7 +340,7 @@ export class WildTrailController extends Component {
                 impactDone = true;
             }
             if (spineNode) {
-                // Anchor Impact spine trực tiếp vào symbolNode để giữ trong mask của reel,
+                // Anchor win2 spine trực tiếp vào symbolNode để giữ trong mask của reel,
                 // tránh cảm giác "bay ra sớm" khi các reel khác còn đang quay (đặc biệt ở Turbo).
                 // Đặt sibling index cao nhất trong symbolNode để nằm trên sprite symbol.
                 spineNode.setParent(symbolNode, false);

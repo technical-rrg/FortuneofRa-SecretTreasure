@@ -716,23 +716,17 @@ export class ReelController extends Component {
 
         // Snap chính xác và gán symbol kết quả đúng (khắc phục floating-point drift)
         const data = GameData.instance;
-        const stripUsed = this._strip;
         if (data.freeSpinRemaining <= 0 && data.currentMode === 'normal') {
             this._lastNormalCenterIndex = this._decelCenterIdx;
         }
         const syms = this._getSymbols5(this._decelCenterIdx);
-        const names = ['7','77','777','BAR','BB','3X','BNS','R⚡','B⚡'];
-        const fmt = (id: number) => id < 0 ? '___' : (names[id] ?? `?${id}`);
-        // Log.e(
-        //     `${this._logPrefix} SNAP symbols stripIndex=${this._resultStripIndex ?? 'state'} center=${this._decelCenterIdx}` +
-        //     ` isPurchaseActive=${data.isPurchaseReelActive} stripLen=${stripUsed.length}` +
-        //     ` nodes=[${syms.map(fmt).join(',')}] visibleTopMidBot=[${fmt(syms[1])},${fmt(syms[2])},${fmt(syms[3])}]`
-        // );
 
         // Decel đã scroll quá đích (overshoot), node đang ở dưới rest.
         // Chỉ emit symbol-changed để đảm bảo symbol đúng, không snap position.
         for (let i = 0; i < this.symbolNodes.length; i++) {
-            this.symbolNodes[i].emit('symbol-changed', syms[i]);
+            const n = this.symbolNodes[i];
+            if (!n?.isValid) continue;
+            n.emit('symbol-changed', syms[i]);
         }
 
         this._state = ReelState.IDLE;
@@ -749,7 +743,7 @@ export class ReelController extends Component {
 
         // Bounce nhỏ — snap từ dưới quá khứ về rest
         // Chỉ tween 3 visible nodes (1,2,3). Buffer nodes (0,4) → snap ngay lập tức.
-        const setDur = this.stopBounceSettleDuration;
+        const setDur = Math.max(0.01, this.stopBounceSettleDuration);
         this.onBounceStart?.();
         let done = 0;
         const visibleIndices = [1, 2, 3];
@@ -760,30 +754,39 @@ export class ReelController extends Component {
         // Snap buffer nodes instantly
         const bufferIndices = [0, 4];
         for (const idx of bufferIndices) {
-            if (this.symbolNodes[idx]) {
-                this.symbolNodes[idx].setPosition(this._restPositions[idx]);
-                this.symbolNodes[idx].emit('reel-settled');
+            const buf = this.symbolNodes[idx];
+            if (buf?.isValid && this._restPositions[idx]) {
+                buf.setPosition(this._restPositions[idx]);
+                buf.emit('reel-settled');
             }
         }
 
-        for (const i of visibleIndices) {
+        const validVisible = visibleIndices.filter((i) => this.symbolNodes[i]?.isValid && this._restPositions[i]);
+        const fireStopComplete = () => {
+            if (this._stopCompleteFired) return;
+            this._stopCompleteFired = true;
+            this.unschedule(fireStopComplete);
+            this.onStopComplete?.();
+        };
+
+        // Safety: nếu stop-bounce tween bị kill (highlight/spine/land-bounce) → vẫn fire onStopComplete
+        this.unschedule(fireStopComplete);
+        this.scheduleOnce(fireStopComplete, setDur + 0.08);
+
+        if (validVisible.length === 0) {
+            fireStopComplete();
+            return;
+        }
+
+        for (const i of validVisible) {
             const node = this.symbolNodes[i];
             const rest = this._restPositions[i];
             tween(node)
                 .to(setDur, { position: rest.clone() }, { easing: 'backOut' })
                 .call(() => {
-                    node.emit('reel-settled');
-                    if (!this._stopCompleteFired && ++done >= visibleIndices.length) {
-                        this._stopCompleteFired = true;
-                       // Log.e(`${this._logPrefix} bounce complete — calling onStopComplete`);
-                        this.onStopComplete?.();
-
-                        // DEBUG: log actual Y of visible nodes after stop
-                        const vis = [1, 2, 3].map(j => {
-                            const n = this.symbolNodes[j];
-                            return `n${j} localY=${n.position.y.toFixed(2)} worldY=${n.worldPosition.y.toFixed(2)}`;
-                        }).join(' | ');
-                        //Log.e(`[GRID-DEBUG][REEL-Y-STOP] Reel${this.reelIndex} ${vis}`);
+                    if (node?.isValid) node.emit('reel-settled');
+                    if (!this._stopCompleteFired && ++done >= validVisible.length) {
+                        fireStopComplete();
                     }
                 })
                 .start();

@@ -30,6 +30,7 @@ import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
 import { MatchedLinePay, WaysPayWin } from '../data/SlotTypes';
 import { ReelController } from './ReelController';
+import { SymbolHighlighter } from './SymbolHighlighter';
 import { SymbolView } from './SymbolView';
 
 const { ccclass, property } = _decorator;
@@ -74,9 +75,17 @@ export class WaysPayDisplay extends Component {
     /** Flag: đã init xong */
     private _ready: boolean = false;
 
+    /** SymbolHighlighter — chờ SymbolSpine sẵn sàng trước khi bật underlay. */
+    private _symbolHighlighter: SymbolHighlighter | null = null;
+
     // ─── LIFECYCLE ─────────────────────────────────────────────────────────
 
     onLoad(): void {
+        try {
+            this._symbolHighlighter = this.node.scene?.getComponentInChildren(SymbolHighlighter) ?? null;
+        } catch (_e) {
+            this._symbolHighlighter = null;
+        }
         const bus = EventBus.instance;
         bus.on(GameEvents.WIN_SHOW_ALL_WAYS,  this._onShowAllWays,  this);
         bus.on(GameEvents.WIN_CYCLE_ONE_WAY,  this._onCycleOneWay,  this);
@@ -126,9 +135,7 @@ export class WaysPayDisplay extends Component {
      */
     private _onShowAllWays(ways: WaysPayWin[], _duration?: number): void {
         if (!this._ready) return;
-        this._applyCells(this._collectWayCells(ways));
-        // SymbolHighlighter (cùng event) có thể append clone/spine sau → pin lại underlay cuối frame
-        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
+        void this._applyCellsWhenSpinesReady(this._collectWayCells(ways));
     }
 
     /**
@@ -136,21 +143,41 @@ export class WaysPayDisplay extends Component {
      */
     private _onCycleOneWay(way: WaysPayWin): void {
         if (!this._ready) return;
-        this._applyCells(this._collectWayCells([way]));
-        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
+        void this._applyCellsWhenSpinesReady(this._collectWayCells([way]));
     }
 
     /** Real API line win: hiện union ô thắng của mọi MatchedLinePay. */
     private _onShowAllLines(lines: MatchedLinePay[], _duration?: number): void {
         if (!this._ready) return;
-        this._applyCells(this._collectLineCells(lines));
-        this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
+        void this._applyCellsWhenSpinesReady(this._collectLineCells(lines));
     }
 
     /** Cycle từng line (UI_UPDATE_WIN_LABEL): chỉ giữ ô của line hiện tại. */
     private _onCycleOneLine(linePay: MatchedLinePay): void {
         if (!this._ready || !linePay) return;
-        this._applyCells(this._collectLineCells([linePay]));
+        void this._applyCellsWhenSpinesReady(this._collectLineCells([linePay]));
+    }
+
+    /**
+     * Chờ SymbolSpine prefab (đặc biệt Wild/11) sẵn sàng rồi mới bật underlay —
+     * đồng bộ với SymbolHighlighter để tránh highlight hiện trước spine symbol.
+     */
+    private async _applyCellsWhenSpinesReady(wanted: Set<string>): Promise<void> {
+        const hl = this._symbolHighlighter
+            ?? this.node.scene?.getComponentInChildren(SymbolHighlighter)
+            ?? null;
+        this._symbolHighlighter = hl;
+        if (hl) {
+            const cells: Array<{ col: number; row: number }> = [];
+            for (const key of wanted) {
+                const [colStr, rowStr] = key.split(',');
+                cells.push({ col: Number(colStr), row: Number(rowStr) });
+            }
+            await hl.ensureSpinesForDisplayCells(cells);
+        }
+        if (!this.isValid || !this._ready) return;
+        this._applyCells(wanted);
+        // SymbolHighlighter có thể append clone/spine sau → pin lại underlay cuối frame
         this.scheduleOnce(() => this._pinOverlaysToBottom(), 0);
     }
 

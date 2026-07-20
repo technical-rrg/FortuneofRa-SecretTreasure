@@ -1,0 +1,69 @@
+
+Anim-New-Feature.png
+size: 2028, 1974
+format: RGBA8888
+filter: Linear, Linear
+repeat: none
+BackLight
+  rotate: true
+  xy: 1, 832
+  size: 1141, 825
+  orig: 1574, 886
+  offset: 211, 61
+  index: -1
+CircleLight
+  rotate: false
+  xy: 1, 1
+  size: 829, 829
+  orig: 1574, 886
+  offset: 364, 29
+  index: -1
+CircleLight2 copy 2
+  rotate: true
+  xy: 1263, 1187
+  size: 786, 764
+  orig: 1574, 886
+  offset: 389, 108
+  index: -1
+Layer 42
+  rotate: true
+  xy: 832, 641
+  size: 416, 425
+  orig: 1574, 886
+  offset: 583, 347
+  index: -1
+Layer 43
+  rotate: true
+  xy: 828, 1059
+  size: 914, 433
+  orig: 1574, 886
+  offset: 334, 295
+  index: -1
+Layer 44
+  rotate: false
+  xy: 1263, 634
+  size: 620, 551
+  orig: 1574, 886
+  offset: 481, 254
+  index: -1
+Layer 45
+  rotate: false
+  xy: 832, 42
+  size: 785, 590
+  orig: 1574, 886
+  offset: 394, 174
+  index: -1
+Star
+  rotate: false
+  xy: 1619, 282
+  size: 350, 350
+  orig: 420, 420
+  offset: 35, 35
+  index: -1
+Text
+  rotate: true
+  xy: 1885, 689
+  size: 496, 64
+  orig: 1574, 886
+  offset: 544, 302
+  index: -1

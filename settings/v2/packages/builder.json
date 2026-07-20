@@ -8,9 +8,6 @@
           "web": {
             "webp": {
               "quality": 80
-            },
-            "astc_6x6": {
-              "quality": "thorough"
             }
           }
         }

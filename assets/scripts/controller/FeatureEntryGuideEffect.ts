@@ -1,26 +1,9 @@
 /**
  * FeatureEntryGuideEffect — Hiệu ứng nữ thần "dẫn dắt" vào Feature.
  *
- * ★ FEATURE ENTRY LOGIC ADDED (Concept & System Design v260610, trang 19–20)
+ * characterSpine: In (xuất hiện) → Loop (chờ, loop) → OUT (biến mất).
  *
- * Khi Force Feature Entry (Sticky < 6 nhưng trúng xác suất vào Feature), nhân vật
- * nữ thần xuất hiện dẫn người chơi vào Feature theo timeline 3 phase:
- *   • Appear (0.0 ~ 0.8s):  làm tối reel/nền (vignette) + spotlight + backlight/halo,
- *                            nhân vật hiện với scale-up (kèm freeze 0.2~0.4s trước).
- *   • Hold   (0.9 ~ 2.6s):  idle motion (thở, tóc, váy) + highlight lướt trên trang sức.
- *   • Exit   (2.7 ~ 3.0s):  light burst white-out — quầng sáng bùng phủ màn hình rồi tắt,
- *                            lúc này reel screen đã sẵn sàng ở dưới.
- *
- * ── SETUP TRONG EDITOR ──
- *   1. Tạo Node "FeatureEntryGuide" (full-screen, trên cùng z-order), active=false.
- *   2. Gắn component này vào node đó.
- *   3. Kéo node overlay tối (đen mờ full màn hình) vào `dimNode`.
- *   4. Kéo node nhân vật vào `characterNode` (hoặc gắn Spine → `characterSpine`).
- *      - Nếu dùng Spine: đặt tên animation `Appear`, `Idle`, `Exit` (tùy chỉnh bên dưới).
- *   5. Kéo node "flash trắng" full màn hình vào `whiteFlashNode`.
- *   6. (Optional) Kéo AudioClip vào `sfxAppear`.
- *
- * Component tự lắng nghe FEATURE_ENTRY_GUIDE_SHOW và emit FEATURE_ENTRY_GUIDE_DONE khi xong.
+ * Component lắng nghe FEATURE_ENTRY_GUIDE_SHOW và emit FEATURE_ENTRY_GUIDE_DONE khi xong.
  */
 
 import {
@@ -51,20 +34,18 @@ export class FeatureEntryGuideEffect extends Component {
     @property({ type: AudioClip, tooltip: 'SFX khi nhân vật xuất hiện (optional).' })
     sfxAppear: AudioClip | null = null;
 
-    // ─── Spine animation names ───
-    @property({ tooltip: 'Tên animation Spine lúc xuất hiện.' })
-    animAppear: string = 'Appear';
-    @property({ tooltip: 'Tên animation Spine lúc hold (loop).' })
-    animIdle: string = 'Idle';
-    @property({ tooltip: 'Tên animation Spine lúc thoát.' })
-    animExit: string = 'Exit';
+    @property({ tooltip: 'Spine: xuất hiện (one-shot).' })
+    animAppear: string = 'In';
+    @property({ tooltip: 'Spine: chờ / idle (loop).' })
+    animIdle: string = 'Loop';
+    @property({ tooltip: 'Spine: biến mất (one-shot).' })
+    animExit: string = 'OUT';
 
-    // ─── Timeline (giây) ───
-    @property({ tooltip: 'Thời lượng phase Appear.' })
+    @property({ tooltip: 'Thời lượng phase Appear (dim + fallback node).' })
     appearDuration: number = 0.8;
-    @property({ tooltip: 'Thời lượng phase Hold.' })
+    @property({ tooltip: 'Thời lượng giữ Loop sau khi In xong.' })
     holdDuration: number = 1.8;
-    @property({ tooltip: 'Thời lượng phase Exit (light burst).' })
+    @property({ tooltip: 'Thời lượng white flash sau OUT.' })
     exitDuration: number = 0.4;
 
     private _playing: boolean = false;
@@ -76,28 +57,33 @@ export class FeatureEntryGuideEffect extends Component {
 
     onDestroy(): void {
         EventBus.instance.offTarget(this);
+        this._clearSpineListener();
+        this.unscheduleAllCallbacks();
     }
 
     private _hideAll(): void {
+        this._clearSpineListener();
+        this.unscheduleAllCallbacks();
         this.node.active = false;
         this._setOpacity(this.dimNode, 0);
         this._setOpacity(this.whiteFlashNode, 0);
         if (this.whiteFlashNode) this.whiteFlashNode.active = false;
         if (this.characterNode) this.characterNode.active = false;
+        if (this.characterSpine) this.characterSpine.node.active = false;
     }
 
     private _play(): void {
         if (this._playing) return;
         this._playing = true;
+        this.unscheduleAllCallbacks();
+        this._clearSpineListener();
         this.node.active = true;
 
         SoundManager.instance?.playSFX(this.sfxAppear);
         this._phaseAppear();
     }
 
-    // ─── PHASE 1: APPEAR (spotlight + backlight + scale-up) ───
     private _phaseAppear(): void {
-        // Vignette tối dần
         if (this.dimNode) {
             this.dimNode.active = true;
             this._setOpacity(this.dimNode, 0);
@@ -106,17 +92,10 @@ export class FeatureEntryGuideEffect extends Component {
         }
 
         if (this.characterSpine) {
-            this.characterSpine.node.active = true;
-            this.characterSpine.setAnimation(0, this.animAppear, false);
-            this.characterSpine.setCompleteListener(() => {
-                this.characterSpine!.setCompleteListener(null);
-                this.characterSpine!.setAnimation(0, this.animIdle, true);
-            });
-            this.scheduleOnce(() => this._phaseExit(), this.appearDuration + this.holdDuration);
+            this._playSpineSequence();
             return;
         }
 
-        // Fallback không Spine: scale-up + fade-in nhân vật
         if (this.characterNode) {
             this.characterNode.active = true;
             this.characterNode.setScale(0.7, 0.7, 1);
@@ -125,7 +104,6 @@ export class FeatureEntryGuideEffect extends Component {
             if (cop) tween(cop).to(this.appearDuration, { opacity: 255 }).start();
             tween(this.characterNode)
                 .to(this.appearDuration, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
-                // Hold: idle "thở" nhẹ
                 .repeatForever(
                     tween<Node>()
                         .to(this.holdDuration * 0.5, { scale: new Vec3(1.02, 1.02, 1) })
@@ -133,14 +111,38 @@ export class FeatureEntryGuideEffect extends Component {
                 )
                 .start();
         }
-        this.scheduleOnce(() => this._phaseExit(), this.appearDuration + this.holdDuration);
+        this.scheduleOnce(() => this._phaseExitFlash(), this.appearDuration + this.holdDuration);
     }
 
-    // ─── PHASE 3: EXIT (light burst white-out) ───
-    private _phaseExit(): void {
-        if (this.characterSpine) {
-            this.characterSpine.setAnimation(0, this.animExit, false);
-        }
+    /** In → Loop (holdDuration) → OUT → white flash */
+    private _playSpineSequence(): void {
+        const skel = this.characterSpine!;
+        skel.node.active = true;
+        this._clearSpineListener();
+
+        skel.setAnimation(0, this.animAppear, false);
+        skel.setCompleteListener((entry) => {
+            if (!this._playing || !entry?.animation || entry.animation.name !== this.animAppear) return;
+            this._clearSpineListener();
+            skel.setAnimation(0, this.animIdle, true);
+            this.scheduleOnce(() => this._playSpineOut(), this.holdDuration);
+        });
+    }
+
+    private _playSpineOut(): void {
+        if (!this._playing || !this.characterSpine) return;
+        const skel = this.characterSpine;
+        this._clearSpineListener();
+
+        skel.setAnimation(0, this.animExit, false);
+        skel.setCompleteListener((entry) => {
+            if (!this._playing || !entry?.animation || entry.animation.name !== this.animExit) return;
+            this._clearSpineListener();
+            this._phaseExitFlash();
+        });
+    }
+
+    private _phaseExitFlash(): void {
         if (this.characterNode) {
             Tween.stopAllByTarget(this.characterNode);
         }
@@ -161,12 +163,17 @@ export class FeatureEntryGuideEffect extends Component {
         }
     }
 
-    /** Reel screen đã được swap ở dưới lúc flash che kín → emit DONE. */
     private _finish(): void {
         if (!this._playing) return;
         this._playing = false;
         Log.d('[FeatureEntryGuide] done — emit FEATURE_ENTRY_GUIDE_DONE');
         EventBus.instance.emit(GameEvents.FEATURE_ENTRY_GUIDE_DONE);
+    }
+
+    private _clearSpineListener(): void {
+        if (this.characterSpine?.isValid) {
+            this.characterSpine.setCompleteListener(null);
+        }
     }
 
     private _setOpacity(node: Node | null, value: number): void {

@@ -17,7 +17,7 @@
  *   4. Spine effect: Prefab trong MainBundle/SymbolSpine/{id}.
  *      Có prefab → clone/borrow từ pool, play spine highlight.
  *      Không có prefab → fallback clone sprite + zoom nhún (code).
- *      Lazy bundle.load lần đầu; node trả về pool sau khi xong.
+ *      Prefab preload ở start(); highlight chỉ bật fillBlack sau khi prefab sẵn sàng.
  *
  * ── NODE LAYOUT ReelController ──
  *   symbolNodes[0] = ExtraTop1  (buffer/clip)
@@ -74,6 +74,8 @@ const DEFAULT_SPINE_PREFAB_PATHS: Readonly<Record<number, string>> = {
     [SymbolId.MINOR_A]:         'SymbolSpine/5',
     [SymbolId.MAJOR_HORUS]:     'SymbolSpine/6',
     [SymbolId.MAJOR_ANUBIS]:    'SymbolSpine/7',
+    [SymbolId.MAJOR_SOBEK]:     'SymbolSpine/8',
+    [SymbolId.MAJOR_RAMSES]:    'SymbolSpine/9',
     [SymbolId.MAJOR_CLEOPATRA]: 'SymbolSpine/10',
     [SymbolId.WILD]:            'SymbolSpine/11',
     [SymbolId.STICKY_RED]:      'SymbolSpine/12',
@@ -140,7 +142,7 @@ export class SymbolHighlighter extends Component {
         tooltip: 'Path Prefab Spine trong MainBundle, index = SymbolId.\n'
                + 'Để trống slot = dùng DEFAULT_SPINE_PREFAB_PATHS hoặc không có spine.\n'
                + 'VD: SymbolSpine/0 … SymbolSpine/12.\n'
-               + 'KHÔNG reference Prefab trực tiếp — lazy bundle.load khi highlight lần đầu.',
+               + 'KHÔNG reference Prefab trực tiếp — bundle.load + preload ở start().',
     })
     spineEffectPrefabPaths: string[] = [];
 
@@ -265,9 +267,26 @@ export class SymbolHighlighter extends Component {
         bus.on(GameEvents.RED_SYMBOL_BOUNCE, this._onRedSymbolBounce, this);
     }
 
+    start(): void {
+        // Preload SymbolSpine (đặc biệt Wild/11) trước spin đầu — tránh fillBlack/WaysPay
+        // hiện sớm trong lúc bundle.load lazy lần đầu.
+        const ids = Object.keys(DEFAULT_SPINE_PREFAB_PATHS).map(Number);
+        void this._ensureSpinePrefabs(ids).then(() => {
+            Log.d(`[SymbolHighlighter] SymbolSpine warmup done (${ids.length} ids)`);
+        });
+    }
+
     onDestroy(): void {
         this._deactivateAllSpines();
         EventBus.instance.offTarget(this);
+    }
+
+    /**
+     * Public API cho WaysPayDisplay: chờ prefab spine của các ô thắng sẵn sàng
+     * trước khi bật underlay highlight — tránh overlay hiện trước Wild spine.
+     */
+    ensureSpinesForDisplayCells(cells: Array<{ col: number; row: number }>): Promise<void> {
+        return this._ensureSpinePrefabs(this._collectNeededSpineIds(cells));
     }
 
     // ── EVENT HANDLERS ────────────────────────────────────────────────────────
@@ -278,11 +297,11 @@ export class SymbolHighlighter extends Component {
         // Force-clean toàn bộ spine/bounce cũ trước khi activate line mới —
         // tránh highlight line trước còn sót (orphan clone trên PaylineManager).
         this._deactivateAllSpines();
-        this._applyHighlight(cells);
-        this._zoomCells(cells);
-        this._activateSpinesForCells(cells, this.lineCycleHighlightDuration);
         this.paylineIndicator?.showWinLine(linePay.payLineIndex);
         this._playSymbolMatchSound(linePay.matchedSymbols);
+        void this._runHighlightWithSpines(cells, this.lineCycleHighlightDuration, false, () => {
+            this._zoomCells(cells);
+        });
     }
 
     /** Phát sound tương ứng với loại symbol thắng của line: Wild > Major
@@ -350,7 +369,6 @@ export class SymbolHighlighter extends Component {
         // KHÔNG đưa vào allCells để tránh fillBlack highlight cho nó.
         // Clear highlight cũ trước show-all — tránh sót bounce/spine từ spin/cycle trước.
         this._deactivateAllSpines();
-        this._applyHighlight(allCells);
         // Zoom cho gold coin được xử lý trong _applyGreenTint (gọi từ _activateSpinesForCells)
         // Dùng duration từ WinPresenter.spinEnableDelay nếu được truyền vào,
         // fallback sang property showAllHighlightDuration nếu không
@@ -362,9 +380,8 @@ export class SymbolHighlighter extends Component {
         const allSyms = lines.flatMap(l => l.matchedSymbols ?? []);
         if (allSyms.length > 0) this._playSymbolMatchSound(allSyms);
 
-        // Chờ lazy-load + spawn xong rồi mới quyết định WIN_HIGHLIGHT_ANIM_DONE
-        // (tránh emit sớm khi prefab chưa load).
-        void this._activateSpinesForCells(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
+        // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
+        void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
             .then(() => this._finishShowAllHighlightWatch(loopSpine));
     }
 
@@ -393,7 +410,6 @@ export class SymbolHighlighter extends Component {
 
         // Clear highlight cũ trước show-all — tránh sót bounce/spine từ cycle trước.
         this._deactivateAllSpines();
-        this._applyHighlight(allCells);
         // Zoom cho gold coin được xử lý trong _applyGreenTint (gọi từ _activateSpinesForCells)
         // Nếu chỉ có 1 way win duy nhất → loop spine animation thay vì play once
         const loopSpine = ways.length === 1;
@@ -402,8 +418,8 @@ export class SymbolHighlighter extends Component {
         const waySyms = ways.map(w => w.symbolId);
         if (waySyms.length > 0) this._playSymbolMatchSound(waySyms);
 
-        // Chờ lazy-load + spawn xong rồi mới quyết định WIN_HIGHLIGHT_ANIM_DONE
-        void this._activateSpinesForCells(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
+        // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
+        void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
             .then(() => this._finishShowAllHighlightWatch(loopSpine));
     }
 
@@ -457,9 +473,9 @@ export class SymbolHighlighter extends Component {
             }
         }
 
-        this._applyHighlight(cells);
-        this._zoomCells(cells);
-        this._activateSpinesForCells(cells, this.lineCycleHighlightDuration);
+        void this._runHighlightWithSpines(cells, this.lineCycleHighlightDuration, false, () => {
+            this._zoomCells(cells);
+        });
     }
 
     /**
@@ -796,18 +812,8 @@ export class SymbolHighlighter extends Component {
         return Math.min(Math.max(this.spineAnimDuration / playWindow, 1.0), 10);
     }
 
-    /**
-     * Với mỗi winning cell:
-     *   - Có prefab trong SymbolSpine → borrow từ pool (hoặc instantiate) rồi play spine.
-     *   - Không có prefab → giữ sprite, nhún nhẹ (bounce) như trước.
-     *   - Nếu node đã có spine active (từ lần highlight trước) → replay animation.
-     *   - Animation xong: move sang _pendingListeners, spine GIỮ frame cuối trên node.
-     *   - symbol-changed: điều kiện DUY NHẤT để trả spine về pool + restore sprite.
-     *
-     * @returns Promise resolve khi spawn sync đã chạy xong (sau lazy-load nếu cần).
-     */
-    private _activateSpinesForCells(cells: CellPos[], highlightDuration: number, loopSpine: boolean = false): Promise<void> {
-        // Collect SymbolIds cần load trước khi spawn (tránh hitch giữa các cell)
+    /** SymbolIds trong cells chưa có trong cache — cần load trước khi highlight. */
+    private _collectNeededSpineIds(cells: Array<{ col: number; row: number }>): number[] {
         const neededIds: number[] = [];
         for (const { col, row } of cells) {
             const reel = this.reels[col];
@@ -820,7 +826,46 @@ export class SymbolHighlighter extends Component {
                 neededIds.push(symId);
             }
         }
+        return neededIds;
+    }
 
+    /**
+     * Chờ prefab spine sẵn sàng, rồi mới fillBlack + spawn spine cùng lúc.
+     * Tránh visual lỗi: fillBlack/WaysPay hiện trước, Wild spine (11) delay vì lazy-load.
+     */
+    private _runHighlightWithSpines(
+        cells: CellPos[],
+        highlightDuration: number,
+        loopSpine: boolean = false,
+        beforeSpawn?: () => void,
+    ): Promise<void> {
+        const gen = this._spineGen;
+        const neededIds = this._collectNeededSpineIds(cells);
+        const run = (): void => {
+            if (gen !== this._spineGen || !this.isValid) return;
+            this._applyHighlight(cells);
+            beforeSpawn?.();
+            this._activateSpinesForCellsSync(cells, highlightDuration, loopSpine);
+        };
+        if (neededIds.length === 0) {
+            run();
+            return Promise.resolve();
+        }
+        return this._ensureSpinePrefabs(neededIds).then(run);
+    }
+
+    /**
+     * Với mỗi winning cell:
+     *   - Có prefab trong SymbolSpine → borrow từ pool (hoặc instantiate) rồi play spine.
+     *   - Không có prefab → giữ sprite, nhún nhẹ (bounce) như trước.
+     *   - Nếu node đã có spine active (từ lần highlight trước) → replay animation.
+     *   - Animation xong: move sang _pendingListeners, spine GIỮ frame cuối trên node.
+     *   - symbol-changed: điều kiện DUY NHẤT để trả spine về pool + restore sprite.
+     *
+     * @returns Promise resolve khi spawn sync đã chạy xong (sau lazy-load nếu cần).
+     */
+    private _activateSpinesForCells(cells: CellPos[], highlightDuration: number, loopSpine: boolean = false): Promise<void> {
+        const neededIds = this._collectNeededSpineIds(cells);
         if (neededIds.length === 0) {
             this._activateSpinesForCellsSync(cells, highlightDuration, loopSpine);
             return Promise.resolve();
@@ -1679,8 +1724,7 @@ export class SymbolHighlighter extends Component {
         // Lưu lại cells để dùng khi loop sau popup đóng
         this._jackpotCells = cells;
         if (cells.length === 0) return;
-        this._applyHighlight(cells);
-        this._activateSpinesForCells(cells, 10.0);
+        void this._runHighlightWithSpines(cells, 10.0, false);
     }
 
     /**

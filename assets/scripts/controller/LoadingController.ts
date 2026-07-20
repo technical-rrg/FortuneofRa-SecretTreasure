@@ -1,11 +1,11 @@
 /**
  * LoadingController - Màn hình tải game (Loading View).
  *
- * ★ PREFAB MODE — boot tối ưu (Base download sớm, không chờ Login):
- *   1. onLoad: CDN ∥ MainBundle → Bundle ready thì download Base asset ngay
- *   2. start: Login ∥ Base instantiate (song song) + bar crawl; GuideFrames preload nền
- *   3. Login+Base xong → bar 100% → GuideView (GameRoot inactive)
- *   4. GUIDE_COMPLETE → activate GameRoot
+ * ★ PREFAB MODE — Guide-first (GuideView.prefab tách riêng, KHÔNG chờ Base):
+ *   1. onLoad: CDN ∥ MainBundle → preload guide frames + GuideView.prefab
+ *   2. start: Login ∥ Guide frames ∥ GuideView.prefab
+ *   3. → bar 100% → hiện GuideView.prefab → MỚI kick Base nền
+ *   4. GUIDE_COMPLETE → await Base → GameRoot
  *
  * ★ TWO-SCENE MODE (legacy):
  *   - Điền targetScene, bật useScenePreload, bật handleServerLogin
@@ -24,6 +24,8 @@ import { LocalizationManager } from '../core/LocalizationManager';
 import { FontManager } from '../manager/FontManager';
 import { Log } from '../core/Logger';
 import { GuideFrameLoader } from '../core/GuideFrameLoader';
+import { GuideShellLoader } from '../core/GuideShellLoader';
+import { GameEntryController } from './GameEntryController';
 
 const { ccclass, property } = _decorator;
 
@@ -144,15 +146,17 @@ export class LoadingController extends Component {
     private _serverReady: boolean = false;
     /** 0→1%: Fake timer, 1%: Load prefab, 2→100%: Animate */
     private _preloadDone: boolean = false;
-    /** Prefab đã load xong từ resources (prefab mode) */
+    /** Prefab Base đã sẵn (download + attach) — không còn gate bar 100% ở Guide-first */
     private _prefabReady: boolean = false;
+    /** Guide frames + GuideView.prefab sẵn — gate bar 100% (Guide-first) */
+    private _guideReady: boolean = false;
     /** Prefab asset đã load — dùng để instantiate ngay lập tức khi bar 100% */
     private _loadedPrefab: any = null;
     /** Bar đã animate từ 2% tới 100% chưa */
     private _animatingToFull: boolean = false;
-    /** Symbols đã apply và GPU đã xử lý xong textures */
+    /** Symbols / heavy gate — Guide-first: nhả khi Guide shell sẵn */
     private _heavyInitDone: boolean = false;
-    /** Node đã instantiate và ẩn sẵn — chỉ cần active=true khi bar 100% */
+    /** Node Base đã instantiate và ẩn sẵn */
     private _instantiatedGameNode: Node | null = null;
 
     /** Promise load font sớm từ onLoad() — để _loadCdnAssets() await thay vì tải lại */
@@ -163,12 +167,18 @@ export class LoadingController extends Component {
     private _bundlePromise: Promise<AssetManager.Bundle | null> | null = null;
     /** Base.prefab asset download — kick ngay khi Bundle ready (chưa instantiate) */
     private _baseAssetPromise: Promise<Prefab | null> | null = null;
-    /** Base instantiate + attach — chạy sau khi asset sẵn (và scene đã start) */
+    /** Base instantiate + attach (internal — dùng bởi _ensureBaseReady) */
     private _basePromise: Promise<void> | null = null;
+    /** Wrapper Base nền + post-hooks (warm GameRoot) — await khi Guide xong */
+    private _baseBgPromise: Promise<void> | null = null;
     /** Guard: tránh fill bar 100% nhiều lần */
     private _fillStarted: boolean = false;
-    /** Three-phase boot: đang crawl 0→81% — hoãn _tryFillToFull đến khi crawl xong */
+    /** Three-phase boot: đang crawl — hoãn _tryFillToFull đến khi crawl xong */
     private _bootCrawlActive: boolean = false;
+    /** Đang chờ GUIDE_COMPLETE để attach Base / show GameRoot */
+    private _awaitingGuideComplete: boolean = false;
+    /** User đã Continue — giữ màn đen đến khi Base/GameRoot sẵn rồi mới FadeIn */
+    private _holdingBlackForBase: boolean = false;
 
     /** Guard: _onLoadComplete đã chạy một lần rồi, không chạy lại */
     private _completed: boolean = false;
@@ -196,6 +206,7 @@ export class LoadingController extends Component {
         this._cdnPromise = this._loadCdnAssets().catch((err) => {
             Log.w('[Loading] Early CDN load failed (non-blocking):', err);
         });
+        // Guide-first: preload frames + GuideView.prefab — tuyệt đối không kick Base.
         if (this.gameBundleName) {
             this._bundlePromise = this._loadBundleAsync()
                 .catch((err) => {
@@ -204,7 +215,8 @@ export class LoadingController extends Component {
                 })
                 .then((bundle) => {
                     if (bundle && this.gamePrefabPath && this.handleServerLogin) {
-                        void this._ensureBaseAssetLoad(bundle);
+                        void GuideFrameLoader.preload(bundle);
+                        void GuideShellLoader.preload(bundle);
                     }
                     return bundle;
                 });
@@ -212,6 +224,9 @@ export class LoadingController extends Component {
 
         // Lắng nghe ENTER_SUCCESS từ server (hoặc mock) — điều kiện để unlock LOADING_COMPLETE
         EventBus.instance.on(GameEvents.ENTER_SUCCESS, this._onServerReady, this);
+        // Guide-first: Continue → kick Base ngay (song song FadeOut); GUIDE_COMPLETE → chờ xong rồi FadeIn
+        EventBus.instance.on(GameEvents.GUIDE_CONTINUE, this._onGuideContinueKickBase, this);
+        EventBus.instance.on(GameEvents.GUIDE_COMPLETE, this._onGuideCompleteAfterShell, this);
         if (this.noteLabel) {
           //  this.noteLabel.string = L('UI_START_LOADING_1');
         }
@@ -646,7 +661,7 @@ export class LoadingController extends Component {
                     } else {
                         this._loadedPrefab = prefab;
                         // active=true NGAY ĐỂ LIFECYCLE CHẠY (onLoad/start của SMC, SymbolView...).
-                        // Vô hình nhờ opacity=0 trong GameEntryController.onLoad().
+                        // GameRoot inactive đến khi warm / reveal (fade bằng fill đen).
                         const gameNode = instantiate(prefab);
                         this._attachGamePrefab(gameNode);
                     }
@@ -686,32 +701,30 @@ export class LoadingController extends Component {
     }
 
     /**
-     * Gate kiểm tra cả server VÀ prefab VÀ heavy init (symbols + pools) đều sẵn sàng
-     * trước khi fill 100%. Hàm này được gọi từ _doServerLogin(), _startPrefabLoad(),
-     * và sau khi heavy init delay hoàn tất.
+     * Guide-first gate: server + Guide shell (frames + GuideView.prefab).
+     * Base load nền — không block bar 100%.
      */
     private _tryFillToFull(): void {
         if (this._fillStarted || this._animatingToFull) return;
-        // ★ Base/Login xong sớm trong lúc bar crawl → đợi crawl phase kết thúc.
-        //   Nếu fill sớm, _phaseWithCrawl.finish() stop tween 100% và kéo bar về ~81%.
         if (this._bootCrawlActive) return;
-        const prefabDone = !this.gamePrefabPath || this._prefabReady;
-        const heavyDone  = !this.gamePrefabPath || this._heavyInitDone;
-        // CDN không block bar 100% — locale/font apply nền khi xong
-        if (this._serverReady && prefabDone && heavyDone) {
+        const guideDone = !this.gamePrefabPath || this._guideReady;
+        const heavyDone = !this.gamePrefabPath || this._heavyInitDone;
+        if (this._serverReady && guideDone && heavyDone) {
             this._fillStarted = true;
             this._fillToFull();
         }
     }
 
-    // ─── THREE-PHASE LOADING ───
+    // ─── THREE-PHASE LOADING (Guide-first) ───
 
     /**
-     * Login ∥ Base — không crawl bar / không hold UX.
+     * Login ∥ GuideShell — Base download/instantiate chạy nền, không await.
      */
     private async _runThreePhaseLoading(): Promise<void> {
         this._bootCrawlActive = true;
         if (this.loadingBar) this.loadingBar.progress = 0;
+        GameData.instance.guideFirstBoot = true;
+        GameData.instance.isBaseReady = false;
 
         if (!this._bundlePromise) {
             this._bundlePromise = this._loadBundleAsync()
@@ -721,7 +734,8 @@ export class LoadingController extends Component {
                 })
                 .then((bundle) => {
                     if (bundle && this.gamePrefabPath) {
-                        void this._ensureBaseAssetLoad(bundle);
+                        void GuideFrameLoader.preload(bundle);
+                        void GuideShellLoader.preload(bundle);
                     }
                     return bundle;
                 });
@@ -733,39 +747,99 @@ export class LoadingController extends Component {
         }
 
         const loginPromise = this._doServerLogin();
-        const basePromise = (async () => {
-            try {
-                const bundle = await this._bundlePromise;
-                if (!bundle) {
-                    Log.e('[LoadingController] No bundle — cannot load Base');
-                    this._prefabReady = true;
-                    return;
-                }
-                void GuideFrameLoader.preload(bundle);
-                if (this.gamePrefabPath) {
-                    await this._ensureBaseReady(bundle);
-                } else {
-                    this._prefabReady = true;
-                }
-            } catch (err) {
-                Log.e('[LoadingController] Base load error (continue):', err);
-                this._prefabReady = true;
-            }
-        })();
+        const guidePromise = this._ensureGuideViewReady();
 
-        await Promise.all([loginPromise, basePromise]);
+        // Chỉ chờ Login + GuideView.prefab — KHÔNG chờ Base
+        await Promise.all([loginPromise, guidePromise]);
 
+        this._guideReady = true;
         this._heavyInitDone = true;
-        this._prefabReady = true;
         this._serverReady = true;
         this._bootCrawlActive = false;
 
+        // ★ Không kick Base ở đây — chỉ kick SAU khi GuideView.show()
         if (this._fillStarted && this.loadingBar && this.loadingBar.progress < 0.99) {
             this._fillStarted = false;
             this._animatingToFull = false;
         }
 
         this._tryFillToFull();
+    }
+
+    /** Preload guide frames + GuideView.prefab (tách riêng), attach inactive. */
+    private async _ensureGuideViewReady(): Promise<void> {
+        try {
+            const bundle = await this._bundlePromise;
+            if (!bundle) {
+                Log.e('[LoadingController] No bundle — cannot load GuideView');
+                return;
+            }
+            const [frames, prefab] = await Promise.all([
+                GuideFrameLoader.preload(bundle),
+                GuideShellLoader.preload(bundle),
+            ]);
+            if (!frames) Log.w('[LoadingController] Guide frames preload returned null');
+            if (!prefab) {
+                Log.e('[LoadingController] GuideView.prefab missing in MainBundle');
+                return;
+            }
+            const parent = this.gameContainer ?? director.getScene();
+            if (!parent) {
+                Log.e('[LoadingController] No parent for GuideView');
+                return;
+            }
+            const node = await GuideShellLoader.attach(parent);
+            Log.d(`[LoadingController] GuideView.prefab ready (inactive)=${!!node}`);
+        } catch (err) {
+            Log.e('[LoadingController] GuideView load error:', err);
+        }
+    }
+
+    /** Base download + instantiate nền trong lúc xem Guide. */
+    private _startBaseBackgroundLoad(): Promise<void> {
+        if (this._baseBgPromise) return this._baseBgPromise;
+
+        this._baseBgPromise = (async () => {
+            try {
+                const bundle = await this._bundlePromise;
+                if (!bundle || !this.gamePrefabPath) {
+                    this._prefabReady = true;
+                    GameData.instance.isBaseReady = true;
+                    return;
+                }
+                await this._ensureBaseReady(bundle);
+
+                GameData.instance.isBaseReady = true;
+                this._prefabReady = true;
+                Log.d('[LoadingController] Base ready in background');
+
+                if (GameData.instance.isGuideShowing || this._awaitingGuideComplete) {
+                    this._warmGameRootDuringGuide();
+                    // Shell luôn trên Base. Sau Continue: ép đen; lúc xem Guide: chỉ bringToFront.
+                    if (this._holdingBlackForBase) {
+                        GuideShellLoader.holdBlackOnTop();
+                    } else {
+                        GuideShellLoader.bringToFront();
+                    }
+                }
+            } catch (err) {
+                Log.e('[LoadingController] Base background load error:', err);
+                this._prefabReady = true;
+                GameData.instance.isBaseReady = true;
+            }
+        })();
+
+        return this._baseBgPromise;
+    }
+
+    /** Base vừa attach lúc Guide đang hiện → warm GameRoot (dưới Guide shell). */
+    private _warmGameRootDuringGuide(): void {
+        const base = this._instantiatedGameNode;
+        if (!base?.isValid) return;
+        base.active = true;
+        const gec = base.getComponent(GameEntryController)
+            ?? base.getComponentInChildren(GameEntryController);
+        gec?.notifyBaseReadyDuringGuide();
     }
 
     /** Idempotent: chỉ download Prefab asset (chưa instantiate). */
@@ -903,22 +977,19 @@ export class LoadingController extends Component {
     /** Tắt GameRoot + GuideView TRƯỚC addChild — tránh onLoad GameRoot chạy khi prefab mặc định active. */
     private _prepareBootShell(gameNode: Node): void {
         const gameRoot = gameNode.getChildByName('GameRoot');
-        if (gameRoot) {
-            gameRoot.active = false;
-            const op = gameRoot.getComponent(UIOpacity);
-            if (op) op.opacity = 0;
-        }
+        if (gameRoot) gameRoot.active = false;
         const guide = gameNode.getChildByName('GuideView');
         if (guide) guide.active = false;
     }
 
     private _attachGamePrefab(gameNode: Node): void {
         this._prepareBootShell(gameNode);
-        gameNode.active = true;
+        // Guide-first: attach inactive — caller bật khi warm / resume / sau Guide
+        gameNode.active = !GameData.instance.guideFirstBoot;
         const parent = this.gameContainer ?? director.getScene()!;
         parent.addChild(gameNode);
         this._instantiatedGameNode = gameNode;
-        Log.d(`[LoadingController] Prefab attached (GameRoot inactive, GuideView off): ${this.gamePrefabPath}`);
+        Log.d(`[LoadingController] Prefab attached (active=${gameNode.active}): ${this.gamePrefabPath}`);
     }
 
     /** Load prefab asset từ bundle rồi instantiate (ẩn), lưu vào _instantiatedGameNode */
@@ -950,10 +1021,7 @@ export class LoadingController extends Component {
                 this.loadingBar.progress = 1.0;
                 this._syncHtmlLoadingOverlay();
             }
-            this._onLoadComplete();
-            EventBus.instance.emit(GameEvents.LOADING_BAR_100);
-            this._hideHtmlOverlay();
-            this.node.active = false;
+            void this._finishBootAndEmitBar100();
         };
 
         if (!this.loadingBar) {
@@ -979,94 +1047,213 @@ export class LoadingController extends Component {
             .start();
     }
 
+    /** Await guide-first complete (có thể chờ Base nếu resume/skip) rồi mới BAR_100. */
+    private async _finishBootAndEmitBar100(): Promise<void> {
+        await this._onLoadCompleteAsync();
+        EventBus.instance.emit(GameEvents.LOADING_BAR_100);
+        this._hideHtmlOverlay();
+        this.node.active = false;
+    }
+
     private _onLoadComplete(): void {
-        // Guard: chỉ chạy 1 lần duy nhất — tránh GameManager re-emit ENTER_SUCCESS kích hoạt lại
+        void this._onLoadCompleteAsync();
+    }
+
+    private async _onLoadCompleteAsync(): Promise<void> {
         if (this._completed) {
             Log.w('[LoadingController] _onLoadComplete called again — ignored (already completed)');
             return;
         }
 
-        // Prefab mode: đợi heavy init (symbols) xong trước khi emit LOADING_COMPLETE
         if (this.gamePrefabPath && !this._heavyInitDone) {
-            this.scheduleOnce(() => this._onLoadComplete(), 0);
-            return;
+            await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+            return this._onLoadCompleteAsync();
         }
 
         this._completed = true;
-        // Hủy listener ENTER_SUCCESS ngay — GameManager sẽ re-emit nó cho SlotMachineController
         EventBus.instance.off(GameEvents.ENTER_SUCCESS, this._onServerReady, this);
 
-        const doComplete = () => {
-            // Không ẩn overlay/loading ở đây — _fillToFull đã hold 100% rồi mới gọi.
-            // Chỉ chuẩn bị data + emit LOADING_COMPLETE (Guide bật bởi LOADING_BAR_100 sau đó).
+        if (this.gamePrefabPath) {
+            await this._completePrefabGuideFirst();
+            return;
+        }
 
-            if (this.gamePrefabPath) {
-                // ★ PREFAB MODE
-                // Bước 0 (USE_REAL_API only): Pre-detect resume state TRƯỚC KHI activate game node.
-                // Lý do: _instantiatedGameNode.active = true kích hoạt GameEntryController.onLoad()
-                // đồng bộ, và ngay sau đó LOADING_COMPLETE fire. Nếu isResumingFreeSpin chưa được
-                // set lúc đó, GameEntryController sẽ show guide thay vì skip ngay vào game.
-                if (USE_REAL_API) {
-                    const rawLast = GameData.instance.rawEnterLastSpinResponse;
-                    if (rawLast) {
-                        const lastStage: number = rawLast.NextStage ?? rawLast.stageType ?? 0;
-                        const remainFS: number  = rawLast.RemainFreeSpinCount ?? rawLast.remainFreeSpinCount ?? 0;
+        if (this.targetScene) {
+            GameData.instance.isFromLoadingScene = true;
+            this._hideHtmlOverlay();
+            this.node.active = false;
+            const doLoad = () => director.loadScene(this.targetScene!);
+            if (typeof document !== 'undefined' && document.fonts?.ready) {
+                await document.fonts.ready;
+            }
+            doLoad();
+            return;
+        }
 
-                        // ★ Log ALL cases
-                        const stageNames = {
-                            0: 'SPIN', 3: 'FREE_SPIN_START', 4: 'FREE_SPIN', 5: 'FREE_SPIN_RE_TRIGGER',
-                            8: 'BUY_FREE_SPIN_START', 9: 'BUY_FREE_SPIN',
-                            100: 'NEED_CLAIM', 101: 'FREE_SPIN_END', 107: 'BUY_FREE_SPIN_END'
-                        };
-                        const stageName = (stageNames as any)[lastStage] || `UNKNOWN(${lastStage})`;
-                        Log.e(`[GAME-ENTER] LoadingController prefab mode → stage=${lastStage}(${stageName}), remainFS=${remainFS}`);
+        this._hideHtmlOverlay();
+        this.node.active = false;
+        EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
+    }
 
-                        // FREE_SPIN stages: 3-9 (còn lượt), TOPUP stages: 12-13, NEED_CLAIM: >= 100
-                        const isFreeSpin = (lastStage >= 3 && lastStage <= 9) && remainFS > 0;
-                        const isTopUp = lastStage === 12 || lastStage === 13;
-                        const isNeedClaim = lastStage >= 100;
-                        if (isFreeSpin || isTopUp || isNeedClaim) {
-                            GameData.instance.isResumingFreeSpin = true;
-                            Log.e(`[RESUME-DEBUG] LoadingController → isResumingFreeSpin=true (stage=${stageName})`);
-                        } else {
-                            Log.e(`[GAME-ENTER] LoadingController → stage=${stageName} không cần resume`);
-                        }
-                    } else {
-                        Log.e(`[GAME-ENTER] LoadingController → NO rawEnterLastSpinResponse`);
+    /** Detect resume flags from enter response (same logic as trước). */
+    private _detectResumeFromEnter(): void {
+        if (!USE_REAL_API) return;
+        const rawLast = GameData.instance.rawEnterLastSpinResponse;
+        if (!rawLast) {
+            Log.e('[GAME-ENTER] LoadingController → NO rawEnterLastSpinResponse');
+            return;
+        }
+        const lastStage: number = rawLast.NextStage ?? rawLast.stageType ?? 0;
+        const remainFS: number = rawLast.RemainFreeSpinCount ?? rawLast.remainFreeSpinCount ?? 0;
+        const stageNames: Record<number, string> = {
+            0: 'SPIN', 3: 'FREE_SPIN_START', 4: 'FREE_SPIN', 5: 'FREE_SPIN_RE_TRIGGER',
+            8: 'BUY_FREE_SPIN_START', 9: 'BUY_FREE_SPIN',
+            100: 'NEED_CLAIM', 101: 'FREE_SPIN_END', 107: 'BUY_FREE_SPIN_END',
+        };
+        const stageName = stageNames[lastStage] || `UNKNOWN(${lastStage})`;
+        Log.e(`[GAME-ENTER] LoadingController → stage=${lastStage}(${stageName}), remainFS=${remainFS}`);
+
+        const isFreeSpin = (lastStage >= 3 && lastStage <= 9) && remainFS > 0;
+        const isTopUp = lastStage === 12 || lastStage === 13;
+        const isNeedClaim = lastStage >= 100;
+        if (isFreeSpin || isTopUp || isNeedClaim) {
+            GameData.instance.isResumingFreeSpin = true;
+            Log.e(`[RESUME-DEBUG] LoadingController → isResumingFreeSpin=true (stage=${stageName})`);
+        }
+    }
+
+    private _readSkipIntro(): boolean {
+        try {
+            const saved = localStorage.getItem('setting_intro_on');
+            if (saved !== null) return saved === 'false';
+        } catch (_) {}
+        return false;
+    }
+
+    /**
+     * Guide-first complete:
+     *   - resume / skipIntro → await Base → GEC path thường
+     *   - normal → show GuideShell ngay, Base nền
+     */
+    private async _completePrefabGuideFirst(): Promise<void> {
+        this._detectResumeFromEnter();
+        GameData.instance.isFromLoadingScene = true;
+
+        const isResuming = GameData.instance.isResumingFreeSpin;
+        const skipIntro = this._readSkipIntro();
+
+        if (isResuming || skipIntro) {
+            Log.d(`[LoadingController] Guide-first bypass Guide (resume=${isResuming}, skip=${skipIntro}) → await Base+BG`);
+            await this._startBaseBackgroundLoad();
+            const base = this._instantiatedGameNode;
+            if (base) {
+                base.active = true;
+                // skipIntro: preload BG trong lúc loading bar còn hiện — tránh vào game màn trống
+                if (skipIntro && !isResuming) {
+                    const gec = base.getComponent(GameEntryController)
+                        ?? base.getComponentInChildren(GameEntryController);
+                    if (gec) {
+                        await gec.prepareGameRootBackground();
+                        Log.d('[LoadingController] skipIntro — GameRoot BG ready before leave Loading');
                     }
                 }
-                GameData.instance.isFromLoadingScene = true;
-                // Loading node vẫn visible — _fillToFull ẩn sau khi emit LOADING_BAR_100
-                if (this._instantiatedGameNode) {
-                    this._instantiatedGameNode.active = true;
-                }
-                EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
-                if (!this._instantiatedGameNode) {
-                    Log.e('[LoadingController] Prefab not available — game may not display correctly');
-                }
-            } else if (this.targetScene) {
-                // TWO-SCENE MODE: chuyển sang scene khác
-                GameData.instance.isFromLoadingScene = true;
-                this._hideHtmlOverlay();
-                this.node.active = false;
-                const doLoad = () => director.loadScene(this.targetScene!);
-                if (typeof document !== 'undefined' && document.fonts?.ready) {
-                    document.fonts.ready.then(doLoad);
-                } else {
-                    doLoad();
-                }
             } else {
-                // SINGLE-SCENE MODE
-                this._hideHtmlOverlay();
-                this.node.active = false;
-                EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
+                Log.e('[LoadingController] Base missing after await — cannot enter game');
             }
-        };
-
-        if (this.uiOpacity) {
-            doComplete();
-        } else {
-            this.scheduleOnce(doComplete, 0);
+            EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
+            return;
         }
+
+        // ★ Loading → màn đen → FadeIn Guide xong → mới kick Base
+        if (!GuideShellLoader.instance) {
+            Log.e('[LoadingController] GuideView.prefab missing — fallback await Base');
+            await this._startBaseBackgroundLoad();
+            GameData.instance.guideFirstBoot = false;
+            if (this._instantiatedGameNode) this._instantiatedGameNode.active = true;
+            EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
+            return;
+        }
+
+        GameData.instance.isGuideShowing = true;
+        this._awaitingGuideComplete = true;
+        this._holdingBlackForBase = false;
+
+        // 1) Ẩn Loading → màn đen (Guide OverLay giữ đen, chưa fade)
+        this._hideHtmlOverlay();
+        if (this.uiOpacity) this.uiOpacity.opacity = 0;
+        this.node.active = false;
+
+        GuideShellLoader.show(true); // deferEntranceFade — giữ đen, chưa fade
+        Log.d('[LoadingController] ★ Black → FadeIn Guide (Base chưa load)');
+
+        // 2) FadeIn Guide trước — KHÔNG kick Base trong lúc đen / đang fade
+        await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+
+        GuideShellLoader.getController()?.beginEntranceFade(() => {
+            // 3) Fade xong hẳn (overlay đã ẩn) → mới load Base nền
+            Log.d('[LoadingController] ★ Guide fade-in DONE — kick Base load NOW');
+            void this._startBaseBackgroundLoad();
+        });
+        Log.d('[LoadingController] ★ Guide entrance fade started');
+
+        EventBus.instance.emit(GameEvents.LOADING_COMPLETE);
+    }
+
+    /**
+     * Continue vừa bấm → kick Base ngay (chạy song song FadeOut → đen).
+     * Không reveal; chỉ preload để rút ngắn thời gian giữ màn đen.
+     */
+    private _onGuideContinueKickBase(): void {
+        if (!this._awaitingGuideComplete) return;
+        this._holdingBlackForBase = true;
+        Log.d('[LoadingController] GUIDE_CONTINUE — kick Base load under FadeOut/black');
+        void this._startBaseBackgroundLoad();
+    }
+
+    /**
+     * GuideView FadeOut xong (màn đen) → chờ Base + GameRoot sẵn hết → mới FadeIn.
+     */
+    private async _onGuideCompleteAfterShell(): Promise<void> {
+        if (!this._awaitingGuideComplete) return;
+        this._awaitingGuideComplete = false;
+        this._holdingBlackForBase = true;
+
+        // ★ Giữ màn đen — KHÔNG FadeIn cho đến khi Base + prep xong
+        GuideShellLoader.holdBlackOnTop();
+        Log.d('[LoadingController] GUIDE_COMPLETE — hold black, await Base fully ready');
+
+        await this._startBaseBackgroundLoad();
+
+        const base = this._instantiatedGameNode;
+        if (!base?.isValid) {
+            Log.e('[LoadingController] Base missing after Guide — cannot enter');
+            this._holdingBlackForBase = false;
+            GuideShellLoader.dismiss();
+            return;
+        }
+
+        // Base vừa attach có thể nhảy lên trên shell — ép lại đen trên cùng
+        GuideShellLoader.holdBlackOnTop();
+        base.active = true;
+
+        const shared = GuideShellLoader.sharedNode;
+        const gec = base.getComponent(GameEntryController)
+            ?? base.getComponentInChildren(GameEntryController);
+
+        if (gec) {
+            // Prep GameRoot/BG/Transition dưới đen → rồi mới FadeIn
+            await gec.enterFromExternalGuide(shared, () => GuideShellLoader.fadeRevealAndDismiss());
+        } else {
+            Log.e('[LoadingController] GameEntryController missing on Base');
+            const gameRoot = base.getChildByName('GameRoot');
+            if (shared && gameRoot) {
+                shared.setParent(gameRoot, false);
+                shared.active = true;
+            }
+            if (gameRoot) gameRoot.active = true;
+            EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
+            GuideShellLoader.dismiss();
+        }
+        this._holdingBlackForBase = false;
     }
 }

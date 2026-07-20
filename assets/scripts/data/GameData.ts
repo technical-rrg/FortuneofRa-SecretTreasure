@@ -13,6 +13,7 @@ import {
     ServerSession,
     StickyCell,
     FREE_SPIN_TIER_REEL_INDICES,
+    isFreeSpinTierReelIndex,
 } from './SlotTypes';
 
 // ═══════════════════════════════════════════════════════════
@@ -304,9 +305,16 @@ export class GameData {
      */
     isGuideCompleted: boolean = false;
     /**
-     * Flag: GuideView đang hiện — GameRoot có thể warm-init nền (opacity 0) nhưng chưa hiện.
+     * Flag: GuideView đang hiện — GameRoot có thể warm-init nền (dưới Guide) nhưng chưa lộ.
      */
     isGuideShowing: boolean = false;
+    /**
+     * Guide-first boot: GuideView.prefab hiện trước Base.prefab.
+     * LoadingController set true; GameEntryController dùng để không show Guide lần 2.
+     */
+    guideFirstBoot: boolean = false;
+    /** Base.prefab đã attach (GameRoot có thể warm). */
+    isBaseReady: boolean = false;
     /**
      * Jackpot symbol PS IDs từ ParSheet — dùng để detect jackpot từ rawPsStrips.
      * Server dùng các ID này thay vì winGrade để biểu thị jackpot trên reel.
@@ -399,22 +407,32 @@ export class GameData {
         return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
     }
 
-    /** Chọn đúng bộ strip theo mode: 0=Normal, 1=FreeSpin, 2=TopUp/Purchase, 3=Re-Spin. */
+    /**
+     * Chọn đúng bộ strip theo mode.
+     *
+     * Secret Treasure SelectFeature / spin:
+     *   - Free Spin tiers: ReelIndex 2–6 (Highest…Lowest) → freeSpinTierStrips
+     *   - Legacy FreeSpin: ReelIndex 1 → freeSpinReelStrips
+     *   - TopUp / Re-Spin: currentMode === 'respin' (spin thường ReelIndex 2; legacy shortcut 3)
+     *   - Purchase (non-FS): ReelIndex 2 khi không ở FS/respin
+     *
+     * Quan trọng: FS High cũng dùng ReelIndex=3 — PHẢI resolve FS trước shortcut
+     * legacy `stripIndex === 3 → respin` (respin strips chứa Green Sticky + +1).
+     */
     getReelStrips(isFreeSpin: boolean = false, stripIndex?: number): number[][] {
         const isFsMode = isFreeSpin || this.currentMode === 'freespin' || this.currentMode === 'freespin_gold';
 
         if (stripIndex != null) {
-            if (stripIndex === 3 || (stripIndex === 2 && this.currentMode === 'respin')) {
+            // Free Spin (kể cả tier 2–6) trước mọi shortcut TopUp/Re-Spin.
+            if (isFsMode && this.currentMode !== 'respin') {
+                const tierKey = isFreeSpinTierReelIndex(stripIndex) ? stripIndex : undefined;
+                return this.resolveFreeSpinStrips(tierKey);
+            }
+            if (this.currentMode === 'respin' || stripIndex === 3) {
                 return this.config.respinReelStrips;
             }
-            if (stripIndex === 2 && !isFsMode && this.currentMode !== 'respin') {
+            if (stripIndex === 2) {
                 return this.config.purchaseReelStrips;
-            }
-            if (isFsMode) {
-                const tierKey = stripIndex === 1 || stripIndex < 2 || stripIndex > 6
-                    ? undefined
-                    : stripIndex;
-                return this.resolveFreeSpinStrips(tierKey);
             }
             if (stripIndex === 1) {
                 return this.config.freeSpinReelStrips;
@@ -440,30 +458,32 @@ export class GameData {
     /** Raw PS strips cùng mode với getReelStrips(), dùng cho payout/jackpot debug chính xác. */
     getRawPsStrips(isFreeSpin: boolean = false, stripIndex?: number): number[][] {
         const isFsMode = isFreeSpin || this.currentMode === 'freespin' || this.currentMode === 'freespin_gold';
+        const purchaseOrNormal = this.rawPsPurchaseReelStrips.length > 0
+            ? this.rawPsPurchaseReelStrips
+            : this.rawPsStrips;
 
         if (stripIndex != null) {
-            if (stripIndex === 3 || (stripIndex === 2 && this.currentMode === 'respin')) {
-                return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
-            }
-            if (stripIndex === 2 && !isFsMode && this.currentMode !== 'respin') {
-                return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
-            }
-            if (isFsMode) {
-                const tierKey = stripIndex === 1 || stripIndex < 2 || stripIndex > 6
-                    ? undefined
-                    : stripIndex;
+            if (isFsMode && this.currentMode !== 'respin') {
+                const tierKey = isFreeSpinTierReelIndex(stripIndex) ? stripIndex : undefined;
                 return this.resolveRawPsFreeSpinStrips(tierKey);
+            }
+            if (this.currentMode === 'respin' || stripIndex === 3) {
+                // TopUp/Re-Spin raw: ưu tiên purchase/respin PS sheet nếu server gửi riêng
+                return purchaseOrNormal;
+            }
+            if (stripIndex === 2) {
+                return purchaseOrNormal;
             }
             if (stripIndex === 1) {
                 return this.rawPsFreeSpinStrips.length > 0 ? this.rawPsFreeSpinStrips : this.rawPsStrips;
             }
             if (stripIndex === 0 && this.isPurchaseReelActive) {
-                return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
+                return purchaseOrNormal;
             }
             return this.rawPsStrips;
         }
         if (!isFreeSpin && this.isPurchaseReelActive) {
-            return this.rawPsPurchaseReelStrips.length > 0 ? this.rawPsPurchaseReelStrips : this.rawPsStrips;
+            return purchaseOrNormal;
         }
         if (isFsMode) {
             return this.resolveRawPsFreeSpinStrips();

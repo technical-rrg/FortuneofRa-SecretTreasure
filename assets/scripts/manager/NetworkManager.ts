@@ -48,6 +48,7 @@ import {
     PS_TO_CLIENT,
     SECRET_TREASURE_FREE_SPIN_TIERS,
     FREE_SPIN_TIER_REEL_INDICES,
+    isFreeSpinTierReelIndex,
     StickyCell,
     ForceFeatureEntryData,
     FEATURE_ENTRY_REQUIRED_STICKY,
@@ -2220,8 +2221,14 @@ class RealNetworkAdapter implements INetworkAdapter {
             } catch (_) {}
         }
         // ═══ END TOPUP FULL SERVER DUMP ═══
-        const isFreeSpin = (res.ReelIndex as number) === 1;
-        const grid = data.getBaseGrid(rands, isFreeSpin, res.ReelIndex as number);
+        // Secret Treasure: FS tiers dùng ReelIndex 2–6 (không chỉ legacy 1).
+        // TopUp (respin) cũng có thể ReelIndex=2 → không được coi là Free Spin.
+        const reelIdx = (res.ReelIndex as number) ?? 0;
+        const isFreeSpin =
+            data.currentMode === 'freespin'
+            || data.currentMode === 'freespin_gold'
+            || (data.currentMode !== 'respin' && (reelIdx === 1 || isFreeSpinTierReelIndex(reelIdx)));
+        const grid = data.getBaseGrid(rands, isFreeSpin, reelIdx);
         const waysPayWins = res.TotalWin > 0
             ? WaysPayCalculator.calculate(grid, res.TotalBet as number, isFreeSpin)
             : [];
@@ -2605,10 +2612,11 @@ class RealNetworkAdapter implements INetworkAdapter {
         //    ★ Nếu rawPsStrips không cho rate (psId không có trong payouts), vẫn tạo cell với credit=0
         //      (để CreditLabel hiển thị — hơn là ẩn hết).
         const data = GameData.instance;
-        const isFreeSpin = reelIndex === 1;
-        const rawStrips = isFreeSpin
-            ? (data.rawPsFreeSpinStrips.length > 0 ? data.rawPsFreeSpinStrips : data.rawPsStrips)
-            : data.rawPsStrips;
+        const isFreeSpin =
+            data.currentMode === 'freespin'
+            || data.currentMode === 'freespin_gold'
+            || (data.currentMode !== 'respin' && (reelIndex === 1 || isFreeSpinTierReelIndex(reelIndex)));
+        const rawStrips = data.getRawPsStrips(isFreeSpin, reelIndex);
         const payouts = data.symbolPayouts; // {psId: rate, ...} từ PS SymbolRates
 
         if (!rands || rands.length === 0) {
@@ -2624,9 +2632,9 @@ class RealNetworkAdapter implements INetworkAdapter {
         }
 
         // Diagnostics: so sánh rawStrip length với clientStrip length
-        const clientStrips = isFreeSpin ? data.config.freeSpinReelStrips : data.config.reelStrips;
+        const clientStrips = data.getReelStrips(isFreeSpin, reelIndex);
         Log.e(
-            `[StickyCredit] Computing grid-based: reelIndex=${reelIndex} totalBet=${totalBet}` +
+            `[StickyCredit] Computing grid-based: reelIndex=${reelIndex} mode=${data.currentMode} isFS=${isFreeSpin} totalBet=${totalBet}` +
             ` rawLens=[${rawStrips.map(s => s?.length ?? 0).join(',')}]` +
             ` clientLens=[${clientStrips.map(s => s?.length ?? 0).join(',')}]` +
             ` payouts=${JSON.stringify(payouts)}`

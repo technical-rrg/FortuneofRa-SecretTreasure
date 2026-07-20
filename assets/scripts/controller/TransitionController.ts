@@ -92,18 +92,24 @@ export class TransitionController extends Component {
     // ─── TRANSITION EFFECT ───
 
     private _onGuideComplete(): void {
+        // Guide-first: GameEntryController.enterFromExternalGuide trigger sau khi lộ GameRoot
+        // (GUIDE_COMPLETE thường fire trước khi Base/Transition tồn tại nếu Continue sớm)
+        if (GameData.instance.guideFirstBoot) return;
+        this._startGuideTransition();
+    }
+
+    /** Gọi từ TransitionLoader / GameEntryController khi load muộn hoặc sau reveal guide-first. */
+    triggerGuideTransition(): void {
+        this._startGuideTransition();
+    }
+
+    private _startGuideTransition(): void {
         if (this._isPlaying) return;
         this._isPlaying = true;
         this.node.active = true;
         this._resetOverlayOpacity(255);
         SoundManager.instance?.playNormalIntro();
         this.playIconFlyAnimation();
-    }
-
-    /** Gọi từ TransitionLoader khi load muộn hoặc cần retry sau khi wire target. */
-    triggerGuideTransition(): void {
-        if (this._isPlaying) return;
-        this._onGuideComplete();
     }
 
     /**

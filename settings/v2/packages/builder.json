@@ -11,6 +11,16 @@
             }
           }
         }
+      },
+      "spineBootWebp60": {
+        "name": "Spine Boot WebP 60",
+        "options": {
+          "web": {
+            "webp": {
+              "quality": 60
+            }
+          }
+        }
       }
     }
   }

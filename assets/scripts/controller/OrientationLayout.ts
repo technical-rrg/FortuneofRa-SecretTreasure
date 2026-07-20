@@ -121,6 +121,43 @@ export class OrientationLayout extends Component {
 
     private _lastApplyKey: string = '';
 
+    /** Copy landscape/portrait từ layout khác rồi apply theo orientation hiện tại. */
+    copyFrom(other: OrientationLayout): void {
+        if (!other) return;
+        this._copyData(other.landscape, this.landscape);
+        this._copyData(other.portrait, this.portrait);
+        this._lastApplyKey = '';
+        this._applyOrientation();
+    }
+
+    private _copyData(from: OrientationLayoutData, to: OrientationLayoutData): void {
+        to.posX = from.posX;
+        to.posY = from.posY;
+        to.anchorX = from.anchorX;
+        to.anchorY = from.anchorY;
+        to.width = from.width;
+        to.height = from.height;
+        to.scaleX = from.scaleX;
+        to.scaleY = from.scaleY;
+        to.scaleZ = from.scaleZ;
+        to.rotationX = from.rotationX;
+        to.rotationY = from.rotationY;
+        to.rotationZ = from.rotationZ;
+        to.isAlignLeft = from.isAlignLeft;
+        to.left = from.left;
+        to.isAlignRight = from.isAlignRight;
+        to.right = from.right;
+        to.isAlignTop = from.isAlignTop;
+        to.top = from.top;
+        to.isAlignBottom = from.isAlignBottom;
+        to.bottom = from.bottom;
+        to.isAlignHorizontalCenter = from.isAlignHorizontalCenter;
+        to.horizontalCenter = from.horizontalCenter;
+        to.isAlignVerticalCenter = from.isAlignVerticalCenter;
+        to.verticalCenter = from.verticalCenter;
+        to.richTextMaxWidth = from.richTextMaxWidth;
+    }
+
     // ── Editor Capture Buttons ────────────────────────────────────────────────
 
     @property({

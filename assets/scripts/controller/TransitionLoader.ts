@@ -8,13 +8,17 @@
  * ── FLOW ──
  *   LOADING_COMPLETE → preload nền
  *   LOADING_BAR_100  → ensureLoaded (Guide sắp hiện / skipIntro sắp fire)
- *   GUIDE_COMPLETE   → wire target Pot + fallback trigger nếu load muộn
+ *   GUIDE_COMPLETE   → ensureLoaded + wire Pot
+ *     · guide-first  → GameEntryController trigger ngay khi bắt đầu FadeIn (không chờ FadeIn xong)
+ *     · legacy       → triggerGuideTransition ngay
  */
 
 import { _decorator, Component, Node, Prefab, instantiate, assetManager } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { Log } from '../core/Logger';
+import { GameData } from '../data/GameData';
+import { GuideShellLoader } from '../core/GuideShellLoader';
 import { TransitionController } from './TransitionController';
 import { PotController } from './PotController';
 
@@ -86,6 +90,24 @@ export class TransitionLoader extends Component {
         return this._loading;
     }
 
+    /**
+     * Đưa Transition lên trên Guide shell — play ngay khi vào GameView, không bị Overlay đen Guide che.
+     */
+    bringAboveShell(): void {
+        const instance = this._instance;
+        if (!instance?.isValid) return;
+
+        const guide = GuideShellLoader.instance;
+        const parent = guide?.parent?.isValid ? guide.parent : instance.parent;
+        if (!parent?.isValid) return;
+
+        if (instance.parent !== parent) {
+            instance.setParent(parent, true);
+        }
+        instance.setSiblingIndex(parent.children.length - 1);
+        Log.d('[TransitionLoader] bringAboveShell — Transition on top');
+    }
+
     private _onPreload(): void {
         this.preload();
     }
@@ -98,6 +120,8 @@ export class TransitionLoader extends Component {
         void this.ensureLoaded().then((ctrl) => {
             if (!ctrl) return;
             this._wireTarget();
+            // Guide-first: enterFromExternalGuide trigger khi bắt đầu FadeIn
+            if (GameData.instance.guideFirstBoot) return;
             ctrl.triggerGuideTransition();
         });
     }

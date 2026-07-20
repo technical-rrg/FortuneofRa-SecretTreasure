@@ -3,7 +3,8 @@
  *
  * characterSpine: In (xuất hiện) → Loop (chờ, loop) → OUT (biến mất).
  *
- * Component lắng nghe FEATURE_ENTRY_GUIDE_SHOW và emit FEATURE_ENTRY_GUIDE_DONE khi xong.
+ * Prefab lazy (FeatureEntryGuide.prefab) — FeatureEntryGuideLoader gọi playGuide()
+ * sau FEATURE_ENTRY_GUIDE_SHOW; effect emit FEATURE_ENTRY_GUIDE_DONE khi xong.
  */
 
 import {
@@ -51,25 +52,41 @@ export class FeatureEntryGuideEffect extends Component {
     private _playing: boolean = false;
 
     onLoad(): void {
-        EventBus.instance.on(GameEvents.FEATURE_ENTRY_GUIDE_SHOW, this._play, this);
-        this._hideAll();
+        // Chỉ reset visual — KHÔNG tắt node / không đụng _playing.
+        // Race cũ: playGuide() bật active → onLoad → _hideAll() tắt lại + kẹt _playing → treo game.
+        this._resetVisuals();
     }
 
     onDestroy(): void {
-        EventBus.instance.offTarget(this);
         this._clearSpineListener();
         this.unscheduleAllCallbacks();
     }
 
-    private _hideAll(): void {
-        this._clearSpineListener();
-        this.unscheduleAllCallbacks();
-        this.node.active = false;
+    /** Gọi từ FeatureEntryGuideLoader sau khi prefab đã load. */
+    playGuide(): void {
+        // Recover nếu lần trước bị kẹt (_playing=true nhưng node inactive)
+        if (this._playing && !this.node.active) {
+            Log.w('[FeatureEntryGuide] recover stuck state before play');
+            this._playing = false;
+            this.unscheduleAllCallbacks();
+            this._clearSpineListener();
+        }
+        this._play();
+    }
+
+    private _resetVisuals(): void {
         this._setOpacity(this.dimNode, 0);
         this._setOpacity(this.whiteFlashNode, 0);
         if (this.whiteFlashNode) this.whiteFlashNode.active = false;
         if (this.characterNode) this.characterNode.active = false;
         if (this.characterSpine) this.characterSpine.node.active = false;
+    }
+
+    private _hideAll(): void {
+        this._clearSpineListener();
+        this.unscheduleAllCallbacks();
+        this._resetVisuals();
+        this.node.active = false;
     }
 
     private _play(): void {
@@ -78,6 +95,7 @@ export class FeatureEntryGuideEffect extends Component {
         this.unscheduleAllCallbacks();
         this._clearSpineListener();
         this.node.active = true;
+        Log.d('[FeatureEntryGuide] play — node.active=true');
 
         SoundManager.instance?.playSFX(this.sfxAppear);
         this._phaseAppear();

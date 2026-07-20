@@ -10,18 +10,15 @@
  *   Ngay khi Cột áp chót dừng xong → bật longSpinVFXNode + emit LONG_SPIN_VFX_START (audio anticipation).
  *   Khi Cột cuối dừng hẳn     → tắt longSpinVFXNode + emit LONG_SPIN_VFX_END (audio thud).
  *
- * SETUP LONG SPIN VFX TRONG EDITOR:
- *   1. Tạo 1 Node con "LongSpinVFX" đặt bên trong / đè lên Cột cuối.
- *   2. Gắn component Sprite vào Node đó.
- *   3. Kéo Node vào slot "longSpinVFXNode" bên dưới.
- *   4. Kéo danh sách SpriteFrame (các frame hoạt ảnh) vào mảng "vfxFrames".
- *   5. Điều chỉnh "vfxFPS" (tốc độ frame mặc định 12 fps).
+ * LONG SPIN VFX (lazy):
+ *   Prefab `fxLongSpin` (Spine Longspin) tách khỏi Base — load qua LongSpinVFXLoader
+ *   khi LONG_SPIN_TRIGGERED. Có thể gán sẵn longSpinVFXNode trong Editor (optional).
  */
 
 import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Prefab, instantiate, Vec3 } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
-import { SpinResponse, SymbolId } from '../data/SlotTypes';
+import { SpinResponse, SymbolId, isFreeSpinTierReelIndex } from '../data/SlotTypes';
 import { GameData } from '../data/GameData';
 import { ReelController } from './ReelController';
 import { SymbolView } from './SymbolView';
@@ -30,6 +27,7 @@ import { SymbolHighlighter } from './SymbolHighlighter';
 import { AutoSpinManager, SpeedMode } from '../manager/AutoSpinManager';
 import { Log } from '../core/Logger';
 import { SpriteNumber } from '../core/SpriteNumber';
+import { LongSpinVFXLoader } from './LongSpinVFXLoader';
 
 const { ccclass, property } = _decorator;
 
@@ -292,7 +290,7 @@ export class SlotMachineController extends Component {
      *   - Kéo Node vào slot này.
      *   - Bắt đầu active = false.
      */
-    @property({ type: Node, tooltip: 'Node VFX quanh Cột cuối khi long spin (phải inactive ban đầu)\n→ Tạo Node con, gắn Sprite, kéo vào đây' })
+    @property({ type: Node, tooltip: 'Optional: Node VFX long spin. Nếu trống → lazy-load fxLongSpin.prefab khi LONG_SPIN_TRIGGERED' })
     longSpinVFXNode: Node | null = null;
 
     /**
@@ -909,8 +907,10 @@ export class SlotMachineController extends Component {
 
         // ★ Progressive Long Spin: tính toán reel nào cần long spin dựa trên tổng red SYMBOLS
         if (this._isLongSpinActive) {
-            // Đếm số red symbols trên mỗi reel từ stickyCells
-            const stickyCells = response.stickyCells ?? [];
+            // Force Feature Entry: chỉ đếm existingCells — fillCells chưa nằm trên grid
+            const stickyCells = (response.isForcedFeatureEntry && response.forceFeatureEntry)
+                ? (response.forceFeatureEntry.existingCells ?? [])
+                : (response.stickyCells ?? []);
             const redCountPerReel: number[] = new Array(this.reels.length).fill(0);
             for (const cell of stickyCells) {
                 if (cell.symbolId === SymbolId.STICKY_RED && cell.reel >= 0 && cell.reel < this.reels.length) {
@@ -948,9 +948,19 @@ export class SlotMachineController extends Component {
             const isLong = this._longSpinReelSet.has(i);
             const reelIdx = i; // capture for closure
 
-            // TopUp: không dùng freespin strip index — reel hiển thị normal symbols,
-            // StickyOverlayController lo phần overlay coin. Truyền undefined → normal strips.
-            reel.setResultStripIndex(this._isTopUp ? undefined : response.reelIndex);
+            // TopUp: undefined → normal strips (coin do StickyOverlay).
+            // Free Spin: dùng tier ReelIndex 2–6; legacy ReelIndex=1 → selectedFreeSpinReelIndex.
+            let stripIdx: number | undefined = response.reelIndex;
+            if (this._isTopUp) {
+                stripIdx = undefined;
+            } else if (this._isFreeSpin) {
+                if (isFreeSpinTierReelIndex(response.reelIndex)) {
+                    stripIdx = response.reelIndex;
+                } else {
+                    stripIdx = GameData.instance.selectedFreeSpinReelIndex ?? response.reelIndex;
+                }
+            }
+            reel.setResultStripIndex(stripIdx);
 
             // Reel 3 long spin: kéo dài thời gian giảm tốc để tạo cảm giác hồi hộp
             if (isLong) {
@@ -1117,8 +1127,7 @@ export class SlotMachineController extends Component {
 
         // Nếu reel tiếp theo là longspin reel → bật VFX trên reel tiếp theo
         if (nextReelIdx < this.reels.length && this._longSpinReelSet.has(nextReelIdx) && this._isLongSpinActive) {
-            this._moveVFXToReel(nextReelIdx);
-            this._tryStartLongSpinVFX();
+            this._tryStartLongSpinVFX(nextReelIdx);
         }
 
         // Safety: nếu reel cuối dừng mà VFX vẫn active → tắt hoàn toàn
@@ -1228,32 +1237,45 @@ export class SlotMachineController extends Component {
             return;
         }
         this._isLongSpinActive = true;
-        // Log removed for performance
+        // Prefetch prefab sớm — VFX chỉ show khi reel trước long-spin dừng
+        LongSpinVFXLoader.preload();
+        void this._ensureLongSpinVFX();
+    }
+
+    /** Lazy-load fxLongSpin dưới SlotMachine nếu chưa có. */
+    private _ensureLongSpinVFX(): Promise<Node | null> {
+        if (this.longSpinVFXNode?.isValid) {
+            return Promise.resolve(this.longSpinVFXNode);
+        }
+        return LongSpinVFXLoader.ensure(this.node).then((node) => {
+            if (!node) return null;
+            this.longSpinVFXNode = node;
+            this._vfxSprite = node.getComponent(Sprite);
+            return node;
+        });
     }
 
     /**
-     * Gọi sau khi Cột 2 dừng và Cột 3 đang trong long spin.
-     * Bật VFX node + emit event để SoundManager phát anticipation sound.
+     * Gọi khi reel trước long-spin dừng — ensure VFX (lazy) rồi bật + emit audio.
+     * @param reelIndex reel sẽ nhận VFX (move trước khi active)
      */
-    private _tryStartLongSpinVFX(): void {
-        if (!this.longSpinVFXNode) {
-            // Log removed for performance
-            return;
-        }
-        if (!this._isLongSpinActive) {
-            // Log removed for performance
-            return;
-        }
-        if (this._stoppedCount >= this.reels.length) {
-            // Log removed for performance
-            return;
-        }
+    private _tryStartLongSpinVFX(reelIndex?: number): void {
+        if (!this._isLongSpinActive) return;
+        if (this._stoppedCount >= this.reels.length) return;
 
-        // Log removed for performance
-        this.longSpinVFXNode.active = true;
-        this._vfxFrameIdx = 0;
-        this._startVFXLoop();
-        EventBus.instance.emit(GameEvents.LONG_SPIN_VFX_START);
+        void this._ensureLongSpinVFX().then((node) => {
+            if (!node || !this._isLongSpinActive) return;
+            if (this._stoppedCount >= this.reels.length) return;
+
+            if (reelIndex != null) {
+                this._moveVFXToReel(reelIndex);
+            }
+
+            node.active = true;
+            this._vfxFrameIdx = 0;
+            this._startVFXLoop();
+            EventBus.instance.emit(GameEvents.LONG_SPIN_VFX_START);
+        });
     }
 
     /** Bắt đầu loop sprite frame cho VFX */

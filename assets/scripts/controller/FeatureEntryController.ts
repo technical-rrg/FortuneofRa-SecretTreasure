@@ -12,7 +12,7 @@
  *
  * FLOW:
  *   GameManager  ── FORCE_FEATURE_ENTRY_START(data) ─▶ this
- *   this         ── FEATURE_ENTRY_GUIDE_SHOW ─▶ FeatureEntryGuideEffect
+ *   this         ── FEATURE_ENTRY_GUIDE_SHOW ─▶ FeatureEntryGuideLoader → Effect
  *   guide        ── FEATURE_ENTRY_GUIDE_DONE ─▶ this
  *   this         ── STICKY_FILL_START(data) ─▶ StickyFillEffect
  *   fill         ── STICKY_FILL_DONE ─▶ this

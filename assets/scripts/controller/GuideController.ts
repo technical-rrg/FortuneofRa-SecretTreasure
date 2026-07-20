@@ -97,8 +97,18 @@ export class GuideController extends Component {
     @property({ tooltip: 'Thời gian OverLay fade out khi vào từ Loading (giây). 0 = lộ Guide ngay.' })
     overlayFadeDuration: number = 0.5;
 
-    @property({ tooltip: 'Thời gian OverLay fade in khi click Continue (giây). 0 = ẩn ngay.' })
+    @property({ tooltip: 'Thời gian OverLay fade → đen khi click Continue (giây).' })
     overlayFadeOutDuration: number = 0.35;
+
+    @property({
+        tooltip: 'Thời gian OverLay fade đen → trong suốt khi lộ GameRoot sau Continue (giây).',
+    })
+    overlayRevealDuration: number = 0.7;
+
+    @property({
+        tooltip: 'Giữ màn đen sau khi fade Continue xong (giây). Thường 0.',
+    })
+    overlayHoldBlackSecs: number = 0;
 
     @property({ type: [ParticleSystem], tooltip: '2 Particle system trên Guide — sẽ dừng khi fade out và play lại khi fade in' })
     particles: ParticleSystem[] = [];
@@ -117,6 +127,9 @@ export class GuideController extends Component {
 
     /** Guard: đã bị dismiss (người dùng click Continue) — từ chối mọi onEnable sau đó */
     private _dismissed: boolean = false;
+    /** Lần onEnable tới: giữ màn đen, chờ beginEntranceFade() (Guide-first: fade xong mới kick Base). */
+    private _deferEntranceFade: boolean = false;
+    private _entranceStarted: boolean = false;
 
     // ─── Carousel State ───
     private _currentBgIndex: number = 0;
@@ -129,6 +142,12 @@ export class GuideController extends Component {
 
     private static readonly _BLACK_OPAQUE = new Color(0, 0, 0, 255);
     private static readonly _BLACK_CLEAR = new Color(0, 0, 0, 0);
+
+    /** Gọi trước GuideShellLoader.show() — onEnable chỉ giữ đen, không fade. */
+    static markDeferEntranceFade(node: Node | null): void {
+        const gc = node?.getComponent(GuideController);
+        if (gc) gc._deferEntranceFade = true;
+    }
 
     // ─── LIFECYCLE ───
 
@@ -158,8 +177,8 @@ export class GuideController extends Component {
             return;
         }
 
-        // Được gọi khi GameEntryController set gameGuide.active = true (sau Loading)
-        Log.d('[GuideController] onEnable — OverLay fade out → lộ Guide');
+        // Được gọi khi Loading/GEC bật GuideView
+        Log.d(`[GuideController] onEnable — black hold (deferFade=${this._deferEntranceFade})`);
 
         this._setupBgNodes();
         if (this.guidePanel) this.guidePanel.active = true;
@@ -171,11 +190,74 @@ export class GuideController extends Component {
             this._applyGuideLayout();
         });
 
+        // Guide-first: giữ đen, chờ LoadingController gọi beginEntranceFade()
+        if (this._deferEntranceFade) {
+            this._deferEntranceFade = false;
+            return;
+        }
+        this.beginEntranceFade();
+    }
+
+    /**
+     * Fade đen → lộ Guide. onComplete chạy SAU khi fade xong + overlay ẩn
+     * (LoadingController dùng để kick Base — tránh load lúc còn đen/fade).
+     */
+    beginEntranceFade(onComplete?: () => void): void {
+        if (this._dismissed || !this.node.active || this._entranceStarted) {
+            onComplete?.();
+            return;
+        }
+        this._entranceStarted = true;
+        Log.d('[GuideController] beginEntranceFade — fade in Guide');
+        this._showOverlayOnTop(GuideController._BLACK_OPAQUE);
         this._fadeOverlay(GuideController._BLACK_OPAQUE, GuideController._BLACK_CLEAR, this.overlayFadeDuration, () => {
-            if (!this.node.active || this._dismissed) return;
+            if (!this.node.active || this._dismissed) {
+                onComplete?.();
+                return;
+            }
             this._hideOverlay();
             this._onGuideReady();
+            // 1 frame sau khi overlay ẩn — chắc chắn không còn đen mờ
+            this.scheduleOnce(() => onComplete?.(), 0);
         });
+    }
+
+    /**
+     * Giữ full màn đen trong lúc chờ Base/GameRoot sẵn (sau FadeOut Continue).
+     * LoadingController gọi trong lúc await Base — tránh lộ nội dung Guide/Base sớm.
+     */
+    holdBlackOverlay(): void {
+        if (!this.node.active) return;
+        const overlay = this._resolveOverlayNode();
+        for (const child of this.node.children) {
+            if (child !== overlay) child.active = false;
+        }
+        this._showOverlayOnTop(GuideController._BLACK_OPAQUE);
+        Log.d('[GuideController] holdBlackOverlay — waiting for Base');
+    }
+
+    /**
+     * Sau Continue + GameRoot sẵn dưới lớp đen: fade đen → trong suốt để lộ game.
+     * Ẩn nội dung Guide trước để không lộ slide khi overlay trong suốt.
+     */
+    beginRevealFade(onComplete?: () => void): void {
+        if (!this.node.active) {
+            onComplete?.();
+            return;
+        }
+        Log.d(`[GuideController] beginRevealFade — reveal GameRoot (${this.overlayRevealDuration}s)`);
+
+        // Chỉ giữ OverLay — ẩn slide / UI Guide
+        this.holdBlackOverlay();
+        this._fadeOverlay(
+            GuideController._BLACK_OPAQUE,
+            GuideController._BLACK_CLEAR,
+            this.overlayRevealDuration,
+            () => {
+                this._hideOverlay();
+                onComplete?.();
+            },
+        );
     }
 
     private _resolveOverlayNode(): Node | null {
@@ -577,8 +659,11 @@ export class GuideController extends Component {
         }
 
         const finish = () => {
-            this.node.active = false;
-            EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
+            // Giữ GuideView + overlay đen — LoadingController dismiss sau khi GameRoot bắt đầu fade in
+            const hold = Math.max(0, this.overlayHoldBlackSecs);
+            const emit = () => EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
+            if (hold <= 0) emit();
+            else this.scheduleOnce(emit, hold);
         };
 
         for (const ps of this.particles) { if (ps) ps.clear(); }

@@ -13,6 +13,12 @@ type StickyCellLike = { symbolId?: number; credit?: number };
 
 /** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
 const LAZY_AUDIO_PATHS: Record<string, string> = {
+    // Boot BGM/SFX — tách khỏi Base.prefab (~1MB); load ngay khi SoundManager warm
+    mxNormalIntro: 'sound/mx_normal_intro',
+    mxNormalLoop: 'sound/mx_normal_loop',
+    sxAmbience: 'sound/sx_ambience',
+    sxUiClick: 'sound/sx_ui_click',
+    sxReelSpin: 'sound/sx_reel_spin',
     mxBonusIdle: 'sound/mx_bonus_idle',
     mxBonusLoop: 'sound/mx_bonus_loop',
     mxBonusCongratulation: 'sound/mx_bonus_congratulation',
@@ -185,7 +191,7 @@ export class SoundManager extends Component {
         //   Persist cả Base lúc attach sớm (loading) phá hierarchy → bar kẹt ~81%.
         //   Instance sống theo Base shell; không cần cross-scene persist.
         this._bindEvents();
-        // Warm feature/jackpot clips after first frame — không block boot
+        // Boot clips trước (đã null khỏi Base), rồi warm feature/jackpot — không block instantiate
         this.scheduleOnce(() => this._kickDeferredAudioWarmup(), 0);
     }
 
@@ -277,8 +283,9 @@ export class SoundManager extends Component {
     private _kickDeferredAudioWarmup(): void {
         if (this._deferredAudioKickStarted) return;
         this._deferredAudioKickStarted = true;
-        // Priority: feature BGM + common SFX first, then jackpot/progressive packs
+        // Priority: boot BGM/SFX (tách khỏi Base) → land/spin → feature/jackpot
         const priority = [
+            'mxNormalIntro', 'mxNormalLoop', 'sxAmbience', 'sxUiClick', 'sxReelSpin',
             'sxReelLand1', 'sxReelLand2', 'sxReelLand3', 'sxReelLand4', 'sxReelLand5', 'sxReelLandAll',
             'sxReelSpinQuickTurbo', 'sxSymbolMatchLowValue', 'sxSymbolMatchHighValue', 'sxSymbolPayout',
             'mxBonusIdle', 'mxBonusLoop', 'mxBonusCongratulation',
@@ -375,16 +382,20 @@ export class SoundManager extends Component {
         if (GameData.instance.isResumingFreeSpin || this._inFeatureMusic) return;
         if (this._introTriggered) return;
         this._introTriggered = true;
-        this._playMusic(this.mxNormalIntro, false, () => this._playMusic(this.mxNormalLoop, true));
-        const fallbackDelay = this._clipDurationSeconds(this.mxNormalIntro) || (this.introToLoopDelayMs / 1000);
-        if (fallbackDelay > 0) {
-            this.scheduleOnce(() => {
-                if (this.bgmSource?.clip === this.mxNormalIntro) {
-                    this._playMusic(this.mxNormalLoop, true);
-                }
-            }, fallbackDelay);
-        }
-        this._startAmbience();
+        void (async () => {
+            const intro = await this._ensureClip('mxNormalIntro');
+            const loop = await this._ensureClip('mxNormalLoop');
+            this._playMusic(intro, false, () => this._playMusic(loop, true));
+            const fallbackDelay = this._clipDurationSeconds(intro) || (this.introToLoopDelayMs / 1000);
+            if (fallbackDelay > 0) {
+                this.scheduleOnce(() => {
+                    if (this.bgmSource?.clip === intro) {
+                        this._playMusic(loop, true);
+                    }
+                }, fallbackDelay);
+            }
+            this._startAmbience();
+        })();
     }
 
     private _onSpeedModeChanged(mode: SpeedMode): void {
@@ -401,7 +412,7 @@ export class SoundManager extends Component {
         if (quick) {
             this._playSfxProp('sxReelSpinQuickTurbo');
         } else {
-            this.playSFX(this.sxReelSpin);
+            this._playSfxProp('sxReelSpin');
         }
     }
 
@@ -506,7 +517,7 @@ export class SoundManager extends Component {
         Log.d(`[coinloop][SM._onFeatureEndPopupClosed] coinLoopActive=${this._coinLoopActive}`);
         this.stopCoinLoop();
         if (this.bgmSource?.clip === this.mxBonusCongratulation && this.bgmSource.playing) return;
-        this._playMusic(this.mxNormalLoop, true);
+        this._playMusicProp('mxNormalLoop', true);
     }
 
     private _onPickGameMatchFound(): void {
@@ -581,7 +592,7 @@ export class SoundManager extends Component {
         if (this._inFeatureMusic) {
             this._playMusicProp('mxBonusLoop', true);
         } else {
-            this._playMusic(this.mxNormalLoop, true);
+            this._playMusicProp('mxNormalLoop', true);
         }
     }
 
@@ -640,12 +651,15 @@ export class SoundManager extends Component {
     }
 
     private _startAmbience(): void {
-        if (!this.ambienceSource || !this.sxAmbience) return;
+        if (!this.ambienceSource) return;
         if (this.ambienceSource.playing) return;
-        this.ambienceSource.clip = this.sxAmbience;
-        this.ambienceSource.loop = true;
-        this.ambienceSource.volume = this.ambienceVolume;
-        if (!this._masterMuted && !this._sfxMuted) this.ambienceSource.play();
+        void this._ensureClip('sxAmbience').then((clip) => {
+            if (!clip || !this.ambienceSource || this.ambienceSource.playing) return;
+            this.ambienceSource.clip = clip;
+            this.ambienceSource.loop = true;
+            this.ambienceSource.volume = this.ambienceVolume;
+            if (!this._masterMuted && !this._sfxMuted) this.ambienceSource.play();
+        });
     }
 
     private _reelLandClip(reelIndex: number): AudioClip | null {
@@ -765,7 +779,7 @@ export class SoundManager extends Component {
     }
 
     playButtonClick(): void {
-        this.playSFX(this.sxUiClick);
+        this._playSfxProp('sxUiClick');
     }
 
     playBannerDisappear(): void {

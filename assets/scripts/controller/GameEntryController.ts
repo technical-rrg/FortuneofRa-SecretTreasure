@@ -5,26 +5,33 @@
  *   1. Gắn component này vào bất kỳ node nào trong game prefab.
  *   2. Kéo GameGuide node vào slot gameGuide (để active=false trong Editor).
  *   3. Kéo GameRoot node vào slot gameRoot (để active=false trong Editor).
- *      - Gắn UIOpacity vào cả hai node.
  *
- * Flow (SkipIntro OFF) — tối ưu load:
- *   LOADING_BAR_100 → GuideView active + warm GameRoot (opacity=0) + prefetch BG
- *   → User click Continue → GUIDE_COMPLETE → GameRoot fade in (BG đã sẵn)
+ * Flow Guide-first (SkipIntro OFF):
+ *   LoadingController hiện GuideView.prefab trước Base
+ *   → Base load nền → notifyBaseReadyDuringGuide (warm GameRoot)
+ *   → Continue → FadeOut → màn đen (chờ Base/BG/Transition xong) → FadeIn GameRoot
+ *   (Fade Guide↔Game dùng fill đen OverLay — không fade UIOpacity GameRoot)
  *
  * Flow (SkipIntro ON / Resume):
- *   → GameRoot active ngay (không qua Guide)
+ *   → await Base → GameRoot active ngay (không qua Guide)
  */
 
-import { _decorator, Component, Node, UIOpacity, tween } from 'cc';
+import { _decorator, Component, Node, sp, assetManager } from 'cc';
 import { EventBus }                from '../core/EventBus';
 import { GameEvents }              from '../core/GameEvents';
 import { GameData }                from '../data/GameData';
 import { Log }                     from '../core/Logger';
 import { SlotMachineController }   from './SlotMachineController';
 import { TransitionLoader }        from './TransitionLoader';
+import { TransitionController }    from './TransitionController';
 import { BroadcastPopupLoader }    from './BroadcastPopupLoader';
 import { DebbugManagerLoader }     from './DebbugManagerLoader';
+import { FeatureEntryGuideLoader } from './FeatureEntryGuideLoader';
+import { OrientationLayout }       from './OrientationLayout';
+import { GuideShellLoader }        from '../core/GuideShellLoader';
 import { GameManager }             from '../manager/GameManager';
+
+const LOGO_SKELETON_PATH = 'newSpine/Anim-TitleGame/TitleGame';
 
 const { ccclass, property } = _decorator;
 
@@ -40,23 +47,19 @@ export class GameEntryController extends Component {
     @property({ type: Node, tooltip: 'Node dùng chung giữa GuideView và GameRoot. Mặc định là con của GuideView, sẽ được chuyển sang GameRoot khi GuideView active=false.' })
     sharedNode: Node | null = null;
 
-    @property({ tooltip: 'Thời gian fade GameRoot xuất hiện (giây). 0 = hiện ngay.' })
-    fadeDuration: number = 0;
-
     @property({
-        tooltip: 'Sau khi Guide hiện, đợi N giây rồi warm-init GameRoot (opacity=0) nền.\n' +
-                 '0 = tắt warm (chỉ init khi Continue). Mặc định 0.5s.',
+        tooltip: 'Sau khi Guide hiện, đợi N giây rồi warm-init GameRoot nền.\n' +
+                 '0 = tắt warm (chỉ init khi Continue).',
     })
     warmGameRootDelay: number = 0;
 
-    private _rootOpacity: UIOpacity | null = null;
     /** Guard: chỉ xử lý LOADING_COMPLETE lần đầu tiên — GameManager có thể emit lại */
     private _loadingHandled: boolean = false;
     /** Guard: chỉ xử lý GUIDE_COMPLETE lần đầu tiên */
     private _guideHandled: boolean = false;
     /** State lưu từ _onLoadingComplete() để _onBarReached100() xử lý khi bar thực sự 100% */
     private _pendingState: { isResuming: boolean; skipIntro: boolean } | null = null;
-    /** GameRoot đã được warm (active + opacity 0) trong lúc Guide đang hiện */
+    /** GameRoot đã được warm (active) trong lúc Guide đang hiện */
     private _gameRootWarmed: boolean = false;
 
     private _transitionLoader: TransitionLoader | null = null;
@@ -88,7 +91,16 @@ export class GameEntryController extends Component {
         this._loadingHandled = true;
         Log.d('[GameEntryController] LOADING_COMPLETE → handling (first time)');
 
-        // Không activate GameRoot ở đây — chờ Guide / resume / skipIntro.
+        // Guide-first: Guide đã hiện từ shell — chỉ lưu state / warm khi Base vừa attach
+        if (GameData.instance.guideFirstBoot && GameData.instance.isGuideShowing) {
+            Log.d('[GameEntryController] Guide-first: Guide already showing — skip show GuideView');
+            this._pendingState = {
+                isResuming: GameData.instance.isResumingFreeSpin,
+                skipIntro: false,
+            };
+            this._deactivateGameRoot();
+            return;
+        }
 
         const isResuming = GameData.instance.isResumingFreeSpin;
         Log.d(`[RESUME-DEBUG] GameEntryController._onLoadingComplete — isResumingFreeSpin=${isResuming}`);
@@ -106,6 +118,12 @@ export class GameEntryController extends Component {
     /** Chỉ gọi khi loading bar VISUALLY đạt 100% — đảm bảo GuideView/GameRoot không hiện sớm */
     private _onBarReached100(): void {
         if (!this._pendingState) {
+            // Guide-first: events có thể đã fire trước khi Base attach — ignore
+            if (GameData.instance.guideFirstBoot && GameData.instance.isGuideShowing) {
+                Log.d('[GameEntryController] LOADING_BAR_100 late during Guide-first — warm only');
+                this.notifyBaseReadyDuringGuide();
+                return;
+            }
             this.scheduleOnce(() => this._onBarReached100(), 0);
             return;
         }
@@ -115,7 +133,7 @@ export class GameEntryController extends Component {
         Log.d(`[GameEntryController] LOADING_BAR_100 → processing: isResuming=${isResuming}, skipIntro=${skipIntro}`);
 
         if (isResuming) {
-            Log.d('[RESUME-DEBUG] GameEntryController → resume path: _showGameRoot() → GAME_READY sau fadeDuration+0.15s');
+            Log.d('[RESUME-DEBUG] GameEntryController → resume path: _showGameRoot() → GAME_READY');
             this._guideHandled = true;
             GameData.instance.isGuideCompleted = true;
             GameData.instance.isGuideShowing = false;
@@ -131,20 +149,115 @@ export class GameEntryController extends Component {
         }
 
         if (skipIntro) {
-            Log.d('[GameEntryController] skipIntro=true → await Transition → emit GUIDE_COMPLETE');
-            void this._emitGuideCompleteWhenTransitionReady();
+            Log.d('[GameEntryController] skipIntro=true → await BG + Transition → GameRoot');
+            void this._enterSkipIntro();
+        } else if (GameData.instance.guideFirstBoot && GameData.instance.isGuideShowing) {
+            // Guide shell đã hiện — chỉ warm GameRoot
+            Log.d('[GameEntryController] Guide-first BAR_100 → warm GameRoot only');
+            this.notifyBaseReadyDuringGuide();
         } else {
             Log.d('[GameEntryController] skipIntro=false → gameGuide.active = true');
             GameData.instance.isGuideShowing = true;
             this._deactivateGameRoot();
             if (this.gameGuide) this.gameGuide.active = true;
-            // Warm GameRoot nền + prefetch BG ngay — tránh khựng frame khi Continue
             this._warmGameRootBackground();
             this._prefetchGameBackground();
         }
     }
 
-    /** Tắt GameRoot + opacity 0 — gọi mỗi lần vào Guide để chắc chắn không bị bật sớm. */
+    /**
+     * LoadingController gọi khi Base attach xong lúc GuideShell đang hiện.
+     * Warm GameRoot + prefetch BG — không đụng Guide shell (Guide cover phía trên).
+     */
+    notifyBaseReadyDuringGuide(): void {
+        if (!GameData.instance.isGuideShowing || this._guideHandled) return;
+        // GuideView đã tách prefab riêng — slot gameGuide trên Base có thể null
+        if (this.gameGuide) this.gameGuide.active = false;
+        this._loadingHandled = true;
+        this._deactivateGameRoot();
+        this._warmGameRootBackground();
+        this._prefetchGameBackground();
+        // Preload Transition nền — Continue sớm vẫn kịp play sau reveal
+        void this._transitionLoader?.ensureLoaded();
+        Log.d('[GameEntryController] notifyBaseReadyDuringGuide — GameRoot warmed (GuideView.prefab stays on top)');
+    }
+
+    /**
+     * LoadingController gọi sau GUIDE_COMPLETE (đang giữ màn đen).
+     * Chuỗi: prep dưới đen → start Transition NGAY + FadeIn song song (không chờ FadeIn xong mới play).
+     */
+    async enterFromExternalGuide(
+        sharedFromShell: Node | null,
+        onReadyToReveal?: () => void | Promise<void>,
+    ): Promise<void> {
+        if (this._guideHandled) {
+            Log.w('[GameEntryController] enterFromExternalGuide — already handled');
+            return;
+        }
+        this._guideHandled = true;
+        this._loadingHandled = true;
+        GameData.instance.isGuideCompleted = true;
+        GameData.instance.isGuideShowing = false;
+
+        if (this.gameGuide) this.gameGuide.active = false;
+
+        if (sharedFromShell?.isValid) {
+            this.sharedNode = sharedFromShell;
+        }
+        this._reparentSharedNode();
+        // Reparent Logo TRƯỚC dismiss Guide — tái sử dụng spine TitleGame từ GuideView
+        this._adoptGuideLogo(GuideShellLoader.logoNode);
+
+        // ★ Dưới màn đen: warm GameRoot + BG + Transition — chưa FadeIn
+        Log.d('[GameEntryController] enterFromExternalGuide — prep under black (no FadeIn yet)');
+        await this.prepareGameRootBackground();
+        this._showGameRoot();
+
+        const loader = this._transitionLoader;
+        const transitionCtrl = loader ? await loader.ensureLoaded() : null;
+        if (!transitionCtrl) {
+            Log.w('[GameEntryController] enterFromExternalGuide — Transition missing');
+        }
+
+        // ★ Transition ngay lập tức trên cùng — không chờ FadeIn Guide (tránh GameView trống 1 nhịp)
+        if (transitionCtrl && loader) {
+            loader.bringAboveShell();
+            transitionCtrl.triggerGuideTransition();
+            EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
+            // Transition overlay đang cover — dismiss Guide ngay, không FadeIn chậm lộ GameView trống
+            GuideShellLoader.dismiss();
+            Log.d('[GameEntryController] enterFromExternalGuide → Transition NOW (Guide dismissed)');
+            return;
+        }
+
+        EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
+        await onReadyToReveal?.();
+        Log.d('[GameEntryController] enterFromExternalGuide → FadeIn fallback (no Transition)');
+    }
+
+    /**
+     * Skip intro / resume: bật GameRoot + load BG trước khi lộ UI (dưới fill đen).
+     */
+    async prepareGameRootBackground(): Promise<void> {
+        if (!this.gameRoot) return;
+
+        if (!this.gameRoot.active) {
+            this.gameRoot.active = true;
+            this._gameRootWarmed = true;
+            await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+            this._applySymbolsSafe();
+        }
+
+        const gm = this.gameRoot.getComponent(GameManager);
+        if (gm) {
+            await gm.ensureBackgroundReady();
+            Log.d('[GameEntryController] prepareGameRootBackground — BG ready');
+        } else {
+            Log.w('[GameEntryController] prepareGameRootBackground — GameManager missing');
+        }
+    }
+
+    /** Tắt GameRoot — gọi mỗi lần vào Guide để chắc chắn không bị bật sớm. */
     private _deactivateGameRoot(): void {
         if (!this.gameRoot) {
             Log.w('[GameEntryController] gameRoot slot null — không thể tắt GameRoot');
@@ -154,39 +267,35 @@ export class GameEntryController extends Component {
             Log.d('[GameEntryController] GameRoot was active — forcing inactive during Guide');
         }
         this.gameRoot.active = false;
-        this._rootOpacity = this.gameRoot.getComponent(UIOpacity) ?? this._rootOpacity;
-        if (this._rootOpacity) this._rootOpacity.opacity = 0;
     }
 
     /**
-     * Init GameRoot nền (opacity=0) trong lúc Guide — chạy GameManager + prefetch BG.
+     * Init GameRoot nền trong lúc Guide — chạy GameManager + prefetch BG.
+     * Guide shell cover phía trên nên không cần ẩn bằng UIOpacity.
      */
     private _warmGameRootBackground(): void {
         if (this._guideHandled || this._gameRootWarmed) return;
         if (!this.gameRoot || this.gameRoot.active) return;
         if (!GameData.instance.isGuideShowing) return;
 
-        Log.d('[GameEntryController] Warm GameRoot in background (opacity=0) while Guide showing');
+        Log.d('[GameEntryController] Warm GameRoot in background while Guide showing');
         this._gameRootWarmed = true;
         this.gameRoot.active = true;
-        const opacity = this.gameRoot.getComponent(UIOpacity) ?? this._rootOpacity;
-        if (opacity) opacity.opacity = 0;
 
         // Đợi 1 frame — ReelController.onLoad phải chạy xong trước applyInitialSymbols
         this.scheduleOnce(() => this._applySymbolsSafe(), 0);
     }
 
-    /** Gọi GameManager.prefetchBackground sau warm — gán BG trong lúc xem Guide. */
+    /** Gọi GameManager.ensureBackgroundReady sau warm — gán BG trong lúc xem Guide. */
     private _prefetchGameBackground(): void {
         if (!this.gameRoot) return;
         const gm = this.gameRoot.getComponent(GameManager);
         if (gm) {
-            gm.prefetchBackground();
+            void gm.ensureBackgroundReady();
             return;
         }
-        // onLoad GameManager chạy sync khi active=true; fallback 1 frame nếu chưa gắn
         this.scheduleOnce(() => {
-            this.gameRoot?.getComponent(GameManager)?.prefetchBackground();
+            void this.gameRoot?.getComponent(GameManager)?.ensureBackgroundReady();
         }, 0);
     }
 
@@ -196,6 +305,11 @@ export class GameEntryController extends Component {
     }
 
     private _onGuideComplete(): void {
+        // Guide-first + shell đang hiện: LoadingController xử lý handoff
+        if (GameData.instance.guideFirstBoot && GameData.instance.isGuideShowing && !this._guideHandled) {
+            Log.d('[GameEntryController] GUIDE_COMPLETE ignored — LoadingController owns GuideShell handoff');
+            return;
+        }
         if (this._guideHandled) {
             Log.w('[GameEntryController] GUIDE_COMPLETE fired again — ignored');
             return;
@@ -206,44 +320,44 @@ export class GameEntryController extends Component {
         Log.d('[GameEntryController] GUIDE_COMPLETE → gameGuide.active=false → _showGameRoot()');
         if (this.gameGuide) this.gameGuide.active = false;
         this._reparentSharedNode();
+        this._adoptGuideLogo(GuideShellLoader.logoNode ?? this.gameGuide?.getChildByName('Logo') ?? null);
         this._showGameRoot();
-        // SoundManager.onLoad chạy khi GameRoot active (nếu chưa warm)
         EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
     }
 
+    /** Bật GameRoot full — fade lộ game do fill đen Guide/Loading, không dùng UIOpacity. */
     private _showGameRoot(): void {
         if (!this.gameRoot) return;
+
         const wasInactive = !this.gameRoot.active;
         this.gameRoot.active = true;
         this._gameRootWarmed = true;
 
         if (wasInactive) {
-            // Đợi 1 frame — ReelController.onLoad phải chạy xong trước applyInitialSymbols
             this.scheduleOnce(() => this._applySymbolsSafe(), 0);
         }
 
-        const opacity = this.gameRoot.getComponent(UIOpacity);
-        if (opacity) {
-            if (this.fadeDuration <= 0) {
-                opacity.opacity = 255;
-                if (this.sharedNode) {
-                    this.sharedNode.active = true;
-                }
-            } else {
-                opacity.opacity = 0;
-                tween(opacity)
-                    .to(this.fadeDuration, { opacity: 255 })
-                    .call(() => {
-                        if (this.sharedNode) {
-                            this.sharedNode.active = true;
-                            Log.d('[GameEntryController] fade complete → sharedNode.active = true');
-                        }
-                    })
-                    .start();
-            }
-        } else {
-            if (this.sharedNode) this.sharedNode.active = true;
+        if (this.sharedNode) {
+            this.sharedNode.active = true;
+            Log.d('[GameEntryController] GameRoot active → sharedNode.active = true');
         }
+
+        // Resume / skip-intro: Logo placeholder chưa có skeleton → lazy load
+        const logo = this.gameRoot.getChildByName('Logo');
+        const skel = logo?.getComponent(sp.Skeleton);
+        if (logo && skel && !skel.skeletonData) {
+            void this._ensureLogoSkeleton(logo);
+        }
+    }
+
+    /** skipIntro: chờ BG + Transition rồi vào GameRoot. */
+    private async _enterSkipIntro(): Promise<void> {
+        if (this._guideHandled) return;
+        Log.d('[GameEntryController] _enterSkipIntro — prepare BG then GUIDE_COMPLETE');
+        await this.prepareGameRootBackground();
+        const loader = this._transitionLoader;
+        if (loader) await loader.ensureLoaded();
+        EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
     }
 
     private _applySymbolsSafe(): void {
@@ -255,7 +369,7 @@ export class GameEntryController extends Component {
         }
     }
 
-    /** Gắn lazy-load Transition / Broadcast / Debug trên Base root (tách khỏi Base.prefab). */
+    /** Gắn lazy-load Transition / Broadcast / Debug / FeatureEntryGuide trên Base root. */
     private _initOverlayLoaders(): void {
         const shell = this.node;
 
@@ -271,15 +385,10 @@ export class GameEntryController extends Component {
         let debug = shell.getComponent(DebbugManagerLoader);
         if (!debug) debug = shell.addComponent(DebbugManagerLoader);
         debug.init(shell, this.gameRoot);
-    }
 
-    /** skipIntro: Transition phải sẵn sàng trước GUIDE_COMPLETE (TransitionController lắng nghe event đó). */
-    private async _emitGuideCompleteWhenTransitionReady(): Promise<void> {
-        const loader = this._transitionLoader;
-        if (loader) {
-            await loader.ensureLoaded();
-        }
-        EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
+        let featureGuide = shell.getComponent(FeatureEntryGuideLoader);
+        if (!featureGuide) featureGuide = shell.addComponent(FeatureEntryGuideLoader);
+        featureGuide.init(shell, this.gameRoot);
     }
 
     /** Chuyển sharedNode từ GuideView sang GameRoot (gọi sau khi GuideView active=false). */
@@ -287,6 +396,74 @@ export class GameEntryController extends Component {
         if (!this.sharedNode || !this.gameRoot) return;
         this.sharedNode.setParent(this.gameRoot, false);
         this.sharedNode.setSiblingIndex(1);
-        Log.d('[GameEntryController] sharedNode đã được chuyển sang GameRoot (vẫn inactive cho đến khi fade xong)');
+        Log.d('[GameEntryController] sharedNode đã được chuyển sang GameRoot');
+    }
+
+    /**
+     * Tái sử dụng Logo spine từ GuideView → slot Logo trên GameRoot.
+     * Base.Logo để skeletonData=null (không kéo TitleGame vào deps Base).
+     */
+    private _adoptGuideLogo(logoFromGuide: Node | null): void {
+        if (!this.gameRoot?.isValid) return;
+
+        const placeholder = this.gameRoot.getChildByName('Logo');
+
+        if (logoFromGuide?.isValid) {
+            if (placeholder?.isValid && placeholder !== logoFromGuide) {
+                const srcOl = placeholder.getComponent(OrientationLayout);
+                const dstOl = logoFromGuide.getComponent(OrientationLayout);
+                if (srcOl && dstOl) dstOl.copyFrom(srcOl);
+
+                const sib = placeholder.getSiblingIndex();
+                placeholder.destroy();
+                logoFromGuide.setParent(this.gameRoot, false);
+                logoFromGuide.setSiblingIndex(sib);
+            } else if (logoFromGuide.parent !== this.gameRoot) {
+                logoFromGuide.setParent(this.gameRoot, false);
+            }
+
+            logoFromGuide.name = 'Logo';
+            logoFromGuide.active = true;
+            const skel = logoFromGuide.getComponent(sp.Skeleton);
+            if (skel?.skeletonData) {
+                const anim = skel.defaultAnimation || 'animation';
+                skel.setAnimation(0, anim, true);
+            }
+            Log.d('[GameEntryController] Adopted Guide Logo spine → GameRoot');
+            return;
+        }
+
+        // Skip intro / không có Guide shell — lazy load TitleGame vào placeholder
+        void this._ensureLogoSkeleton(placeholder);
+    }
+
+    private _ensureLogoSkeleton(logo: Node | null): Promise<void> {
+        if (!logo?.isValid) return Promise.resolve();
+        const skel = logo.getComponent(sp.Skeleton);
+        if (!skel) return Promise.resolve();
+        if (skel.skeletonData) {
+            skel.setAnimation(0, skel.defaultAnimation || 'animation', true);
+            return Promise.resolve();
+        }
+
+        const bundle = assetManager.getBundle('MainBundle');
+        if (!bundle) {
+            Log.w('[GameEntryController] MainBundle missing — cannot load Logo spine');
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve) => {
+            bundle.load(LOGO_SKELETON_PATH, sp.SkeletonData, (err, data) => {
+                if (err || !data || !skel.isValid) {
+                    Log.w('[GameEntryController] Logo SkeletonData load failed', err);
+                    resolve();
+                    return;
+                }
+                skel.skeletonData = data;
+                skel.setAnimation(0, 'animation', true);
+                Log.d('[GameEntryController] Logo SkeletonData lazy-loaded (skip-intro path)');
+                resolve();
+            });
+        });
     }
 }

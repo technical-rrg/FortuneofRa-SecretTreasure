@@ -4343,11 +4343,32 @@ export class GameManager extends Component {
 
     /** ★ Prefetch BG khi GuideView hiện (GameRoot warm) — gán sprite trước khi user Continue. */
     prefetchBackground(): void {
+        void this.ensureBackgroundReady();
+    }
+
+    /**
+     * Load + gán BG orientation hiện tại (và prefetch chiều còn lại).
+     * Await trước khi lộ GameRoot (skipIntro / Guide → game) để tránh màn trống.
+     */
+    ensureBackgroundReady(): Promise<SpriteFrame | null> {
         this._allowBackgroundLoad();
-        if (!this.backgroundNode) return;
-        for (let idx = 0; idx < NORMAL_BG_PATHS.length; idx++) {
-            void this._loadBackgroundSprite(NORMAL_BG_PATHS[idx], false, idx);
-        }
+        if (!this.backgroundNode) return Promise.resolve(null);
+
+        const size = screen.windowSize;
+        const isPortrait = size.height > size.width;
+        const primaryIdx = isPortrait ? 0 : 1;
+        const secondaryIdx = isPortrait ? 1 : 0;
+
+        // Prefetch chiều kia nền — không block
+        void this._loadBackgroundSprite(NORMAL_BG_PATHS[secondaryIdx], false, secondaryIdx);
+
+        return this._loadBackgroundSprite(NORMAL_BG_PATHS[primaryIdx], false, primaryIdx).then((sf) => {
+            if (sf && this.backgroundNode) {
+                const spriteComponent = this.backgroundNode.getComponent(Sprite);
+                if (spriteComponent) spriteComponent.spriteFrame = sf;
+            }
+            return sf;
+        });
     }
 
     /** Mở khóa lazy-load BG (gọi sau Guide / khi vào game). */
@@ -4454,9 +4475,15 @@ export class GameManager extends Component {
      * ★ GoF: Long Spin trigger khi tổng Red symbols >= 3.
      * Tính từ stickyCells (luôn có sẵn) thay vì phụ thuộc resp.redCount (có thể undefined).
      * Trả về các vị trí Red hint (dùng mid row) để SlotMachineController bounce animation.
+     *
+     * Force Feature Entry: chỉ đếm existingCells (Red thật trên grid).
+     * fillCells chưa đổ — nếu đếm vào sẽ LONG_SPIN_HINT_SHOW sớm → spine trên symbol thường
+     * khi từng reel dừng (trông như hilightWin giữa lúc quay).
      */
     private _getLongSpinHints(resp: SpinResponse): { reelIndex: number; rowIndex: number }[] {
-        const cells = resp.stickyCells ?? [];
+        const cells = (resp.isForcedFeatureEntry && resp.forceFeatureEntry)
+            ? (resp.forceFeatureEntry.existingCells ?? [])
+            : (resp.stickyCells ?? []);
         const redCells = cells.filter(c => c.symbolId === SymbolId.STICKY_RED);
         if (redCells.length < 3) return [];
         // Lấy danh sách reel unique chứa red, dùng row thực tế của red đầu tiên trên mỗi reel

@@ -12,6 +12,7 @@ import {
     SymbolId,
     ServerSession,
     StickyCell,
+    JackpotType,
     FREE_SPIN_TIER_REEL_INDICES,
     isFreeSpinTierReelIndex,
 } from './SlotTypes';
@@ -253,8 +254,13 @@ export class GameData {
      * Reset về undefined sau khi đã dùng.
      */
     lastClaimWinGrade: string | undefined = undefined;
-    /** Jackpot values hiện tại [mini, minor, major, grand] */
+    /** Jackpot values hiện tại [mini, minor, major, grand] — từ poll Wins / spin After */
     jackpotValues: number[] = [0, 0, 0, 0];
+    /**
+     * Jackpot values trước spin [mini, minor, major, grand] — từ spin Before.
+     * Dùng làm số tiền trúng progressive (pool lúc win), trước khi After reset meter.
+     */
+    jackpotValuesBefore: number[] = [0, 0, 0, 0];
     /** Raw PS reel strips (PS IDs gốc từ server — để verify mapping trong spin log) */
     rawPsStrips: number[][] = [];
     /** Raw FreeSpin PS reel strips (PS IDs gốc từ FreeSpinReel.Strips) */
@@ -548,6 +554,38 @@ export class GameData {
         this.isEntered = false;
         this.lastWinMsgId = '0';
         this.jackpotValues = [0, 0, 0, 0];
+        this.jackpotValuesBefore = [0, 0, 0, 0];
+    }
+
+    /**
+     * JackpotType → index server [MINI=0, MINOR=1, MAJOR=2, GRAND=3].
+     * Trả -1 nếu type không hợp lệ.
+     */
+    static jackpotTypeToIndex(type: JackpotType): number {
+        const idx = type - 1;
+        return idx >= 0 && idx <= 3 ? idx : -1;
+    }
+
+    /** Meter jackpot hiện tại từ API (Wins / After). Không hardcode multiplier. */
+    getJackpotMeter(type: JackpotType): number {
+        const idx = GameData.jackpotTypeToIndex(type);
+        if (idx < 0) return 0;
+        const v = this.jackpotValues[idx];
+        return Number.isFinite(v) && v > 0 ? v : 0;
+    }
+
+    /**
+     * Số tiền jackpot thắng theo API server:
+     * 1) Before[tier] (pool lúc spin trúng)
+     * 2) meter hiện tại (Wins / After)
+     * Không dùng bet × multiplier hardcode.
+     */
+    getJackpotWinAmount(type: JackpotType): number {
+        const idx = GameData.jackpotTypeToIndex(type);
+        if (idx < 0) return 0;
+        const before = this.jackpotValuesBefore[idx];
+        if (Number.isFinite(before) && before > 0) return before;
+        return this.getJackpotMeter(type);
     }
 
     /** Cập nhật session sau login thành công */

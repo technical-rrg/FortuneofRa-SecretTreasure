@@ -13,7 +13,7 @@
  */
 
 import {
-    _decorator, Component, Node, Button, BlockInputEvents, Label, UIOpacity, tween, Tween, Vec3, Color, Sprite,
+    _decorator, Component, Node, Button, BlockInputEvents, Label, UIOpacity, tween, Tween, Vec3, Color, Sprite, screen,
 } from 'cc';
 import { sp } from 'cc';
 import { EventBus }       from '../core/EventBus';
@@ -27,6 +27,7 @@ import { SpriteNumber }   from '../core/SpriteNumber';
 import { Log }            from '../core/Logger';
 import { SoundManager }   from '../manager/SoundManager';
 import { L }              from '../core/LocalizationManager';
+import { OrientationLayout } from './OrientationLayout';
 
 const { ccclass, property } = _decorator;
 
@@ -133,11 +134,12 @@ export class FeatureSelectionPopup extends Component {
 
         this._baseNode = this.node.getChildByName('Base');
         this._demoNode = this._baseNode?.getChildByName('Demo') ?? null;
-        this._captureIntroBases();
-        this._captureGlowBase();
+        this._resyncEffectBases();
         this._freezeChoiceSpines();
 
         EventBus.instance.on(GameEvents.FEATURE_SELECT_OPEN, this._onOpen, this);
+        screen.on('window-resize', this._onScreenChange, this);
+        screen.on('orientation-change', this._onScreenChange, this);
         this._bindButtons();
 
         this.node.active = false;
@@ -150,7 +152,52 @@ export class FeatureSelectionPopup extends Component {
         this._stopGlowEffect();
         this._pendingFinishClose = false;
         this.unschedule(this._onTransitionReadyHide);
+        this.unschedule(this._resyncEffectBases);
+        screen.off('window-resize', this._onScreenChange, this);
+        screen.off('orientation-change', this._onScreenChange, this);
         EventBus.instance.offTarget(this);
+    }
+
+    /** Đồng bộ lại base pos/scale theo OrientationLayout sau khi xoay / resize. */
+    private _onScreenChange(): void {
+        this.unschedule(this._resyncEffectBases);
+        // Delay 0 để chạy sau OrientationLayout._applyOrientation (cùng frame schedule).
+        this.scheduleOnce(this._resyncEffectBases, 0);
+    }
+
+    private _isPortrait(): boolean {
+        const size = screen.windowSize;
+        return size.height > size.width;
+    }
+
+    /** Apply OL trên node effect → capture lại base → nếu popup đang mở thì snap + float lại. */
+    private _resyncEffectBases = (): void => {
+        this._applyOrientationToEffectNodes();
+        this._captureIntroBases();
+        this._captureGlowBase();
+
+        if (!this._isOpen) return;
+
+        // Đang mở: snap về layout mới rồi tiếp tục float / glow (không replay zoom intro).
+        this._stopIntroAnims();
+        for (const base of this._introBases) {
+            if (!base.node?.isValid) continue;
+            base.node.setPosition(base.pos);
+            base.node.setScale(base.scale);
+            base.node.active = true;
+        }
+        this._startIntroFloat();
+        this._startGlowEffect();
+    };
+
+    private _applyOrientationToEffectNodes(): void {
+        for (const node of this.introZoomNodes) {
+            if (!node?.isValid) continue;
+            node.getComponent(OrientationLayout)?.applyOrientation();
+        }
+        if (this.glowNode?.isValid) {
+            this.glowNode.getComponent(OrientationLayout)?.applyOrientation();
+        }
     }
 
     private _onOpen(payload: FeatureSelectPayload): void {
@@ -497,6 +544,13 @@ export class FeatureSelectionPopup extends Component {
             this._glowBaseScale = null;
             return;
         }
+        // Ưu tiên scale từ OrientationLayout — tránh capture scale đang pulse.
+        const ol = this.glowNode.getComponent(OrientationLayout);
+        if (ol) {
+            const data = this._isPortrait() ? ol.portrait : ol.landscape;
+            this._glowBaseScale = new Vec3(data.scaleX, data.scaleY, data.scaleZ);
+            return;
+        }
         this._glowBaseScale = this.glowNode.scale.clone();
     }
 
@@ -541,15 +595,31 @@ export class FeatureSelectionPopup extends Component {
 
     // ── Intro zoom + float ──────────────────────────────────────────
 
+    /**
+     * Capture target pos/scale theo OrientationLayout hiện tại.
+     * Scale lấy từ OL data (không lấy scale đang tween zoom 0→1).
+     * Pos lấy từ node sau khi OL apply + Widget align.
+     */
     private _captureIntroBases(): void {
         this._introBases = [];
         for (const node of this.introZoomNodes) {
             if (!node?.isValid) continue;
-            this._introBases.push({
-                node,
-                pos: node.position.clone(),
-                scale: node.scale.clone(),
-            });
+
+            const ol = node.getComponent(OrientationLayout);
+            let pos = node.position.clone();
+            let scale = node.scale.clone();
+
+            if (ol) {
+                const data = this._isPortrait() ? ol.portrait : ol.landscape;
+                pos = node.position.clone();
+                scale = new Vec3(data.scaleX, data.scaleY, data.scaleZ);
+            }
+
+            if (scale.x === 0 && scale.y === 0) {
+                scale.set(1, 1, 1);
+            }
+
+            this._introBases.push({ node, pos, scale });
         }
     }
 
@@ -651,6 +721,11 @@ export class FeatureSelectionPopup extends Component {
         this._setButtonsInteractable(false);
         if (this.sumCreditSpriteNumber) this.sumCreditSpriteNumber.node.active = true;
         this._freezeChoiceSpines();
+
+        // Đồng bộ target bay/zoom theo OrientationLayout trước khi chạy intro.
+        this._applyOrientationToEffectNodes();
+        this._captureIntroBases();
+        this._captureGlowBase();
         this._startGlowEffect();
 
         if (this._demoNode) {

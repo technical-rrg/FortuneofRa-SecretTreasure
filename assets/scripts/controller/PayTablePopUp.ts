@@ -18,6 +18,7 @@ import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
 import { Log } from '../core/Logger';
+import { OrientationLayout } from './OrientationLayout';
 
 const { ccclass, property } = _decorator;
 
@@ -208,6 +209,7 @@ export class PayTablePopUp extends Component {
     private readonly _ARROW_DURATION: number = 0.35;
     private _btnLeftOriginPos: Vec3 = new Vec3(0, 0, 0);
     private _btnRightOriginPos: Vec3 = new Vec3(0, 0, 0);
+    private _arrowBasesReady: boolean = false;
 
     private _currentPage: number = 1;
     private readonly _totalPages: number = 8;
@@ -222,7 +224,9 @@ export class PayTablePopUp extends Component {
         this.btnRight?.node.on('click', this._onRight, this);
 
         EventBus.instance.on(GameEvents.PAY_TABLE_OPEN, this.open, this);
-        view.on('canvas-resize', this._onCanvasResize, this);
+        view.on('canvas-resize', this._onScreenChange, this);
+        screen.on('window-resize', this._onScreenChange, this);
+        screen.on('orientation-change', this._onScreenChange, this);
     }
 
     onDestroy(): void {
@@ -232,7 +236,10 @@ export class PayTablePopUp extends Component {
         this.btnLeft?.node?.off('click', this._onLeft, this);
         this.btnRight?.node?.off('click', this._onRight, this);
 
-        view.off('canvas-resize', this._onCanvasResize, this);
+        view.off('canvas-resize', this._onScreenChange, this);
+        screen.off('window-resize', this._onScreenChange, this);
+        screen.off('orientation-change', this._onScreenChange, this);
+        this.unschedule(this._resyncArrowBases);
         EventBus.instance?.off(GameEvents.PAY_TABLE_OPEN, this.open, this);
     }
 
@@ -251,16 +258,17 @@ export class PayTablePopUp extends Component {
 
         this.node.active = true;
 
-        this.scheduleOnce(() => {
-            this.node.getComponentsInChildren(Widget).forEach(w => w.updateAlignment());
-            this._captureOriginPositions();
-            this._restartArrowAnimations();
-        }, 0);
+        // Delay 0: chạy sau OrientationLayout._applyOrientation (cùng frame schedule).
+        this.unschedule(this._resyncArrowBases);
+        this.scheduleOnce(this._resyncArrowBases, 0);
     }
 
     close(): void {
         if (!this._isOpen) return;
         this._isOpen = false;
+        this._arrowBasesReady = false;
+        this._stopArrowAnimations();
+        this.unschedule(this._resyncArrowBases);
         EventBus.instance.emit(GameEvents.POPUP_CLOSED);
         this.node.active = false;
     }
@@ -291,6 +299,9 @@ export class PayTablePopUp extends Component {
             this.pageIndicatorLabel.string = `${page} / ${this._totalPages}`;
         }
 
+        // Chờ base từ OrientationLayout sẵn sàng (tránh reset về 0,0 lúc vừa open).
+        if (!this._arrowBasesReady) return;
+
         this.scheduleOnce(() => {
             this._resetButtonPositions();
             this._restartArrowAnimations();
@@ -302,24 +313,41 @@ export class PayTablePopUp extends Component {
         this._playArrowAnimation(this.btnRight?.node ?? null, this._ARROW_OFFSET, this._btnRightOriginPos);
     }
 
-    private _onCanvasResize(): void {
+    /** Đồng bộ lại base mũi tên theo OrientationLayout sau khi xoay / resize. */
+    private _onScreenChange(): void {
         if (!this._isOpen) return;
         this._stopArrowAnimations();
-        this.scheduleOnce(() => {
-            this.node.getComponentsInChildren(Widget).forEach(w => w.updateAlignment());
-            this._captureOriginPositions();
-            this._restartArrowAnimations();
-        }, 0);
+        this.unschedule(this._resyncArrowBases);
+        // Delay 0 để chạy sau OrientationLayout._applyOrientation (cùng frame schedule).
+        this.scheduleOnce(this._resyncArrowBases, 0);
     }
 
+    private _resyncArrowBases(): void {
+        if (!this._isOpen) return;
+        this._captureOriginPositions();
+        this._resetButtonPositions();
+        this._restartArrowAnimations();
+    }
+
+    /** Apply OL + Widget rồi lấy vị trí base thực tế (không lấy lúc đang tween). */
     private _captureOriginPositions(): void {
+        this._stopArrowAnimations();
+        this._applyArrowOrientation();
+        this.node.getComponentsInChildren(Widget).forEach(w => w.updateAlignment());
+
         if (this.btnLeft?.node) this._btnLeftOriginPos = this.btnLeft.node.position.clone();
         if (this.btnRight?.node) this._btnRightOriginPos = this.btnRight.node.position.clone();
+        this._arrowBasesReady = true;
+    }
+
+    private _applyArrowOrientation(): void {
+        this.btnLeft?.node?.getComponent(OrientationLayout)?.applyOrientation();
+        this.btnRight?.node?.getComponent(OrientationLayout)?.applyOrientation();
     }
 
     private _resetButtonPositions(): void {
-        if (this.btnLeft?.node) this.btnLeft.node.position = this._btnLeftOriginPos.clone();
-        if (this.btnRight?.node) this.btnRight.node.position = this._btnRightOriginPos.clone();
+        if (this.btnLeft?.node) this.btnLeft.node.setPosition(this._btnLeftOriginPos);
+        if (this.btnRight?.node) this.btnRight.node.setPosition(this._btnRightOriginPos);
     }
 
     private _playArrowAnimation(node: Node | null, offsetX: number, originPos: Vec3): void {

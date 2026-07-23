@@ -16,8 +16,8 @@
  *     xong quay lại vòng tuần tự từ đầu.
  *
  * ── AUTO UPDATE ──
- *   - Lắng nghe JACKPOT_VALUES_UPDATED từ server/mock polling → dùng giá trị thực.
- *   - Lắng nghe BET_CHANGED → fallback tính từ multiplier khi chưa có jackpotValues.
+ *   - Lắng nghe JACKPOT_VALUES_UPDATED từ server/mock polling → hiển thị giá trị API.
+ *   - Lắng nghe BET_CHANGED → refresh (meter vẫn lấy từ jackpotValues, không nhân bet).
  *   - jackpotValues: [MINI, MINOR, MAJOR, GRAND] (thứ tự từ server API).
  */
 
@@ -28,9 +28,6 @@ import { GameEvents } from '../core/GameEvents';
 import { SpriteNumber } from '../core/SpriteNumber';
 import { JackpotType } from '../data/SlotTypes';
 import { Log } from '../core/Logger';
-
-/** Fallback multipliers cho mock mode — chỉ dùng khi config.jackpotMultipliers chưa có từ server. */
-const JACKPOT_MULT_FALLBACK = { GRAND: 500, MAJOR: 250, MINOR: 100, MINI: 25 };
 
 const { ccclass, property } = _decorator;
 
@@ -406,39 +403,17 @@ export class JackpotDisplay extends Component {
     // ─── UPDATE ──────────────────────────────────────────────────────────────
 
     /**
-     * Cập nhật tất cả các label.
-     *
-     * Real API: ưu tiên jackpotValues từ server (Wins: [MINI, MINOR, MAJOR, GRAND]).
-     * Fallback: totalBet × multiplier từ PS.Symbols (config.jackpotMultipliers).
+     * Cập nhật tất cả các label từ jackpotValues API server
+     * (poll Wins / spin After: [MINI, MINOR, MAJOR, GRAND]).
+     * Không hardcode / không tính totalBet × multiplier.
      */
     private _updateAll(): void {
-        const data = GameData.instance;
-        const vals = data.jackpotValues;   // [MINI=0, MINOR=1, MAJOR=2, GRAND=3]
-        const hasServerValues = Array.isArray(vals) && vals.length === 4 && vals.some(v => v > 0);
-
-        let grand: number, major: number, minor: number, mini: number;
-        if (hasServerValues) {
-            // Server cung cấp giá trị thực — dùng trực tiếp
-            mini  = vals[0];
-            minor = vals[1];
-            major = vals[2];
-            grand = vals[3];
-        } else {
-            // Fallback: tính từ totalBet × multiplier
-            const mults = data.config.jackpotMultipliers ?? JACKPOT_MULT_FALLBACK;
-            const totalBet = data.totalBet;
-            grand = totalBet * mults.GRAND;
-            major = totalBet * mults.MAJOR;
-            minor = totalBet * mults.MINOR;
-            mini  = totalBet * mults.MINI;
-        }
-
-        // Cắt (truncate) 3 chữ số thập phân — tránh jitter nhưng không bao giờ làm tròn lên
+        const vals = GameData.instance.jackpotValues;   // [MINI=0, MINOR=1, MAJOR=2, GRAND=3]
         const truncate3 = (n: number) => Math.floor(n * 1000) / 1000;
-        grand = truncate3(grand);
-        major = truncate3(major);
-        minor = truncate3(minor);
-        mini  = truncate3(mini);
+        const mini  = truncate3(Number(vals?.[0]) || 0);
+        const minor = truncate3(Number(vals?.[1]) || 0);
+        const major = truncate3(Number(vals?.[2]) || 0);
+        const grand = truncate3(Number(vals?.[3]) || 0);
 
         const ci = this.currencyIndex;
         const c = this._cachedValues;

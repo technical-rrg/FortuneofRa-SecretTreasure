@@ -304,19 +304,21 @@ export class SymbolHighlighter extends Component {
         });
     }
 
-    /** Phát sound tương ứng với loại symbol thắng của line: Wild > Major
-     *  matchedSymbols chứa raw PS IDs từ server — cần convert qua psToClientMap trước khi so sánh. */
-    private _playSymbolMatchSound(syms: number[]): void {
+    /**
+     * Phát sound tương ứng với loại symbol thắng của line.
+     * matchedSymbols chứa raw PS IDs từ server — cần convert qua psToClientMap trước khi so sánh.
+     * @param playWildLayer chỉ true khi show lineWin lần đầu (SHOW_ALL) và line có Wild.
+     */
+    private _playSymbolMatchSound(syms: number[], playWildLayer = false): void {
         const snd = SoundManager.instance;
         if (!snd || syms.length === 0) return;
         // Convert raw PS IDs → client SymbolIds; fallback to raw value when map empty (mock mode)
         const clientSyms = this._normalizeSymbols(syms);
-        const isWild = clientSyms.includes(SymbolId.WILD);
         const isCleopatra = clientSyms.includes(SymbolId.MAJOR_CLEOPATRA);
         if (isCleopatra) {
             snd.playGirlSymbolAnim();
         }
-        if (isWild) {
+        if (playWildLayer) {
             snd.playSymbolMatchWild();
         }
     }
@@ -376,9 +378,11 @@ export class SymbolHighlighter extends Component {
         const loopSpine = lines.length === 1;
         this.paylineIndicator?.showMultipleWinLines(lines.map(l => l.payLineIndex));
 
-        // Phát sound nếu có wild trong bất kỳ line nào
+        // Lần đầu show lineWin: phát wild layer nếu bất kỳ line nào có Wild
         const allSyms = lines.flatMap(l => l.matchedSymbols ?? []);
-        if (allSyms.length > 0) this._playSymbolMatchSound(allSyms);
+        const hasWild = lines.some(l => l.containsWild)
+            || this._normalizeSymbols(allSyms).includes(SymbolId.WILD);
+        if (allSyms.length > 0) this._playSymbolMatchSound(allSyms, hasWild);
 
         // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
         void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
@@ -414,9 +418,10 @@ export class SymbolHighlighter extends Component {
         // Nếu chỉ có 1 way win duy nhất → loop spine animation thay vì play once
         const loopSpine = ways.length === 1;
 
-        // Play sound if Cleopatra/Wild in any way
+        // Lần đầu show ways: phát wild layer nếu bất kỳ way nào có Wild
         const waySyms = ways.map(w => w.symbolId);
-        if (waySyms.length > 0) this._playSymbolMatchSound(waySyms);
+        const hasWild = ways.some(w => w.containsWild || w.symbolId === SymbolId.WILD);
+        if (waySyms.length > 0) this._playSymbolMatchSound(waySyms, hasWild);
 
         // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
         void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)

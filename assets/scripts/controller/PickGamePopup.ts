@@ -82,7 +82,6 @@ import { EventBus }      from '../core/EventBus';
 import { GameEvents }    from '../core/GameEvents';
 import { PickGameState, JackpotType, SymbolId } from '../data/SlotTypes';
 import { GameData }      from '../data/GameData';
-import { BetManager }    from '../manager/BetManager';
 import { NetworkManager } from '../manager/NetworkManager';
 import { SoundManager }  from '../manager/SoundManager';
 import { USE_REAL_API }  from '../data/ServerConfig';
@@ -100,14 +99,6 @@ const SYM_TO_JP: Record<number, JackpotType> = {
 };
 
 
-
-/** JackpotType → multiplier fallback */
-const JP_FALLBACK_MULT: Record<number, number> = {
-    [JackpotType.MINI]:  25,
-    [JackpotType.MINOR]: 100,
-    [JackpotType.MAJOR]: 250,
-    [JackpotType.GRAND]: 500,
-};
 
 @ccclass('PickGamePopup')
 export class PickGamePopup extends Component {
@@ -705,43 +696,30 @@ export class PickGamePopup extends Component {
     }
 
     private _getJackpotValueFromServerMeter(tier: JackpotType): number {
-        const vals = GameData.instance.jackpotValues;
-        if (!Array.isArray(vals) || vals.length < 4) return 0;
-        const indexMap: Record<number, number> = {
-            [JackpotType.MINI]: 0,
-            [JackpotType.MINOR]: 1,
-            [JackpotType.MAJOR]: 2,
-            [JackpotType.GRAND]: 3,
-        };
-        const value = vals[indexMap[tier]];
-        return Number.isFinite(value) && value > 0 ? value : 0;
+        // Meter hiện tại (Wins/After) — cùng nguồn JackpotDisplay đang show
+        return GameData.instance.getJackpotMeter(tier);
     }
 
-    private _getFallbackJackpotAmount(tier: JackpotType): number {
-        const data = GameData.instance;
-        const mults = data.config.jackpotMultipliers ?? { GRAND: 500, MAJOR: 250, MINOR: 100, MINI: 25 };
-        const bet = BetManager.instance.totalBet;
-        const multMap: Record<number, number> = {
-            [JackpotType.MINI]:  mults.MINI  ?? JP_FALLBACK_MULT[JackpotType.MINI],
-            [JackpotType.MINOR]: mults.MINOR ?? JP_FALLBACK_MULT[JackpotType.MINOR],
-            [JackpotType.MAJOR]: mults.MAJOR ?? JP_FALLBACK_MULT[JackpotType.MAJOR],
-            [JackpotType.GRAND]: mults.GRAND ?? JP_FALLBACK_MULT[JackpotType.GRAND],
-        };
-        return bet * (multMap[tier] ?? JP_FALLBACK_MULT[tier] ?? 25);
-    }
-
+    /**
+     * Số tiền popup: chỉ lấy từ API server — cùng nguồn với JackpotDisplay khi có thể.
+     * 1) jackpotValues Before / meter (Wins/After) — khớp Display
+     * 2) PickWin từ Pick ACK
+     * 3) pickGameWinAmount (Claim WinCash)
+     * Không hardcode bet × multiplier.
+     */
     private _resolveJackpotAmount(): { amount: number; source: string } {
+        const serverMeterAmount = this._getJackpotValueFromServerMeter(this._wonTier);
+        if (serverMeterAmount > 0) {
+            return { amount: serverMeterAmount, source: 'JackpotValues' };
+        }
         if (this._serverPickWinAmount > 0) {
             return { amount: this._serverPickWinAmount, source: 'PickWin' };
         }
         if (GameData.instance.pickGameWinAmount > 0) {
             return { amount: GameData.instance.pickGameWinAmount, source: 'ClaimWinCash' };
         }
-        const serverMeterAmount = this._getJackpotValueFromServerMeter(this._wonTier);
-        if (serverMeterAmount > 0) {
-            return { amount: serverMeterAmount, source: 'JackpotValues' };
-        }
-        return { amount: this._getFallbackJackpotAmount(this._wonTier), source: 'MultiplierFallback' };
+        Log.w(`[PickGamePopup] No server jackpot amount for tier=${JackpotType[this._wonTier]}`);
+        return { amount: 0, source: 'None' };
     }
 
     private _emitJackpot = (): void => {

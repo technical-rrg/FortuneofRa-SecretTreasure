@@ -83,7 +83,6 @@ import { ResponseLogger } from '../core/ResponseLogger';
 import { PopUpMessage, PopupCase } from '../core/PopUpMessage';
 import { Log } from '../core/Logger';
 import { LocalizationManager } from '../core/LocalizationManager';
-import { BetManager } from './BetManager';
 
 /**
  * ServerApiError - Error được throw khi server trả về CODE != 0 hoặc network thất bại.
@@ -695,14 +694,10 @@ class MockNetworkAdapter implements INetworkAdapter {
             pickState.wonTier = symToTierName[Number(wonSym)];
         }
 
-        // Tính WinCash cho jackpot (giống real API)
-        const jackpotMultMap: Record<number, number> = {
-            [SymbolId.JP_GRAND]: 500, [SymbolId.JP_MAJOR]: 250,
-            [SymbolId.JP_MINOR]: 100, [SymbolId.JP_MINI]: 25,
-        };
-        const winCash = isJackpot && wonSym != null
-            ? BetManager.instance.totalBet * (jackpotMultMap[Number(wonSym)] ?? 25)
-            : 0;
+        // PickWin mock = meter jackpot hiện tại từ API/poll (không hardcode multiplier)
+        const jpIdx = wonSym != null ? (jpIndexMap[Number(wonSym)] ?? -1) : -1;
+        const meter = jpIdx >= 0 ? (GameData.instance.jackpotValues[jpIdx] ?? 0) : 0;
+        const winCash = isJackpot && meter > 0 ? meter : 0;
 
         return {
             PickGame: pickGameIds,
@@ -1154,8 +1149,17 @@ class RealNetworkAdapter implements INetworkAdapter {
         }
 
         // Update jackpot values from Before/After (PascalCase per AckSpin doc)
-        // raw.After = { MINI: n, MINOR: n, MAJOR: n, GRAND: n } — keys có thể xáo trộn
+        // raw.Before = pool lúc bắt đầu spin (dùng làm prize khi trúng progressive)
+        // raw.After  = { MINI: n, MINOR: n, MAJOR: n, GRAND: n } — meter sau spin
         const prevJackpot = data.jackpotValues?.slice?.() ?? [];
+        const jackpotBefore = _normalizeJackpotValues(raw.Before);
+        if (jackpotBefore) {
+            data.jackpotValuesBefore = jackpotBefore;
+            Log.e(`[Jackpot] Spin Before=[${jackpotBefore.join(',')}]`);
+        } else if (raw.Before) {
+            Log.e(`[Jackpot] Spin Before parse fail raw.Before=${JSON.stringify(raw.Before)}`);
+        }
+
         const jackpotAfter = _normalizeJackpotValues(raw.After);
         if (jackpotAfter) {
             const changed = jackpotAfter.some((v, i) => v !== prevJackpot[i]);
@@ -1166,28 +1170,7 @@ class RealNetworkAdapter implements INetworkAdapter {
             );
             EventBus.instance.emit(GameEvents.JACKPOT_VALUES_UPDATED, jackpotAfter);
         } else if (raw.After) {
-            const JP_KEY_MAP: Record<string, number> = {
-                'MINI': 0, 'Mini': 0, 'mini': 0,
-                'MINOR': 1, 'Minor': 1, 'minor': 1,
-                'MAJOR': 2, 'Major': 2, 'major': 2,
-                'GRAND': 3, 'Grand': 3, 'grand': 3,
-            };
-            const vals: number[] = [0, 0, 0, 0];
-            for (const k in raw.After) {
-                const idx = JP_KEY_MAP[k];
-                if (idx !== undefined) vals[idx] = raw.After[k];
-            }
-            if (vals.some(v => v > 0)) {
-                const changed = vals.some((v, i) => v !== prevJackpot[i]);
-                data.jackpotValues = vals;
-                Log.e(
-                    `[Jackpot] Spin After(fallback)=[${vals.join(',')}] prev=[${prevJackpot.join(',')}]` +
-                    ` changed=${changed} raw.After=${JSON.stringify(raw.After)}`
-                );
-                EventBus.instance.emit(GameEvents.JACKPOT_VALUES_UPDATED, vals);
-            } else {
-                Log.e(`[Jackpot] Spin After parse fail raw.After=${JSON.stringify(raw.After)}`);
-            }
+            Log.e(`[Jackpot] Spin After parse fail raw.After=${JSON.stringify(raw.After)}`);
         } else {
             Log.e('[Jackpot] Spin — server không gửi After');
         }

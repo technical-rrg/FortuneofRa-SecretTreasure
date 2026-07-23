@@ -75,7 +75,7 @@
                 <key>spriteSourceSize</key>
                 <string>{222,225}</string>
                 <key>textureRect</key>
-                <string>{{396,0},{222,225}}</string>
+                <string>{{397,0},{222,225}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -105,7 +105,7 @@
                 <key>spriteSourceSize</key>
                 <string>{222,225}</string>
                 <key>textureRect</key>
-                <string>{{618,0},{222,225}}</string>
+                <string>{{619,0},{222,225}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -116,11 +116,11 @@
                 <key>spriteOffset</key>
                 <string>{0,0}</string>
                 <key>spriteSize</key>
-                <string>{200,200}</string>
+                <string>{201,208}</string>
                 <key>spriteSourceSize</key>
-                <string>{200,200}</string>
+                <string>{201,208}</string>
                 <key>textureRect</key>
-                <string>{{196,0},{200,200}}</string>
+                <string>{{196,0},{201,208}}</string>
                 <key>textureRotated</key>
                 <false/>
             </dict>
@@ -273,7 +273,7 @@
             <key>size</key>
             <string>{999,1265}</string>
             <key>smartupdate</key>
-            <string>$TexturePacker:SmartUpdate:69be043cd327c9ade5ae206880160cbc:aaddf1811a07a7cd2df43d08037c0531:3d0ad3a717172f27e6ea538b13245e4a$</string>
+            <string>$TexturePacker:SmartUpdate:73d055952804c8a5707555e028706d86:974b81b345b382d880d8451d9769dd82:3d0ad3a717172f27e6ea538b13245e4a$</string>
             <key>textureFileName</key>
             <string>Symbol.png</string>
         </dict>

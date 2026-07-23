@@ -39,6 +39,7 @@ const LAZY_AUDIO_PATHS: Record<string, string> = {
     sxFeatureSelect: 'sound/sx_feature_select',
     sxSymbolMatchLowValue: 'sound/sx_symbol_match_low_value',
     sxSymbolMatchHighValue: 'sound/sx_symbol_match_high_value',
+    sxSymbolMatchWildLayer: 'sound/sx_symbol_match_wild_layer',
     sxSymbolPayout: 'sound/sx_symbol_payout',
     sxBonusTrigger: 'sound/sx_bonus_trigger',
     sxPotEffectLvl2: 'sound/sx_pot_effect_lvl_2',
@@ -122,6 +123,7 @@ export class SoundManager extends Component {
     @property({ type: AudioClip }) sxFeatureSelect: AudioClip | null = null;
     @property({ type: AudioClip }) sxSymbolMatchLowValue: AudioClip | null = null;
     @property({ type: AudioClip }) sxSymbolMatchHighValue: AudioClip | null = null;
+    @property({ type: AudioClip }) sxSymbolMatchWildLayer: AudioClip | null = null;
     @property({ type: AudioClip }) sxSymbolPayout: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusTrigger: AudioClip | null = null;
     @property({ type: AudioClip }) sxPotEffectLvl2: AudioClip | null = null;
@@ -291,7 +293,8 @@ export class SoundManager extends Component {
         const priority = [
             'mxNormalIntro', 'mxNormalLoop', 'sxAmbience', 'sxUiClick', 'sxReelSpin',
             'sxReelLand1', 'sxReelLand2', 'sxReelLand3', 'sxReelLand4', 'sxReelLand5', 'sxReelLandAll',
-            'sxReelSpinQuickTurbo', 'sxSymbolMatchLowValue', 'sxSymbolMatchHighValue', 'sxSymbolPayout',
+            'sxReelSpinQuickTurbo', 'sxSymbolMatchLowValue', 'sxSymbolMatchHighValue',
+            'sxSymbolMatchWildLayer', 'sxSymbolPayout',
             'mxBonusIdle', 'mxBonusLoop', 'mxBonusCongratulation',
             'sxBonusTrigger', 'sxTransition', 'sxCounterLoop', 'sxCounterEnd',
             'sxBonusStickyLand', 'sxBonusStickyLand2', 'sxBonusStickyLand3',
@@ -865,7 +868,7 @@ export class SoundManager extends Component {
     }
 
     playSymbolMatchWild(): void {
-        // Removed from the new asset list. Kept as a compatibility no-op.
+        this._playWinOneShot('sxSymbolMatchWildLayer');
     }
 
     playBuyBonusButton(): void {

@@ -1194,8 +1194,8 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -795.683,
-      "y": -45.75800000000001,
+      "x": 0,
+      "y": -278.693,
       "z": 0
     },
     "_lrot": {
@@ -1412,7 +1412,7 @@
     "_left": 0,
     "_right": 0,
     "_top": 0,
-    "_bottom": -76.75800000000001,
+    "_bottom": -309.693,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -1486,14 +1486,14 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": -674.546,
+    "posY": -698.693,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 162,
     "height": 162,
-    "scaleX": 1,
-    "scaleY": 1,
-    "scaleZ": 1,
+    "scaleX": 1.2,
+    "scaleY": 1.2,
+    "scaleZ": 1.2,
     "rotationX": 0,
     "rotationY": 0,
     "rotationZ": 0,
@@ -1504,7 +1504,7 @@
     "isAlignTop": false,
     "top": 0,
     "isAlignBottom": true,
-    "bottom": -285.54600000000005,
+    "bottom": -309.693,
     "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
     "isAlignVerticalCenter": false,
@@ -1945,7 +1945,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -473.22799999999995,
+      "y": 493.893,
       "z": 0
     },
     "_lrot": {
@@ -2238,7 +2238,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -170.213,
+      "x": -148.346,
       "y": 473.228,
       "z": 0
     },
@@ -3152,7 +3152,7 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": 593.238,
+    "posY": 493.893,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 1336,
@@ -3252,8 +3252,8 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -755.389,
-      "y": 347.141,
+      "x": 0,
+      "y": 786.473,
       "z": 0
     },
     "_lrot": {
@@ -3362,11 +3362,11 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": 0,
-    "anchorX": 0.5,
-    "anchorY": 0.5,
-    "width": 100,
-    "height": 100,
+    "posY": 786.473,
+    "anchorX": 0.56175753530134,
+    "anchorY": 0.4712408609460298,
+    "width": 324.0899963378906,
+    "height": 322.67999267578125,
     "scaleX": 1,
     "scaleY": 1,
     "scaleZ": 1,
@@ -3471,7 +3471,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 787.12,
+      "x": 2024.563,
       "y": -1005.611,
       "z": 0
     },
@@ -3580,17 +3580,17 @@
   },
   {
     "__type__": "OrientationLayoutData",
-    "posX": 0,
-    "posY": 0,
-    "anchorX": 0.5,
-    "anchorY": 0.5,
-    "width": 100,
-    "height": 100,
-    "scaleX": 1,
-    "scaleY": 1,
-    "scaleZ": 1,
+    "posX": 2024.563,
+    "posY": -1005.611,
+    "anchorX": 0.5610810825807163,
+    "anchorY": 0.045286347929074315,
+    "width": 814,
+    "height": 1440.3900146484375,
+    "scaleX": 0.9,
+    "scaleY": 0.9,
+    "scaleZ": 0.9,
     "rotationX": 0,
-    "rotationY": 0,
+    "rotationY": 180,
     "rotationZ": 0,
     "isAlignLeft": false,
     "left": 0,
@@ -3762,7 +3762,7 @@
       "__uuid__": "d9e5ea83-35ee-4323-87b5-db5d1eef0f5e@f9941",
       "__expectedType__": "cc.SpriteFrame"
     },
-    "carouselInterval": 1.5,
+    "carouselInterval": 1,
     "slideDuration": 0.35,
     "carouselDelay": 0,
     "continueArea": {

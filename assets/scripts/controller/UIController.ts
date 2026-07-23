@@ -6,7 +6,7 @@
  */
 
 import { _decorator, Component, Node, Label, Button, tween, Vec3, Color, Tween, Sprite, SpriteFrame, RichText, sp, input, Input, KeyCode, EventKeyboard, UITransform, EventTouch } from 'cc';
-import { formatCurrency, formatCurrencyFixed } from '../core/FormatUtils';
+import { formatCurrencyFixed } from '../core/FormatUtils';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { BetManager } from '../manager/BetManager';
@@ -281,11 +281,13 @@ export class UIController extends Component {
     }
 
     /**
-     * Xử lý keyboard input — lắng nghe phím Space để trigger Spin.
+     * Xử lý keyboard input — Space / Enter để trigger Spin.
      */
     private _onKeyDown(event: EventKeyboard): void {
         if (this._openPopupCount > 0) return;
-        if (event.keyCode === KeyCode.SPACE) {
+        if (event.keyCode === KeyCode.SPACE
+            || event.keyCode === KeyCode.ENTER
+            || event.keyCode === KeyCode.NUM_ENTER) {
             // Gọi spin click handler
             this._onSpinClick();
         }
@@ -470,7 +472,7 @@ export class UIController extends Component {
         const displayBet = ratio > 0 ? totalBet * ratio : totalBet;
         if (this.betLabel) {
             const symbol = this._showCurrencySymbol ? L('CLIENT_CURRENENCY_SYMBOL') : '';
-            this.betLabel.string = symbol + formatCurrency(displayBet);
+            this.betLabel.string = symbol + formatCurrencyFixed(displayBet);
             this.betLabel.color = ratio > 0 ? this.betLabelWarningColor : this.betLabelNormalColor;
         }
     }
@@ -481,7 +483,7 @@ export class UIController extends Component {
         const displayBet = ratio > 0 ? info.totalBet * ratio : info.totalBet;
         if (this.betLabel) {
             const symbol = this._showCurrencySymbol ? L('CLIENT_CURRENENCY_SYMBOL') : '';
-            this.betLabel.string = symbol + formatCurrency(displayBet);
+            this.betLabel.string = symbol + formatCurrencyFixed(displayBet);
             this.betLabel.color = ratio > 0 ? this.betLabelWarningColor : this.betLabelNormalColor;
         }
         if (this.jackpotDisplay) {
@@ -492,7 +494,7 @@ export class UIController extends Component {
     private _onBuyBonusTotalBetChanged(info: { displayBet: number; isActive: boolean }): void {
         if (this.betLabel) {
             const symbol = this._showCurrencySymbol ? L('CLIENT_CURRENENCY_SYMBOL') : '';
-            this.betLabel.string = symbol + formatCurrency(info.displayBet);
+            this.betLabel.string = symbol + formatCurrencyFixed(info.displayBet);
             this.betLabel.color = info.isActive ? this.betLabelWarningColor : this.betLabelNormalColor;
         }
     }

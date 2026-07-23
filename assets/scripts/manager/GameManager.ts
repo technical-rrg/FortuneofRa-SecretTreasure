@@ -1405,19 +1405,10 @@ export class GameManager extends Component {
         const jackpot: JackpotType = this._detectJackpot(resp);
         if (jackpot !== JackpotType.NONE) {
             this._gameState = GameState.POPUP;
-            // jackpotPrize: luôn tính từ totalBet × multiplier để nhất quán với JackpotDisplay.
-            // KHÔNG dùng resp.totalWin vì nó chứa tổng win của cả spin (jackpot + line wins),
-            // dẫn đến JackpotPopup hiển thị số lớn hơn JackpotDisplay (vd: 255.33 vs 250).
-            // KHÔNG dùng Math.floor vì sẽ gây mismatch với progressive win check.
-            const mults = data.config.jackpotMultipliers ?? { GRAND: 500, MAJOR: 250, MINOR: 100, MINI: 25 };
-            const jackpotMultMap: Record<number, number> = {
-                [JackpotType.GRAND]: mults.GRAND,
-                [JackpotType.MAJOR]: mults.MAJOR,
-                [JackpotType.MINOR]: mults.MINOR,
-                [JackpotType.MINI]:  mults.MINI,
-            };
-            const jackpotPrize = BetManager.instance.totalBet * (jackpotMultMap[jackpot] ?? 1);
+            // jackpotPrize: lấy từ API (Before / meter Wins) — không hardcode bet × multiplier.
+            const jackpotPrize = data.getJackpotWinAmount(jackpot);
             const names: Record<number,string> = {1:'MINI',2:'MINOR',3:'MAJOR',4:'GRAND'};
+            Log.e(`[GameManager] Jackpot ${names[jackpot] ?? jackpot} prize=${jackpotPrize} (from server Before/meter)`);
 
             if (this._isFreeSpin()) {
                 // Trong free spin: tích lũy vào freeSpinTotalWin, KHÔNG cập nhật wallet ngay.
@@ -2935,15 +2926,8 @@ export class GameManager extends Component {
             Log.d(`[GameManager] Resume: _detectJackpot(rands=${JSON.stringify(resume.lastSpinRands)}) → ${jackpot} (NONE=0,MINI=1,MINOR=2,MAJOR=3,GRAND=4)`);
             if (jackpot !== JackpotType.NONE) {
                 const data = GameData.instance;
-                const mults = data.config.jackpotMultipliers ?? { GRAND: 500, MAJOR: 250, MINOR: 100, MINI: 25 };
-                const jackpotMultMap: Record<number, number> = {
-                    [JackpotType.GRAND]: mults.GRAND,
-                    [JackpotType.MAJOR]: mults.MAJOR,
-                    [JackpotType.MINOR]: mults.MINOR,
-                    [JackpotType.MINI]:  mults.MINI,
-                };
-                // Resume: server không trả resp.totalWin → tính từ multiplier (không Math.floor)
-                const jackpotPrize = BetManager.instance.totalBet * (jackpotMultMap[jackpot] ?? 1);
+                // Resume: lấy prize từ API Before/meter — không hardcode multiplier
+                const jackpotPrize = data.getJackpotWinAmount(jackpot);
                 Log.d(`[GameManager] Resume: Jackpot ${jackpot} detected (prize=${jackpotPrize}) → emit JACKPOT_TRIGGER`);
                 this._pendingResumeAfterJackpot = {
                     nextStage: resume.nextStage,

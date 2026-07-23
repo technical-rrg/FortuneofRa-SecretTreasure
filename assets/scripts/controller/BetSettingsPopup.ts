@@ -61,7 +61,7 @@ import { BuyBonusManager } from '../manager/BuyBonusManager';
 import { GameData } from '../data/GameData';
 import { SoundManager } from '../manager/SoundManager';
 import { AutoSpinManager } from '../manager/AutoSpinManager';
-import { formatCurrency, formatCurrency2 } from '../core/FormatUtils';
+import { formatCurrency2 } from '../core/FormatUtils';
 import { L } from '../core/LocalizationManager';
 import { Log } from '../core/Logger';
 

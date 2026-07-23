@@ -33,8 +33,10 @@ import { SymbolId }     from '../data/SlotTypes';
 import { SpriteNumber } from '../core/SpriteNumber';
 import { Log }          from '../core/Logger';
 import { SoundManager } from '../manager/SoundManager';
+import { AutoSpinManager } from '../manager/AutoSpinManager';
 import { SlotMachineController } from './SlotMachineController';
 import { TopUpManager } from './TopUpManager';
+import { TOPUP_STICKY_SYMBOL_SCALE } from './TopUpReelController';
 import { TopUpTransitionPopup, TransitionMode } from './TopUpTransitionPopup';
 
 const { ccclass, property } = _decorator;
@@ -128,6 +130,8 @@ export class StickyOverlayController extends Component {
     private _coinSlotOriginalParents: Map<Node, { parent: Node | null; siblingIndex: number; spinCounter: number }> = new Map();
 
     private _topUpSpinCounter: number = 0;
+    /** Mốc kết thúc land-bounce vàng/xanh gần nhất; absorb phải chờ qua mốc này. */
+    private _goldLandBounceEndMs: number = 0;
 
     /** true trong _refreshAll lần đầu vào TopUp — nhún chậm + stagger. */
     private _isEnteringTopUp: boolean = false;
@@ -289,6 +293,7 @@ export class StickyOverlayController extends Component {
         this._slotCreditMap.clear();
         this._coinSlotOriginalParents.clear();
         this._topUpSpinCounter = 0;
+        this._goldLandBounceEndMs = 0;
         this._deferEnterAnim = false;
         this._pendingEnterAnim = false;
         this._enterAnimPlayed = false;
@@ -377,6 +382,9 @@ export class StickyOverlayController extends Component {
                     this._reparentToStickyOverlay(slotNode);
                 }
 
+                const isGoldCoin = cell.symbolId === SymbolId.STICKY_YELLOW
+                    || cell.symbolId === SymbolId.STICKY_GREEN;
+
                 if (!animate) {
                     // Setup tĩnh dưới Transition — chờ DONE mới fade/bounce
                     Tween.stopAllByTarget(slotNode);
@@ -389,26 +397,35 @@ export class StickyOverlayController extends Component {
 
                 // Fade in + Bounce: chỉ cho coin MỚI hoặc lần đầu mở (fadeOnlyNew=false)
                 if (!fadeOnlyNew || isNewCoin) {
-                    const isGoldCoin = cell.symbolId === SymbolId.STICKY_YELLOW
-                        || cell.symbolId === SymbolId.STICKY_GREEN;
-                    const fadeDur = isEnter
-                        ? this.topUpEnterCoinFadeDuration
-                        : (isGoldCoin ? this.goldCoinFadeInDuration : this.coinFadeInDuration);
-                    if (fadeDur > 0) {
+                    // Land vàng/xanh: reel Mid giữ nguyên; overlay nhún giống sticky đỏ normal
+                    // (0.85 → peak → settle 1), phủ lên trên.
+                    const fromHandoff = isGoldCoin && !isEnter && isNewCoin;
+                    if (fromHandoff) {
                         const op = slotNode.getComponent(UIOpacity)
                             ?? slotNode.addComponent(UIOpacity);
                         Tween.stopAllByTarget(op);
-                        op.opacity = 0;
-                        tween(op).to(fadeDur, { opacity: 255 }, { easing: 'sineOut' }).start();
-                    }
-                    const stagger = isEnter ? idx * this.coinEnterBounceStagger : 0;
-                    if (stagger > 0) {
-                        this.scheduleOnce(
-                            () => this._playCoinBounce(slotNode, cell.symbolId, isEnter),
-                            stagger,
-                        );
+                        op.opacity = 255;
+                        this._playCoinBounce(slotNode, cell.symbolId, false, true);
                     } else {
-                        this._playCoinBounce(slotNode, cell.symbolId, isEnter);
+                        const fadeDur = isEnter
+                            ? this.topUpEnterCoinFadeDuration
+                            : (isGoldCoin ? this.goldCoinFadeInDuration : this.coinFadeInDuration);
+                        if (fadeDur > 0) {
+                            const op = slotNode.getComponent(UIOpacity)
+                                ?? slotNode.addComponent(UIOpacity);
+                            Tween.stopAllByTarget(op);
+                            op.opacity = 0;
+                            tween(op).to(fadeDur, { opacity: 255 }, { easing: 'sineOut' }).start();
+                        }
+                        const stagger = isEnter ? idx * this.coinEnterBounceStagger : 0;
+                        if (stagger > 0) {
+                            this.scheduleOnce(
+                                () => this._playCoinBounce(slotNode, cell.symbolId, isEnter, false),
+                                stagger,
+                            );
+                        } else {
+                            this._playCoinBounce(slotNode, cell.symbolId, isEnter, false);
+                        }
                     }
                 }
             }
@@ -792,6 +809,13 @@ export class StickyOverlayController extends Component {
         }
     }
 
+    /** Chờ land-bounce vàng/xanh hoàn tất để absorb không cắt tween giữa chừng. */
+    async waitForGoldLandBounce(): Promise<void> {
+        const remaining = Math.max(0, (this._goldLandBounceEndMs - Date.now()) / 1000);
+        if (remaining <= 0) return;
+        await new Promise<void>(resolve => this.scheduleOnce(resolve, remaining));
+    }
+
     /** Map coin slot node → stickyCells key `${reel}-${row}`. */
     private _coinSlotKey(slotNode: Node): string | null {
         const idx = this.coinSlots.indexOf(slotNode);
@@ -803,10 +827,18 @@ export class StickyOverlayController extends Component {
 
     /**
      * Bounce khi coin mới xuất hiện trên StickyOverlay.
-     * Vàng/xanh: pop từ nhỏ → overshoot → settle base (mượt, không snap).
-     * @param isEnter  true = lần đầu vào TopUp (chậm + mượt hơn)
+     * Vàng/xanh land: giống sticky đỏ normal — grow + hold + shrink + nhảy Y,
+     * bắt đầu từ TOPUP_STICKY_SYMBOL_SCALE (0.85), settle về base (1).
+     * Reel Mid sticky giữ nguyên bên dưới.
+     * @param isEnter       true = lần đầu vào TopUp (chậm + mượt hơn)
+     * @param fromHandoff   true = land trong TopUp (nhún kiểu sticky đỏ)
      */
-    private _playCoinBounce(slotNode: Node, symbolId: number, isEnter: boolean = false): void {
+    private _playCoinBounce(
+        slotNode: Node,
+        symbolId: number,
+        isEnter: boolean = false,
+        fromHandoff: boolean = false,
+    ): void {
         const baseScale = this._getBaseScale(symbolId);
         const isGoldCoin = symbolId === SymbolId.STICKY_YELLOW || symbolId === SymbolId.STICKY_GREEN;
 
@@ -816,8 +848,45 @@ export class StickyOverlayController extends Component {
             SoundManager.instance?.playSfxByName('sxBonusStickyGoldLand');
         }
 
+        if (isGoldCoin && fromHandoff) {
+            // Khớp SymbolView._playLandBounce (sticky đỏ normal)
+            const m = AutoSpinManager.instance?.getTimingMultiplier?.() ?? 1;
+            const startS = TOPUP_STICKY_SYMBOL_SCALE;
+            const peakS = baseScale * 1.12;
+            const growDur = 0.08 * m;
+            const holdDur = 0.12 * m;
+            const shrinkDur = 0.32 * m;
+            const totalDur = growDur + holdDur + shrinkDur;
+            const jumpY = 16;
+            const basePos = slotNode.position.clone();
+            const peakPos = new Vec3(basePos.x, basePos.y + jumpY, basePos.z);
+            this._goldLandBounceEndMs = Math.max(
+                this._goldLandBounceEndMs,
+                Date.now() + totalDur * 1000,
+            );
+            slotNode.setScale(startS, startS, 1);
+            tween(slotNode)
+                .to(growDur, {
+                    scale: new Vec3(peakS, peakS, 1),
+                    position: peakPos,
+                }, { easing: 'sineOut' })
+                .delay(holdDur)
+                .to(shrinkDur, {
+                    scale: new Vec3(baseScale, baseScale, 1),
+                    position: basePos.clone(),
+                }, { easing: 'sineIn' })
+                .call(() => {
+                    // Normalize tuyệt đối để không còn sai số vị trí/scale sau tween.
+                    if (!slotNode?.isValid) return;
+                    slotNode.setPosition(basePos);
+                    slotNode.setScale(baseScale, baseScale, 1);
+                })
+                .start();
+            return;
+        }
+
         if (isGoldCoin) {
-            // Pop-in: bắt đầu nhỏ → phóng lên tối đa base (1) → settle về base
+            // Enter / pop-in cũ: bắt đầu nhỏ → phóng → settle base
             const startS = baseScale * Math.max(0.05, this.goldCoinPopStartScale);
             const overshoot = Math.min(baseScale * this.goldCoinBounceOvershoot, 1);
             const upDur = this.goldCoinBounceUpDuration;

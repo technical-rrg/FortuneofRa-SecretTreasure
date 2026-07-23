@@ -63,6 +63,21 @@ export class SymbolView extends Component {
     @property({ tooltip: 'Scale mặc định của symbol (base scale). Dùng cho cả win zoom effect.' })
     defaultScale: number = 1;
 
+    /** Scale gốc cho symbol nằm ngoài vùng view (ExtraTop1 / ExtraBot1) — tránh mép lấn vào reel. */
+    static readonly OUTSIDE_REEL_SCALE = 0.8;
+
+    /**
+     * Base scale hiệu lực theo vị trí ô hiện tại (hoặc symbolId truyền vào — giữ tương thích).
+     * ExtraTop1 / ExtraBot1 (rowIndex < 0) → 0.8;
+     * Top / Mid / Bot và mặc định → defaultScale (1).
+     */
+    getBaseScale(_forSymbolId?: number): number {
+        if (this.rowIndex < 0) {
+            return SymbolView.OUTSIDE_REEL_SCALE;
+        }
+        return this.defaultScale;
+    }
+
     @property({
         tooltip: 'Tên debug (tự động cập nhật trong Editor khi symbolId thay đổi)',
         readonly: true,
@@ -357,7 +372,8 @@ export class SymbolView extends Component {
             if (node?.isValid && data.origParent && data.origParent.isValid) {
                 Tween.stopAllByTarget(node);
                 SymbolView.restoreToReelParent(node, data.origParent, data.origLocalPos);
-                node.setScale(node.getComponent(SymbolView)?.defaultScale ?? 1, node.getComponent(SymbolView)?.defaultScale ?? 1, 1);
+                const base = node.getComponent(SymbolView)?.getBaseScale() ?? 1;
+                node.setScale(base, base, 1);
             }
         }
         SymbolView._pendingLandBounces.clear();
@@ -398,7 +414,7 @@ export class SymbolView extends Component {
                 if (origParent?.isValid) {
                     Tween.stopAllByTarget(node);
                     SymbolView.restoreToReelParent(node, origParent, origLocalPos);
-                    const base = view?.defaultScale ?? 1;
+                    const base = view?.getBaseScale() ?? 1;
                     node.setScale(base, base, 1);
                 }
             }
@@ -409,7 +425,7 @@ export class SymbolView extends Component {
 
         if (node?.isValid) {
             Tween.stopAllByTarget(node);
-            const base = view?.defaultScale ?? 1;
+            const base = view?.getBaseScale() ?? 1;
             node.setScale(base, base, 1);
         }
     }
@@ -493,7 +509,7 @@ export class SymbolView extends Component {
         const wasRed = view.symbolId === SymbolId.STICKY_RED;
         Tween.stopAllByTarget(node);
         SymbolView.restoreToReelParent(node, view._reelHomeParent, view._reelHomeLocalPos);
-        const base = view.defaultScale ?? 1;
+        const base = view.getBaseScale();
         node.setScale(base, base, 1);
         SymbolView._pendingLandBounces.delete(node);
 
@@ -553,8 +569,9 @@ export class SymbolView extends Component {
         this._sprites = this.node.getComponentsInChildren(Sprite);
        // this._createDebugLabel();
 
-        // Áp dụng defaultScale
-        this.node.setScale(this.defaultScale, this.defaultScale, 1);
+        // Áp dụng base scale (ngoài view ExtraTop/ExtraBot = 0.8)
+        const s0 = this.getBaseScale();
+        this.node.setScale(s0, s0, 1);
         this._ensureReelHomeCached();
 
         // Ẩn credit label ban đầu
@@ -590,12 +607,13 @@ export class SymbolView extends Component {
         this._pendingLandBounce = false;
         this._landBouncePlayed = false;
         this._pendingPlusOneEffect = false;
-        // Reset scale về default và dừng tween cũ — tránh scale dang dở khi đổi symbol
+        // Reset scale về base (ngoài view ExtraTop/ExtraBot = 0.8) và dừng tween cũ — tránh scale dang dở khi đổi symbol
         Tween.stopAllByTarget(this.node);
         if (SymbolView.landBounceParent && this.node.parent === SymbolView.landBounceParent) {
             SymbolView.restoreToReelHome(this.node, true);
         }
-        this.node.setScale(this.defaultScale, this.defaultScale, 1);
+        const base = this.getBaseScale(symbolId);
+        this.node.setScale(base, base, 1);
         // Reset rotation tuyệt đối để tránh bị nghiêng méo do kế thừa từ parent hoặc lần trước
         this.node.setRotationFromEuler(0, 0, 0);
         // Ẩn tất cả CreditLabel (SpriteNumber) trong symbol node — đảm bảo symbol thường ko lộ credit
@@ -781,7 +799,7 @@ export class SymbolView extends Component {
      * Clone lên WaysPayDisplay để nhún trên fillBlack — symbol gốc GIỮ NGUYÊN trên reel.
      */
     private _playLandBounce(reparentToTop: boolean = true): void {
-        const s = this.defaultScale;
+        const s = this.getBaseScale();
 
         // Dọn clone/tween/schedule cũ trước khi nhún mới (tránh dư âm → lúc nhanh lúc chậm)
         SymbolView.restoreLandBounceIfNeeded(this.node);
@@ -974,7 +992,8 @@ export class SymbolView extends Component {
             }
         }
         if (!sameSticky) {
-            this.node.setScale(this.defaultScale, this.defaultScale, 1);
+            const base = this.getBaseScale(symbolId);
+            this.node.setScale(base, base, 1);
         }
 
         if (sameSticky) {

@@ -169,7 +169,7 @@ export class PaylineDisplay extends Component {
 
     /** Zoom in rồi bounce nhún nhún các node ô thắng */
     private _zoomCells(linePay: MatchedLinePay): void {
-        const getBase = (n: Node) => n.getComponent(SymbolView)?.defaultScale ?? 1;
+        const getBase = (n: Node) => n.getComponent(SymbolView)?.getBaseScale() ?? 1;
 
         // Dừng zoom cũ và trả về base scale
         for (const n of this._zoomedNodes) {
@@ -227,7 +227,7 @@ export class PaylineDisplay extends Component {
     private _clearLines(): void {
         for (const n of this._zoomedNodes) {
             Tween.stopAllByTarget(n);
-            const base = n.getComponent(SymbolView)?.defaultScale ?? 1;
+            const base = n.getComponent(SymbolView)?.getBaseScale() ?? 1;
             n.setScale(base, base, 1);
         }
         this._zoomedNodes = [];

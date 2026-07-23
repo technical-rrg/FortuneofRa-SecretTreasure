@@ -21,7 +21,7 @@
  *   - jackpotValues: [MINI, MINOR, MAJOR, GRAND] (thứ tự từ server API).
  */
 
-import { _decorator, Component, Node, sp, tween, Tween } from 'cc';
+import { _decorator, Component, Node, ParticleSystem, sp, tween, Tween } from 'cc';
 import { GameData } from '../data/GameData';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
@@ -193,6 +193,7 @@ export class JackpotDisplay extends Component {
 
     onLoad(): void {
         Log.d('[JackpotDisplay] onLoad — component initialized');
+        this._setAllEffectsInactive();
         this._updateAll();
         this._startSequential();
         EventBus.instance.on(GameEvents.JACKPOT_VALUES_UPDATED, this._onJackpotValuesUpdated, this);
@@ -244,9 +245,7 @@ export class JackpotDisplay extends Component {
 
     private _onJackpotEnd(): void {
         Log.d('[JackpotDisplay] _onJackpotEnd — tắt tất cả effect nodes');
-        for (const e of this._effectByIndex) {
-            if (e) e.active = false;
-        }
+        this._setAllEffectsInactive();
     }
 
     private _onPickGameMatchFound(jackpot: JackpotType): void {
@@ -265,7 +264,21 @@ export class JackpotDisplay extends Component {
             e.active = (i === jackpotIndex);
         }
         const active = effects[jackpotIndex];
+        if (active) {
+            for (const particle of active.getComponentsInChildren(ParticleSystem)) {
+                particle.stop();
+                particle.clear();
+                particle.play();
+            }
+        }
         Log.d(`[JackpotDisplay] effect active index=${jackpotIndex} node=${active?.name ?? 'null'}`);
+    }
+
+    /** Mặc định ẩn toàn bộ effect; chỉ effect được gọi mới được active. */
+    private _setAllEffectsInactive(): void {
+        for (const effect of this._effectByIndex) {
+            if (effect) effect.active = false;
+        }
     }
 
     // ─── SEQUENTIAL LOOP ─────────────────────────────────────────────────────

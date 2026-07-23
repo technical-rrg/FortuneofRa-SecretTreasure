@@ -51,9 +51,14 @@ export class WinPresenter extends Component {
     @property({ tooltip: 'Thời gian mỗi line trong vòng lặp cycling (giây)' })
     lineCycleDuration: number = 2.0;
 
+    @property({ tooltip: 'Thời gian hiện win một lần khi Dừng nhanh (giây)' })
+    quickStopWinDuration: number = 0.5;
+
     /** Tăng mỗi round mới — callback từ round cũ bỏ qua nếu lỗi thời */
     private _generation: number = 0;
     private _isPresenting: boolean = false;
+    /** Spin hiện tại đã kích hoạt Dừng nhanh — win hiện 1 lần rồi mở Spin ngay */
+    private _isQuickStopSpin: boolean = false;
     /** Reference đến cycling callback đang chạy (dùng để unschedule chính xác) */
     private _cycleCallback: (() => void) | null = null;
     /** Đang trong chế độ free spin — bỏ qua các ghi winLabel khi đúng */
@@ -83,6 +88,7 @@ export class WinPresenter extends Component {
     onLoad(): void {
         EventBus.instance.on(GameEvents.WIN_PRESENT_START, this._onWinStart, this);
         EventBus.instance.on(GameEvents.REELS_START_SPIN,  this._onReelsStartSpin, this);
+        EventBus.instance.on(GameEvents.REELS_QUICK_STOP, this._onQuickStop, this);
         EventBus.instance.on(GameEvents.WIN_HIGHLIGHT_ANIM_DONE, this._onHighlightAnimDone, this);
         EventBus.instance.on(GameEvents.WIN_HIGHLIGHT_CLEAR, this._onWinHighlightClear, this);
         EventBus.instance.on(GameEvents.JACKPOT_END, this._onJackpotEndForCycle, this);
@@ -143,6 +149,7 @@ export class WinPresenter extends Component {
         this._stopCycling();
         this.unscheduleAllCallbacks();
         this._isPresenting = false;
+        this._isQuickStopSpin = false;
         this._highlightAnimDone = false;
         this._pendingPresentEndGen = -1;
         this._wildTrailFlyDoneGen = -1;
@@ -156,6 +163,12 @@ export class WinPresenter extends Component {
         if (!this._isFreeSpinMode && this.winLabel) {
             this.winLabel.string = L('good_luck');
         }
+    }
+
+    private _onQuickStop(): void {
+        // Chỉ áp dụng presentation rút gọn cho Normal Spin (không FreeSpin/TopUp/AutoSpin feature)
+        if (this._isFreeSpinMode || this._isPickGameMode) return;
+        this._isQuickStopSpin = true;
     }
 
     // ─── XỬ LÝ KẾT QUẢ ─────────────────────────────────────────────
@@ -177,6 +190,7 @@ export class WinPresenter extends Component {
         if (response.totalWin <= 0) {
             if (!this._isFreeSpinMode && this.winLabel) this.winLabel.string = L('no_win');
             // Log.e(`[SPIN-HANG][WinHL] WIN_PRESENT_START no-win → finish | gen=${myGen}`);
+            this._isQuickStopSpin = false;
             this._finishPresentation(myGen);
             return;
         }
@@ -217,8 +231,12 @@ export class WinPresenter extends Component {
         const ways = response.waysPayWins ?? [];
         const hasWin = (response.matchedLinePays.length > 0) || (ways.length > 0);
         const isAutoSpinWithWin = this._isAutoSpinMode && hasWin;
+        const isQuickStopWin = this._isQuickStopSpin && hasWin && !this._isFreeSpinMode && !this._isPickGameMode;
         let showAllDuration = this.showAllHighlightDuration;
-        if (isAutoSpinWithWin) {
+        if (isQuickStopWin) {
+            // Dừng nhanh: hiện thưởng đúng một lần rồi mở Spin ngay
+            showAllDuration = this.quickStopWinDuration;
+        } else if (isAutoSpinWithWin) {
             const mode = AutoSpinManager.instance.speedMode;
             showAllDuration = this.autoSpinFixedWinDelayNormal;
             if (mode === SpeedMode.QUICK) showAllDuration = this.autoSpinFixedWinDelayQuick;
@@ -233,6 +251,7 @@ export class WinPresenter extends Component {
         }
 
         // 2) Show Big/Mega/Super Win popup nếu cần
+        // Quick-stop thắng thường: không rút ngắn Feature/Jackpot/Progressive — BigWin vẫn hiện nếu đủ tier
         const winTier = GameData.instance.getWinTier(response.totalWin);
         if (winTier >= WinTier.BIG_WIN) {
             EventBus.instance.emit(GameEvents.WIN_POPUP, winTier, response.totalWin);
@@ -246,6 +265,18 @@ export class WinPresenter extends Component {
         const willAutoSpin = response.nextStage === SlotStageType.FREE_SPIN
             || response.nextStage === SlotStageType.FREE_SPIN_START
             || response.nextStage === SlotStageType.FREE_SPIN_RE_TRIGGER;
+
+        // Dừng nhanh + có thắng thường: hiện 1 lần trong quickStopWinDuration rồi kết thúc
+        if (isQuickStopWin) {
+            this.scheduleOnce(() => {
+                if (this._generation !== myGen) return;
+                this._isPresenting = false;
+                this._isQuickStopSpin = false;
+                EventBus.instance.emit(GameEvents.WIN_COUNTUP_DONE, response.totalWin);
+                EventBus.instance.emit(GameEvents.WIN_PRESENT_END);
+            }, showAllDuration);
+            return;
+        }
 
         // Trong AutoSpin mode khi có win: dùng thời gian cố định (autoSpinFixedWinDelay)
         // tính từ lúc bắt đầu highlight all, không phân biệt Normal/Quick/Turbo.

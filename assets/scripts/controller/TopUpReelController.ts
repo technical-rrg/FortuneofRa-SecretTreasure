@@ -15,12 +15,15 @@ import { _decorator, Color, Component, Node, Sprite, SpriteFrame, tween, Vec3, T
 import { Log } from '../core/Logger';
 import { AutoSpinManager } from '../manager/AutoSpinManager';
 import { SpriteNumber } from '../core/SpriteNumber';
-import { SymbolId } from '../data/SlotTypes';
+import { SymbolId, TopupReelType } from '../data/SlotTypes';
 import { SymbolView } from './SymbolView';
 
 const { ccclass, property } = _decorator;
 
 enum ReelState { IDLE, LAUNCHING, SPINNING, STOPPING }
+
+/** Scale sticky vàng/xanh trên TopUpReel — StickyOverlay bắt đầu bounce từ giá trị này. */
+export const TOPUP_STICKY_SYMBOL_SCALE = 0.85;
 
 /** Màu symbol thường khi reel đang quay (tối hơn để nổi bật sticky vàng/xanh). */
 const DIM_SYMBOL_COLOR = new Color(0x40, 0x40, 0x40, 255);
@@ -414,7 +417,16 @@ export class TopUpReelController extends Component {
         } else {
             node.emit('symbol-changed', symId);
         }
-        // Log.d(`${this._logPrefix} _setSymbol...`);
+        // Sau SymbolView (có thể reset scale về default) — sticky vàng/xanh = 0.85, còn lại = 1
+        this._applyStickyScale(node, symId);
+    }
+
+    /** Sticky vàng/xanh scale TOPUP_STICKY_SYMBOL_SCALE; symbol còn lại = 1. */
+    private _applyStickyScale(node: Node, symId: number): void {
+        const s = (symId === SymbolId.STICKY_YELLOW || symId === SymbolId.STICKY_GREEN)
+            ? TOPUP_STICKY_SYMBOL_SCALE
+            : 1;
+        node.setScale(s, s, 1);
     }
 
     /** Lấy 3 symbol từ strip tại centerIndex theo visual normal reel — [visualTop, mid, visualBot]. */
@@ -525,17 +537,21 @@ export class TopUpReelController extends Component {
     }
 
     private _applyResult(type: number, win: number, midSymbolIndex: number): void {
-        // ★ Lock reel: ẩn symbolNodes con, giữ node chính active để container còn tính position
-        // StickyOverlay hiển thị coin thay thế ở layer trên.
+        // ★ Lock reel: giữ node chính active để container còn tính position.
+        // Vàng/xanh: giữ Mid sticky visible dưới overlay (overlay bounce phủ lên, không ẩn).
+        // Đỏ / khác: ẩn ngay, overlay thay thế.
         this.isLocked = type > 0;
         this.node.active = true;
         if (this.isLocked) {
-            // Khi locked có coin: ẩn các symbolNodes để tránh duplicate với StickyOverlay
-            for (const node of this.symbolNodes) {
-                if (node) node.active = false;
+            const keepStickyMid =
+                type === TopupReelType.YELLOW ||
+                type === TopupReelType.GREEN;
+            for (let i = 0; i < this.symbolNodes.length; i++) {
+                const node = this.symbolNodes[i];
+                if (!node) continue;
+                node.active = keepStickyMid && i === 1;
             }
         } else {
-            // Khi không có coin (empty): hiện các symbolNodes
             for (const node of this.symbolNodes) {
                 if (node) node.active = true;
             }

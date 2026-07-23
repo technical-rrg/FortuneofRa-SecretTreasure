@@ -122,6 +122,8 @@ export const GameEvents = {
     LONG_SPIN_VFX_START: 'longspin:vfx:start',
     /** VFX tắt khi Cột 3 khựng lại xong */
     LONG_SPIN_VFX_END: 'longspin:vfx:end',
+    /** Camera/SlotMachine zoom đã về scale gốc sau Long Spin (hoặc không có zoom). */
+    LONG_SPIN_ZOOM_DONE: 'longspin:zoom:done',
     /** Bounce gợi ý 2 symbol có thể tạo jackpot — payload: {reelIndex, rowIndex}[] */
     LONG_SPIN_SYMBOL_HINT: 'longspin:symbol:hint',
     /** Hiện spine hint trên 2 symbol khi VFX bắt đầu — payload: {reelIndex, rowIndex}[] */

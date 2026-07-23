@@ -4326,19 +4326,15 @@ export class GameManager extends Component {
         const paths = isFeatureMode ? FREESPIN_BG_PATHS : NORMAL_BG_PATHS;
         const arr = isFeatureMode ? this.freeSpinBackgroundSprites : this.backgroundSprites;
 
-        const apply = (sf: SpriteFrame | null) => {
-            if (!sf || !this.backgroundNode) return;
-            const spriteComponent = this.backgroundNode.getComponent(Sprite);
-            if (spriteComponent) spriteComponent.spriteFrame = sf;
-        };
-
         const cached = arr[idx] ?? null;
         if (cached) {
-            apply(cached);
+            this._applyBackgroundSprite(cached);
             return;
         }
 
-        void this._loadBackgroundSprite(paths[idx], isFeatureMode, idx).then(apply);
+        void this._loadBackgroundSprite(paths[idx], isFeatureMode, idx).then((sf) => {
+            this._applyBackgroundSprite(sf);
+        });
     }
 
     /** ★ Prefetch BG khi GuideView hiện (GameRoot warm) — gán sprite trước khi user Continue. */
@@ -4349,10 +4345,11 @@ export class GameManager extends Component {
     /**
      * Load + gán BG orientation hiện tại (và prefetch chiều còn lại).
      * Await trước khi lộ GameRoot (skipIntro / Guide → game) để tránh màn trống.
+     * Resolve chỉ khi spriteFrame đã gán lên backgroundNode (hoặc fail).
      */
-    ensureBackgroundReady(): Promise<SpriteFrame | null> {
-        this._allowBackgroundLoad();
-        if (!this.backgroundNode) return Promise.resolve(null);
+    async ensureBackgroundReady(): Promise<SpriteFrame | null> {
+        this._bgLoadAllowed = true;
+        if (!this.backgroundNode?.isValid) return null;
 
         const size = screen.windowSize;
         const isPortrait = size.height > size.width;
@@ -4362,13 +4359,16 @@ export class GameManager extends Component {
         // Prefetch chiều kia nền — không block
         void this._loadBackgroundSprite(NORMAL_BG_PATHS[secondaryIdx], false, secondaryIdx);
 
-        return this._loadBackgroundSprite(NORMAL_BG_PATHS[primaryIdx], false, primaryIdx).then((sf) => {
-            if (sf && this.backgroundNode) {
-                const spriteComponent = this.backgroundNode.getComponent(Sprite);
-                if (spriteComponent) spriteComponent.spriteFrame = sf;
-            }
-            return sf;
-        });
+        const sf = await this._loadBackgroundSprite(NORMAL_BG_PATHS[primaryIdx], false, primaryIdx);
+        this._applyBackgroundSprite(sf);
+        return sf;
+    }
+
+    /** true khi backgroundNode đã có spriteFrame (đã gán, không còn null). */
+    isBackgroundAssigned(): boolean {
+        if (!this.backgroundNode?.isValid) return false;
+        const sprite = this.backgroundNode.getComponent(Sprite);
+        return !!sprite?.spriteFrame;
     }
 
     /** Mở khóa lazy-load BG (gọi sau Guide / khi vào game). */
@@ -4388,11 +4388,21 @@ export class GameManager extends Component {
         if (spriteComponent) spriteComponent.spriteFrame = null;
     }
 
+    private _applyBackgroundSprite(sf: SpriteFrame | null): void {
+        if (!sf || !this.backgroundNode?.isValid) return;
+        const spriteComponent = this.backgroundNode.getComponent(Sprite);
+        if (spriteComponent) spriteComponent.spriteFrame = sf;
+    }
+
     private _loadBackgroundSprite(
         path: string,
         isFeature: boolean,
         idx: number,
     ): Promise<SpriteFrame | null> {
+        const arr = isFeature ? this.freeSpinBackgroundSprites : this.backgroundSprites;
+        const cached = arr[idx] ?? null;
+        if (cached) return Promise.resolve(cached);
+
         const existing = this._bgLoadPromises.get(path);
         if (existing) return existing;
 
@@ -4410,7 +4420,6 @@ export class GameManager extends Component {
                     resolve(null);
                     return;
                 }
-                const arr = isFeature ? this.freeSpinBackgroundSprites : this.backgroundSprites;
                 while (arr.length <= idx) arr.push(null as any);
                 arr[idx] = sf;
                 resolve(sf);

@@ -108,6 +108,30 @@ export class TransitionLoader extends Component {
         Log.d('[TransitionLoader] bringAboveShell — Transition on top');
     }
 
+    /**
+     * Đưa Transition lên sibling cao nhất của parent hiện tại (hoặc Canvas chứa Loading).
+     * skipIntro: cover GameView trước khi Loading dismiss.
+     */
+    bringToFront(): void {
+        const instance = this._instance;
+        if (!instance?.isValid) return;
+
+        const guide = GuideShellLoader.instance;
+        let parent = guide?.parent?.isValid ? guide.parent : null;
+        if (!parent?.isValid) {
+            parent = this.shellParent?.parent?.isValid
+                ? this.shellParent.parent
+                : instance.parent;
+        }
+        if (!parent?.isValid) return;
+
+        if (instance.parent !== parent) {
+            instance.setParent(parent, true);
+        }
+        instance.setSiblingIndex(parent.children.length - 1);
+        Log.d('[TransitionLoader] bringToFront — Transition on canvas top');
+    }
+
     private _onPreload(): void {
         this.preload();
     }

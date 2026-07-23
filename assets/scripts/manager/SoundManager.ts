@@ -93,6 +93,9 @@ export class SoundManager extends Component {
     @property({ type: AudioSource })
     bgmCrossfadeSource: AudioSource | null = null;
 
+    /** AudioSource riêng cho âm thanh báo thắng — không bị cắt bởi REELS_START_SPIN. */
+    private _winSource: AudioSource | null = null;
+
     @property({ type: AudioClip }) mxNormalIntro: AudioClip | null = null;
     @property({ type: AudioClip }) mxNormalLoop: AudioClip | null = null;
     @property({ type: AudioClip }) mxBonusIdle: AudioClip | null = null;
@@ -190,6 +193,7 @@ export class SoundManager extends Component {
         // ★ Không addPersistRootNode(this.node): component đang gắn trên Base root.
         //   Persist cả Base lúc attach sớm (loading) phá hierarchy → bar kẹt ~81%.
         //   Instance sống theo Base shell; không cần cross-scene persist.
+        this._ensureWinSource();
         this._bindEvents();
         // Boot clips trước (đã null khỏi Base), rồi warm feature/jackpot — không block instantiate
         this.scheduleOnce(() => this._kickDeferredAudioWarmup(), 0);
@@ -446,6 +450,7 @@ export class SoundManager extends Component {
     private _onWinPresentStart(resp: SpinResponse): void {
         const lineCount = (resp?.matchedLinePays?.length ?? 0) + (resp?.waysPayWins?.length ?? 0);
         if (lineCount <= 0) return;
+        // Thắng mới → dừng âm thắng cũ (nếu còn) rồi phát lại từ đầu
         this.playSymbolPayoutForLine(lineCount);
     }
 
@@ -801,8 +806,54 @@ export class SoundManager extends Component {
     }
 
     playSymbolPayoutForLine(lineCount: number): void {
-        this._playSfxProp(lineCount >= 5 ? 'sxSymbolMatchHighValue' : 'sxSymbolMatchLowValue');
-        this._playSfxProp('sxSymbolPayout');
+        // Dùng winSource riêng: âm thắng tiếp tục qua lượt quay kế tiếp;
+        // thắng mới → recreate source để cắt âm cũ rồi phát lại từ đầu.
+        this._recreateWinSource();
+        this._playWinOneShot(lineCount >= 5 ? 'sxSymbolMatchHighValue' : 'sxSymbolMatchLowValue');
+        this._playWinOneShot('sxSymbolPayout');
+    }
+
+    private _ensureWinSource(): AudioSource | null {
+        if (this._winSource?.isValid) return this._winSource;
+        if (!this.node) return null;
+        this._winSource = this.node.addComponent(AudioSource);
+        this._winSource.playOnAwake = false;
+        this._winSource.loop = false;
+        this._winSource.volume = this.sfxVolume;
+        return this._winSource;
+    }
+
+    private _recreateWinSource(): void {
+        if (!this.node) return;
+        const old = this._winSource;
+        this._winSource = this.node.addComponent(AudioSource);
+        this._winSource.playOnAwake = false;
+        this._winSource.loop = false;
+        this._winSource.volume = this.sfxVolume;
+        if (old?.isValid) {
+            old.stop();
+            old.destroy();
+        }
+    }
+
+    /** playOneShot trên winSource — không bị REELS_START_SPIN cắt. */
+    private _playWinOneShot(prop: string): void {
+        const play = (clip: AudioClip) => {
+            if (this._masterMuted || this._sfxMuted) return;
+            const src = this._ensureWinSource();
+            if (!src) return;
+            src.volume = this.sfxVolume;
+            src.playOneShot(clip, this.sfxVolume);
+        };
+
+        const clip = (this as any)[prop] as AudioClip | null;
+        if (clip) {
+            play(clip);
+            return;
+        }
+        void this._ensureClip(prop).then((c) => {
+            if (c) play(c);
+        });
     }
 
     playSymbolMatch7(): void {
@@ -865,6 +916,7 @@ export class SoundManager extends Component {
         if (this.bgmSource && !this._bgmMuted) this.bgmSource.volume = v;
         if (this.sfxSource) this.sfxSource.volume = v;
         if (this.coinSource) this.coinSource.volume = v;
+        if (this._winSource) this._winSource.volume = v;
         if (this.ambienceSource) this.ambienceSource.volume = v * this.ambienceVolume;
         try { localStorage.setItem('setting_volume', String(v)); } catch (_) {}
     }
@@ -890,6 +942,7 @@ export class SoundManager extends Component {
         if (muted) {
             Log.d(`[coinloop][SM.setSFXMuted] muted=true → stopCoinLoop()`);
             this.stopCoinLoop();
+            this._recreateWinSource();
             this.ambienceSource?.stop();
         } else if (!this._masterMuted) {
             if (this._coinLoopActive) this.playCoinLoop();
@@ -908,6 +961,7 @@ export class SoundManager extends Component {
             this.bgmCrossfadeSource?.pause();
             this.sfxSource?.pause();
             this.coinSource?.pause();
+            this._winSource?.pause();
             this.ambienceSource?.pause();
         } else {
             if (this.bgmSource?.clip && !this._bgmMuted) this.bgmSource.play();

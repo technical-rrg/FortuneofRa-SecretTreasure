@@ -94,6 +94,12 @@ export class ReelController extends Component {
     @property({ tooltip: 'Thời gian snap lui về vị trí đích khi reel dừng (giây).' })
     stopBounceSettleDuration: number = 0.12;
 
+    @property({ tooltip: 'Thời gian giảm tốc tối đa khi người chơi nhấn Stop lúc reel đang quay (giây).' })
+    quickStopDecelDuration: number = 0.12;
+
+    @property({ tooltip: 'Thời gian snap về đích khi người chơi nhấn Stop (giây).' })
+    quickStopBounceSettleDuration: number = 0.08;
+
     // ─── CALLBACK ───
     onStopComplete: (() => void) | null = null;
     /** Gọi ngay khi snap về rest (trước bounce) — dùng để bật spine effect tức thì tại điểm dừng */
@@ -119,6 +125,8 @@ export class ReelController extends Component {
     private _quickStopRequested: boolean = false;
     /** Đánh dấu đã nhấn quick stop khi reel đang LAUNCHING — check khi bounce xong để decel ngay */
     private _quickStopPending: boolean = false;
+    /** Giữ cấu hình dừng nhanh xuyên suốt từ lúc nhấn Stop đến khi bounce hoàn tất. */
+    private _isQuickStopping: boolean = false;
     private _isLongSpin: boolean = false;
     private _currentCenterIndex: number = 0;
     /** Center index của lần quay normal cuối cùng — dùng để restore đúng symbols khi feature end */
@@ -228,6 +236,10 @@ export class ReelController extends Component {
         // Kill tweens, snap to rest, ensure all nodes visible for next spin
         this._scheduledStop = null;
         this._quickStopPending = false;
+        // Giữ _isQuickStopping/_quickStopRequested nếu đã nhấn Stop trước khi reel này start
+        if (!this._quickStopRequested) {
+            this._isQuickStopping = false;
+        }
         for (let i = 0; i < this.symbolNodes.length; i++) {
             Tween.stopAllByTarget(this.symbolNodes[i]);
             this.symbolNodes[i].active = true;
@@ -358,9 +370,21 @@ export class ReelController extends Component {
      * Dùng khi người chơi nhấn Spin lại trong khi reel đang quay.
      */
     forceQuickStop(): void {
-        if (this._state === ReelState.DECELERATING) return;
+        this._isQuickStopping = true;
 
-        // Nếu đang LAUNCHING (bounce): KHÔNG hủy tween, đánh dấu để khi bounce xong decel ngay
+        // Nếu reel đã bắt đầu giảm tốc trước lúc người chơi nhấn Stop,
+        // rút ngắn ngay phần thời gian còn lại thay vì bỏ qua thao tác.
+        if (this._state === ReelState.DECELERATING) {
+            const quickRemaining = Math.max(0.02, this.quickStopDecelDuration);
+            this._decelAdaptedDuration = Math.min(
+                this._decelAdaptedDuration,
+                this._decelElapsed + quickRemaining,
+            );
+            return;
+        }
+
+        // Nếu đang LAUNCHING, chờ bounce hoàn tất rồi decel nhanh.
+        // Không hủy launch ngay để người chơi vẫn kịp nhìn thấy reel bắt đầu quay.
         if (this._state === ReelState.LAUNCHING) {
             this._quickStopPending = true;
             return;
@@ -420,6 +444,23 @@ export class ReelController extends Component {
 
     get isIdle(): boolean { return this._state === ReelState.IDLE; }
 
+    /** onLoad đã snapshot đủ vị trí; setSymbols() từ đây mới an toàn và đồng bộ. */
+    get isInitialized(): boolean {
+        return this.symbolNodes.length > 0
+            && this._restPositions.length === this.symbolNodes.length
+            && this._nodeY.length === this.symbolNodes.length;
+    }
+
+    /** Xác nhận SymbolView đã nhận đúng symbol của center index hiện tại. */
+    get areSymbolsAssigned(): boolean {
+        if (!this.isInitialized) return false;
+        const expected = this._getSymbols5(this._currentCenterIndex);
+        return this.symbolNodes.every((node, index) => {
+            const view = node.getComponent(SymbolView);
+            return !!view && view.symbolId === expected[index];
+        });
+    }
+
     get debugState(): string {
         const state = ReelState[this._state] ?? String(this._state);
         const pending = this._pendingStop ? 'P' : '-';
@@ -472,7 +513,8 @@ export class ReelController extends Component {
     // ─── STOP / DECELERATE (VELOCITY-BASED) ──────────────────────────────────────────────
 
     private _scheduleStop(centerIndex: number, longSpin: boolean): void {
-        if (this._quickStopRequested) {
+        // Dừng nhanh: bỏ mọi delay (stopDelay / minSpin / longSpin) → decel ngay
+        if (this._quickStopRequested || this._isQuickStopping) {
             this._quickStopRequested = false;
             this._beginDecel(centerIndex);
             return;
@@ -553,7 +595,10 @@ export class ReelController extends Component {
 
         // Dùng trực tiếp decelDuration (được set từ SpeedModeSettings theo Normal/Quick/Turbo).
         // Mỗi mode có duration khác nhau → tốc độ chậm dần khác nhau rõ rệt.
-        this._decelAdaptedDuration = Math.max(0.02, this.decelDuration);
+        const targetDecelDuration = this._isQuickStopping
+            ? Math.min(this.decelDuration, this.quickStopDecelDuration)
+            : this.decelDuration;
+        this._decelAdaptedDuration = Math.max(0.02, targetDecelDuration);
 
         const overshoot = this.symbolHeight * this.stopBounceOvershootRatio;
         this._decelTotalDist       = dist + overshoot;
@@ -743,7 +788,13 @@ export class ReelController extends Component {
 
         // Bounce nhỏ — snap từ dưới quá khứ về rest
         // Chỉ tween 3 visible nodes (1,2,3). Buffer nodes (0,4) → snap ngay lập tức.
-        const setDur = Math.max(0.01, this.stopBounceSettleDuration);
+        const setDur = Math.max(
+            0.01,
+            this._isQuickStopping
+                ? Math.min(this.stopBounceSettleDuration, this.quickStopBounceSettleDuration)
+                : this.stopBounceSettleDuration,
+        );
+        this._isQuickStopping = false;
         this.onBounceStart?.();
         let done = 0;
         const visibleIndices = [1, 2, 3];

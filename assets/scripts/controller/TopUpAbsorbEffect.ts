@@ -27,7 +27,7 @@
 import {
     _decorator, Component, Node, tween, Vec3, Tween,
     UITransform, UIOpacity, Sprite, Color, instantiate, isValid,
-    ParticleSystem,
+    ParticleSystem, Camera,
 } from 'cc';
 import { EventBus }                from '../core/EventBus';
 import { GameEvents }              from '../core/GameEvents';
@@ -40,6 +40,11 @@ import { AutoSpinManager }         from '../manager/AutoSpinManager';
 import { SoundManager }            from '../manager/SoundManager';
 
 const { ccclass, property } = _decorator;
+
+/** Camera Particle3D trong scene — Visibility/Layer gán trên Editor (khuyến nghị UI_3D). */
+const PARTICLE_3D_CAMERA_NAME = 'Particle3DCamera';
+/** Priority cao hơn UI Camera → particle luôn vẽ đè lên UI. */
+const PARTICLE_3D_CAMERA_PRIORITY_OFFSET = 100;
 
 /** Khớp StickyOverlay: vàng/xanh scale tối đa khi xuất hiện = 1. */
 const TOPUP_YELLOW_COIN_SCALE = 1;
@@ -139,11 +144,75 @@ export class TopUpAbsorbEffect extends Component {
     private _flyTimers: Map<Node, () => void> = new Map();
     private _hitTimers: Map<Node, () => void> = new Map();
 
+    /** Camera UI dùng làm chuẩn transform/viewport cho Particle3DCamera. */
+    private _sourceCamera: Camera | null = null;
+
+    /** Particle3DCamera sẵn trong loading.scene — không tạo bằng code. */
+    private _particle3DCamera: Camera | null = null;
+
     // == LIFECYCLE ==
 
     onLoad(): void {
         // Không prebuild pool lúc load — tạo object khi borrow.
         EventBus.instance.on(GameEvents.TOPUP_ABSORB_START, this._onAbsorbStart, this);
+        this._bindParticle3DCamera();
+    }
+
+    lateUpdate(): void {
+        this._syncParticle3DCamera();
+    }
+
+    /** Bind Particle3DCamera đã đặt sẵn trong loading.scene (không instantiate). */
+    private _bindParticle3DCamera(): void {
+        const scene = this.node.scene;
+        if (!scene) return;
+
+        this._particle3DCamera = scene.getComponentsInChildren(Camera).find(camera =>
+            camera.node.name === PARTICLE_3D_CAMERA_NAME
+        ) ?? null;
+
+        if (!this._particle3DCamera) {
+            Log.w(`[TopUpAbsorb] Không tìm thấy Camera "${PARTICLE_3D_CAMERA_NAME}" trong scene`);
+            return;
+        }
+
+        this._sourceCamera = scene.getComponentsInChildren(Camera).find(camera =>
+            camera.enabled
+            && camera.node.name !== PARTICLE_3D_CAMERA_NAME
+            && (camera.visibility & this.node.layer) !== 0
+        ) ?? null;
+
+        if (!this._sourceCamera) {
+            Log.w('[TopUpAbsorb] Không tìm thấy UI Camera để đồng bộ Particle3DCamera');
+            return;
+        }
+
+        // KHÔNG ghi đè visibility — giữ đúng Editor (UI_3D). Chỉ clear Depth.
+        this._particle3DCamera.node.active = true;
+        this._particle3DCamera.enabled = true;
+        this._particle3DCamera.clearFlags = Camera.ClearFlag.DEPTH_ONLY;
+        if (scene && this._particle3DCamera.node.parent !== scene) {
+            this._particle3DCamera.node.setParent(scene);
+        }
+        this._syncParticle3DCamera();
+    }
+
+    private _syncParticle3DCamera(): void {
+        const source = this._sourceCamera;
+        const cam = this._particle3DCamera;
+        if (!source?.isValid || !cam?.isValid) return;
+
+        cam.projection = source.projection;
+        cam.fov = source.fov;
+        cam.orthoHeight = source.orthoHeight;
+        cam.near = source.near;
+        cam.far = source.far;
+        cam.viewport = source.viewport;
+        cam.priority = source.priority + PARTICLE_3D_CAMERA_PRIORITY_OFFSET;
+
+        cam.node.setWorldPosition(source.node.worldPosition);
+        cam.node.setWorldRotation(source.node.worldRotation);
+        cam.node.setScale(1, 1, 1);
     }
 
     /**
@@ -223,6 +292,9 @@ export class TopUpAbsorbEffect extends Component {
 
     onDestroy(): void {
         EventBus.instance.off(GameEvents.TOPUP_ABSORB_START, this._onAbsorbStart, this);
+        // Particle3DCamera thuộc scene — không destroy.
+        this._particle3DCamera = null;
+        this._sourceCamera = null;
     }
 
     // == MAIN ==
@@ -254,6 +326,11 @@ export class TopUpAbsorbEffect extends Component {
                 await this._stepPlusOneSpin(newCells, plusOneSpinCount);
                 Log.d(`[TopUpAbsorb] Step1 done`);
             }
+
+            // StickyOverlay đang diễn land-bounce giống sticky đỏ normal.
+            // Phải chờ xong trước khi _absorbIntoCoin() stop tween/reset scale,
+            // nếu không coin bị cắt ngay lúc đang nhảy lên và nhìn giật/khựng.
+            await this.stickyOverlay?.waitForGoldLandBounce();
 
             // 2. Yellow absorb - tuan tu tung dong Vang moi (trai->phai, tren->duoi)
             //    LUAT: Vang CHI hut Do
@@ -546,6 +623,7 @@ export class TopUpAbsorbEffect extends Component {
             const start = layerUT.convertToNodeSpaceAR(srcNode.getWorldPosition());
             fx.setPosition(start.x, start.y, 0);
             fx.active = true;
+            this._playParticlesFromStart(fx);
 
             // Bao ve: dam bao Promise luon resolve du tween co hoan thanh hay ko
             let resolved = false;

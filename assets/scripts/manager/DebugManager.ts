@@ -54,7 +54,8 @@ const { ccclass } = _decorator;
  *   W → INSUFFICIENT_BALANCE
  *   E → EXPIRED_LINK
  *   R → WRONG_PARSHEET
- *   T → INVALID_REQUEST
+ *   I → INVALID_REQUEST
+ *   (T dành cho WildTrail mouse-follow test trên WildTrailController)
  *
  * [TEST PROGRESSIVE WIN]
  *   B → BIG WIN
@@ -169,7 +170,8 @@ export class DebugManager {
                 ' 1=MINI_JACKPOT | 2=MINOR_JACKPOT | 3=MAJOR_JACKPOT | 4=GRAND_JACKPOT' +
                 ' | 7=SCENARIO:RANDOM | 8=SCENARIO:TOP3 | 9=SCENARIO:NEARBY' +
                 ' | F1=en | F2=ko | F3=zh-cn | F4=zh-tw | F5=fil | F6=ja | F7=th' +
-                ' | P=DISCONNECTED | Q=RELOGIN | W=INSUFFICIENT_BALANCE | E=EXPIRED | R=WRONG_PARSHEET | T=INVALID_REQUEST' +
+                ' | P=DISCONNECTED | Q=RELOGIN | W=INSUFFICIENT_BALANCE | E=EXPIRED | R=WRONG_PARSHEET | I=INVALID_REQUEST' +
+                ' | (T=WildTrail mouse-follow — xem WildTrailController)' +
                 ' | B=BIG_WIN | M=MEGA_WIN | J=MAJOR_WIN | S=SUPER_WIN | E=EPIC_WIN | U=ULTRA_WIN | O=MONSTER_WIN | X=MAX_WIN' +
                 ' | Y=TOPUP_END_POPUP | V=BROADCAST_MOCK (cycle)'
             );
@@ -361,7 +363,7 @@ export class DebugManager {
             { key: KeyCode.KEY_W, popupCase: PopupCase.INSUFFICIENT_BALANCE, label: 'INSUFFICIENT_BALANCE' },
             { key: KeyCode.KEY_E, popupCase: PopupCase.EXPIRED_LINK,        label: 'EXPIRED_LINK' },
             { key: KeyCode.KEY_R, popupCase: PopupCase.WRONG_PARSHEET,      label: 'WRONG_PARSHEET' },
-            { key: KeyCode.KEY_T, popupCase: PopupCase.INVALID_REQUEST,     label: 'INVALID_REQUEST' },
+            { key: KeyCode.KEY_I, popupCase: PopupCase.INVALID_REQUEST,     label: 'INVALID_REQUEST' },
         ];
 
         const found = POPUP_SHORTCUTS.find(s => s.key === keyCode);

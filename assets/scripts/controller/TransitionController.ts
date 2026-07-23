@@ -52,11 +52,17 @@ export class TransitionController extends Component {
     @property({ tooltip: 'Thời gian zoom in của icon (giây)' })
     iconZoomInDuration: number = 0.3;
 
-    @property({ tooltip: 'Độ trễ trước khi icon bay đi (giây)' })
-    iconFlyDelay: number = 1.0;
+    @property({ tooltip: 'Thời gian giữ Pot trên màn hình trước khi bay về đích (giây)' })
+    holdBeforeFlyDuration: number = 1.0;
 
-    @property({ tooltip: 'Thời gian icon bay vào target (giây)' })
-    iconFlyDuration: number = 0.8;
+    @property({ tooltip: 'Thời gian icon bay vào target (giây) — gồm nhún → bay lên → hạ xuống' })
+    iconFlyDuration: number = 2.0;
+
+    @property({ tooltip: 'Độ nhún xuống nhẹ trước khi bay (local Y, pixel)' })
+    flyDipOffset: number = 70;
+
+    @property({ tooltip: 'Độ cao bay phía trên Pot trước khi hạ xuống (local Y, pixel)' })
+    flyArcHeight: number = 200;
 
     @property({ tooltip: 'Thời gian zoom out của icon (giây)' })
     iconZoomOutDuration: number = 0.3;
@@ -70,8 +76,11 @@ export class TransitionController extends Component {
     @property({ tooltip: 'Thời gian overlay fade out trước khi ẩn (giây)' })
     fadeOutDuration: number = 0.35;
 
-    @property({ type: Node, tooltip: 'Flash node' })
+    @property({ type: Node, tooltip: 'Flash node (Sprite) — fade alpha khi ẩn, không tắt ngay' })
     flashNode: Node | null = null;
+
+    @property({ tooltip: 'Thời gian flash fade out (giây)' })
+    flashFadeOutDuration: number = 0.3;
 
     private _isPlaying: boolean = false;
     private _finishCb: (() => void) | null = null;
@@ -159,6 +168,8 @@ export class TransitionController extends Component {
             }
         }
 
+        this._resetFlashNode();
+
         const uiOpacity = this.iconNode.getComponent(UIOpacity);
         if (uiOpacity) uiOpacity.opacity = 255;
 
@@ -184,35 +195,52 @@ export class TransitionController extends Component {
             targetWorldScale.z / iconParentWorldScale.z,
         );
 
+        // Đường bay 3 đoạn trong iconFlyDuration:
+        // 1) nhún nhẹ xuống → 2) bay lên phía trên Pot → 3) hạ xuống Pot
+        const startPos = this.iconNode.position.clone();
+        const dipPos = new Vec3(startPos.x, startPos.y - Math.max(0, this.flyDipOffset), startPos.z);
+        const abovePotPos = new Vec3(
+            targetLocalPos.x,
+            targetLocalPos.y + Math.max(0, this.flyArcHeight),
+            targetLocalPos.z,
+        );
+        const flyDur = Math.max(0.05, this.iconFlyDuration);
+        const dipT = flyDur * 0.18;
+        const arcT = flyDur * 0.47;
+        const landT = flyDur - dipT - arcT;
+        const midScale = new Vec3(
+            1 + (targetLocalScale.x - 1) * 0.45,
+            1 + (targetLocalScale.y - 1) * 0.45,
+            1 + (targetLocalScale.z - 1) * 0.45,
+        );
+
         tween(this.iconNode)
             // Zoom nhanh ra 0 → 1.3
             .to(this.iconZoomInDuration, { scale: new Vec3(1.3, 1.3, 1.3) })
             // Bounce nhẹ nhảy về 1
             .to(this.iconZoomOutDuration, { scale: new Vec3(1, 1, 1) })
             // Giữ yên trước khi bay
-            .delay(this.iconFlyDelay)
-            // Vừa bắt đầu bay: stop effectNode + play LV6_transition_LV{potLevel}
+            .delay(this.holdBeforeFlyDuration)
+            // Vừa bắt đầu bay: stop effectNode (spine transition chờ tới khi hạ cánh)
             .call(() => {
                 if (this.effectNode) {
                     for (const ps of this.effectNode.getComponentsInChildren(ParticleSystem)) ps.stop();
                     this.effectNode.active = false;
                 }
-                if (this.flashNode) this.flashNode.active = false;
+                this._fadeOutFlashNode();
+            })
+            // 1. Nhún nhẹ xuống dưới
+            .to(dipT, { position: dipPos }, { easing: easing.sineOut })
+            // 2. Bay lên phía trên Pot + bắt đầu thu nhỏ
+            .to(arcT, { position: abovePotPos, scale: midScale }, { easing: easing.cubicOut })
+            // 3. Hạ xuống đúng Pot
+            .to(landT, { position: targetLocalPos, scale: targetLocalScale }, { easing: easing.cubicIn })
+            .call(() => {
+                // Đến đích mới play spine transition + effectNode2
                 if (skel) {
                     const potLevel = GameData.instance.potLevel;
-                    skel.setAnimation(0, `LV6_trainsition_LV${potLevel}`, false);
+                    skel.setAnimation(0, `LV6_transition_LV${potLevel}`, false);
                 }
-            })
-            // Thu nhỏ về scale thực sự của targetNode và bay vào target
-            .to(this.iconFlyDuration,
-                {
-                    scale: targetLocalScale,
-                    position: targetLocalPos,
-                },
-                { easing: easing.cubicInOut }
-            )
-            .call(() => {
-                // Đến đích: play effectNode2 — CHƯA handoff spine sang Pot
                 if (this.effectNode2 && this.targetNode) {
                     this.effectNode2.setWorldPosition(this.targetNode.getWorldPosition());
                     this.effectNode2.active = true;
@@ -223,14 +251,6 @@ export class TransitionController extends Component {
                 this._beginHideSequence();
             })
             .start();
-
-        // Icon mờ dần khi bay
-        if (uiOpacity) {
-            tween(uiOpacity)
-                .delay(this.iconZoomInDuration + this.iconZoomOutDuration + this.iconFlyDelay)
-                .to(this.iconFlyDuration, { opacity: 0 })
-                .start();
-        }
     }
 
     /**
@@ -294,6 +314,47 @@ export class TransitionController extends Component {
         }
     }
 
+    private _ensureFlashOpacity(): UIOpacity | null {
+        const node = this.flashNode?.isValid ? this.flashNode : null;
+        if (!node) return null;
+        let op = node.getComponent(UIOpacity);
+        if (!op) op = node.addComponent(UIOpacity);
+        return op;
+    }
+
+    private _resetFlashNode(): void {
+        const node = this.flashNode?.isValid ? this.flashNode : null;
+        if (!node) return;
+        const op = this._ensureFlashOpacity();
+        if (op) {
+            tween(op).stop();
+            op.opacity = 255;
+        }
+        node.active = true;
+    }
+
+    /** Fade alpha flashNode rồi mới active = false (không tắt đột ngột). */
+    private _fadeOutFlashNode(): void {
+        const node = this.flashNode?.isValid ? this.flashNode : null;
+        if (!node || !node.active) return;
+
+        const op = this._ensureFlashOpacity();
+        const duration = Math.max(0.05, this.flashFadeOutDuration);
+
+        if (!op) {
+            node.active = false;
+            return;
+        }
+
+        tween(op).stop();
+        tween(op)
+            .to(duration, { opacity: 0 }, { easing: easing.sineOut })
+            .call(() => {
+                if (node.isValid) node.active = false;
+            })
+            .start();
+    }
+
     private _findPotController(): PotController | null {
         if (!this.targetNode?.isValid) return null;
         return this.targetNode.getComponent(PotController)
@@ -339,6 +400,8 @@ export class TransitionController extends Component {
             ? this.overlayNode.getComponent(UIOpacity)
             : (this.uiOpacity?.isValid ? this.uiOpacity : null);
         if (overlayOp) tween(overlayOp).stop();
+        const flashOp = this.flashNode?.isValid ? this.flashNode.getComponent(UIOpacity) : null;
+        if (flashOp) tween(flashOp).stop();
         for (const fx of [this.effectNode, this.effectNode2]) {
             if (!fx?.isValid) continue;
             for (const ps of fx.getComponentsInChildren(ParticleSystem)) {

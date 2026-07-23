@@ -12,11 +12,15 @@
  *   → Continue → FadeOut → màn đen (chờ Base/BG/Transition xong) → FadeIn GameRoot
  *   (Fade Guide↔Game dùng fill đen OverLay — không fade UIOpacity GameRoot)
  *
- * Flow (SkipIntro ON / Resume):
+ * Flow (SkipIntro ON):
+ *   → await Base → warm GameRoot (Reel + data + BG) dưới Loading
+ *   → Transition sẵn → mới ẩn Loading / lộ GameView
+ *
+ * Flow (Resume):
  *   → await Base → GameRoot active ngay (không qua Guide)
  */
 
-import { _decorator, Component, Node, sp, assetManager } from 'cc';
+import { _decorator, Component, Node, sp, assetManager, UIOpacity } from 'cc';
 import { EventBus }                from '../core/EventBus';
 import { GameEvents }              from '../core/GameEvents';
 import { GameData }                from '../data/GameData';
@@ -61,6 +65,10 @@ export class GameEntryController extends Component {
     private _pendingState: { isResuming: boolean; skipIntro: boolean } | null = null;
     /** GameRoot đã được warm (active) trong lúc Guide đang hiện */
     private _gameRootWarmed: boolean = false;
+    /** skipIntro: promise LoadingController await trước khi ẩn Loading / lộ GameView */
+    private _skipIntroEnterPromise: Promise<void> | null = null;
+    /** Chỉ true sau khi Reel thật + BG thật + Transition đã prepare xong dưới opacity=0. */
+    private _skipIntroPrepared: boolean = false;
 
     private _transitionLoader: TransitionLoader | null = null;
 
@@ -149,8 +157,9 @@ export class GameEntryController extends Component {
         }
 
         if (skipIntro) {
-            Log.d('[GameEntryController] skipIntro=true → await BG + Transition → GameRoot');
-            void this._enterSkipIntro();
+            Log.d('[GameEntryController] skipIntro=true → await Base/GameRoot ready under Loading');
+            this._skipIntroEnterPromise = this._enterSkipIntro();
+            void this._skipIntroEnterPromise;
         } else if (GameData.instance.guideFirstBoot && GameData.instance.isGuideShowing) {
             // Guide shell đã hiện — chỉ warm GameRoot
             Log.d('[GameEntryController] Guide-first BAR_100 → warm GameRoot only');
@@ -236,25 +245,114 @@ export class GameEntryController extends Component {
     }
 
     /**
-     * Skip intro / resume: bật GameRoot + load BG trước khi lộ UI (dưới fill đen).
+     * Skip intro / resume / Guide→game: bật GameRoot + chờ Reel/data/BG
+     * đã GÁN XONG (verify) trước khi lộ UI.
      */
     async prepareGameRootBackground(): Promise<void> {
         if (!this.gameRoot) return;
 
+        // Không phụ thuộc Loading có thật sự nằm trên GameRoot hay không.
+        // GameRoot phải tuyệt đối vô hình trong toàn bộ quá trình init.
+        this._setGameRootOpacity(0);
         if (!this.gameRoot.active) {
             this.gameRoot.active = true;
             this._gameRootWarmed = true;
-            await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
-            this._applySymbolsSafe();
         }
 
-        const gm = this.gameRoot.getComponent(GameManager);
-        if (gm) {
-            await gm.ensureBackgroundReady();
-            Log.d('[GameEntryController] prepareGameRootBackground — BG ready');
-        } else {
-            Log.w('[GameEntryController] prepareGameRootBackground — GameManager missing');
+        await this._waitUntilGameRootAssigned();
+        Log.d('[GameEntryController] prepareGameRootBackground — Reels + data + BG assigned');
+    }
+
+    /**
+     * Poll đến khi:
+     *   - SMC/reels + strip data sẵn
+     *   - applyInitialSymbols thành công (gán sync, không scheduleOnce)
+     *   - BG spriteFrame đã gán lên backgroundNode
+     * rồi chờ 1 frame để engine commit render trước khi reveal.
+     */
+    private async _waitUntilGameRootAssigned(): Promise<void> {
+        const gm = () => this.gameRoot?.getComponent(GameManager) ?? null;
+        const smc = () => this.gameRoot?.getComponentInChildren(SlotMachineController) ?? null;
+
+        let symbolsOk = false;
+        let bgOk = false;
+
+        let waitFrames = 0;
+        while (this.gameRoot?.isValid && this.isValid) {
+            const slot = smc();
+            if (slot?.isReelDataReady()) {
+                symbolsOk = slot.applyInitialSymbols();
+            }
+
+            const manager = gm();
+            if (!manager) {
+                bgOk = false;
+            } else if (!manager.backgroundNode) {
+                bgOk = true; // không có BG node → không block
+            } else {
+                if (!manager.isBackgroundAssigned()) {
+                    await manager.ensureBackgroundReady();
+                }
+                bgOk = manager.isBackgroundAssigned();
+            }
+
+            if (symbolsOk && bgOk) break;
+            await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+            waitFrames++;
+            if (waitFrames % 300 === 0) {
+                Log.w(`[GameEntryController] Still holding GameRoot hidden — symbols=${symbolsOk}, bg=${bgOk}`);
+            }
         }
+
+        // Gán lần cuối sync — tránh show rồi 1 frame sau mới apply
+        const slot = smc();
+        if (slot) symbolsOk = slot.applyInitialSymbols();
+        const manager = gm();
+        if (manager?.backgroundNode) {
+            await manager.ensureBackgroundReady();
+            bgOk = manager.isBackgroundAssigned();
+        } else if (manager) {
+            bgOk = true;
+        }
+
+        // 1 frame commit render (spriteFrame/symbol đã gán trước frame này)
+        await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+
+        if (!symbolsOk || !bgOk) {
+            throw new Error(`[GameEntryController] GameRoot preparation aborted — symbols=${symbolsOk}, bg=${bgOk}`);
+        }
+    }
+
+    /**
+     * LoadingController await trước khi ẩn Loading (skipIntro path).
+     * Đảm bảo GameView chỉ lộ sau khi Base + GameRoot init xong.
+     */
+    async waitSkipIntroEnter(): Promise<void> {
+        if (this._skipIntroEnterPromise) {
+            await this._skipIntroEnterPromise;
+            return;
+        }
+        // BAR_100 có thể scheduleOnce retry — tuyệt đối không cho Loading dismiss sớm.
+        while (this.isValid && !this._skipIntroEnterPromise) {
+            await new Promise<void>((r) => this.scheduleOnce(() => r(), 0));
+        }
+        if (this._skipIntroEnterPromise) {
+            await this._skipIntroEnterPromise;
+        }
+    }
+
+    /**
+     * LoadingController gọi đồng bộ ngay trước khi tắt Loading.
+     * Không có await giữa opacity=255 và Loading.active=false nên không thể render frame rỗng.
+     */
+    revealPreparedSkipIntro(): boolean {
+        if (!this._skipIntroPrepared || !this.gameRoot?.isValid) {
+            Log.e('[GameEntryController] Refuse reveal — SkipIntro GameRoot is not fully prepared');
+            return false;
+        }
+        this._setGameRootOpacity(255);
+        Log.d('[GameEntryController] SkipIntro GameRoot revealed with assigned Reel + BG');
+        return true;
     }
 
     /** Tắt GameRoot — gọi mỗi lần vào Guide để chắc chắn không bị bật sớm. */
@@ -266,6 +364,7 @@ export class GameEntryController extends Component {
         if (this.gameRoot.active) {
             Log.d('[GameEntryController] GameRoot was active — forcing inactive during Guide');
         }
+        this._setGameRootOpacity(0);
         this.gameRoot.active = false;
     }
 
@@ -325,8 +424,12 @@ export class GameEntryController extends Component {
         EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
     }
 
-    /** Bật GameRoot full — fade lộ game do fill đen Guide/Loading, không dùng UIOpacity. */
-    private _showGameRoot(): void {
+    /**
+     * Bật GameRoot full — fade lộ game do fill đen Guide/Loading, không dùng UIOpacity.
+     * @param deferSymbols false = gán symbols sync ngay (skipIntro — tránh trễ 1 frame).
+     * @param reveal false = giữ opacity=0 để LoadingController reveal nguyên tử sau cùng.
+     */
+    private _showGameRoot(deferSymbols: boolean = true, reveal: boolean = true): void {
         if (!this.gameRoot) return;
 
         const wasInactive = !this.gameRoot.active;
@@ -334,7 +437,11 @@ export class GameEntryController extends Component {
         this._gameRootWarmed = true;
 
         if (wasInactive) {
-            this.scheduleOnce(() => this._applySymbolsSafe(), 0);
+            if (deferSymbols) {
+                this.scheduleOnce(() => this._applySymbolsSafe(), 0);
+            } else {
+                this._applySymbolsSafe();
+            }
         }
 
         if (this.sharedNode) {
@@ -348,23 +455,66 @@ export class GameEntryController extends Component {
         if (logo && skel && !skel.skeletonData) {
             void this._ensureLogoSkeleton(logo);
         }
+
+        if (reveal) this._setGameRootOpacity(255);
     }
 
-    /** skipIntro: chờ BG + Transition rồi vào GameRoot. */
+    /**
+     * skipIntro: CHỈ trigger Transition / resolve sau khi Reel + BG đã gán xong.
+     * Loading vẫn cover đến khi promise resolve.
+     */
     private async _enterSkipIntro(): Promise<void> {
         if (this._guideHandled) return;
-        Log.d('[GameEntryController] _enterSkipIntro — prepare BG then GUIDE_COMPLETE');
+        Log.d('[GameEntryController] _enterSkipIntro — await assigned Reels + BG before reveal');
+
+        // 1) Gán hết data/BG trước — chưa show Transition
         await this.prepareGameRootBackground();
+
+        // 2) Preload Transition (chưa play)
         const loader = this._transitionLoader;
-        if (loader) await loader.ensureLoaded();
+        const transitionCtrl = loader ? await loader.ensureLoaded() : null;
+
+        // 3) Verify lại ngay trước reveal (tránh bị overwrite trong lúc load Transition)
+        await this._waitUntilGameRootAssigned();
+
+        // 4) Hoàn tất state nhưng vẫn giữ GameRoot opacity=0.
+        this._guideHandled = true;
+        GameData.instance.isGuideCompleted = true;
+        GameData.instance.isGuideShowing = false;
+        if (this.gameGuide) this.gameGuide.active = false;
+        this._reparentSharedNode();
+        this._adoptGuideLogo(GuideShellLoader.logoNode);
+        this._showGameRoot(false, false);
+
+        // GameManager nghe GUIDE_COMPLETE → GAME_READY
         EventBus.instance.emit(GameEvents.GUIDE_COMPLETE);
+
+        // 5) Transition cover trên cùng rồi mới cho Loading dismiss (promise resolve)
+        if (transitionCtrl && loader) {
+            loader.bringToFront();
+            transitionCtrl.triggerGuideTransition();
+            EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
+            this._skipIntroPrepared = true;
+            Log.d('[GameEntryController] _enterSkipIntro → prepared under hidden GameRoot + Transition');
+            return;
+        }
+
+        EventBus.instance.emit(GameEvents.GAME_ENTRY_EFFECT);
+        this._skipIntroPrepared = true;
+        Log.d('[GameEntryController] _enterSkipIntro → prepared under hidden GameRoot (no Transition)');
+    }
+
+    private _setGameRootOpacity(value: number): void {
+        if (!this.gameRoot?.isValid) return;
+        let opacity = this.gameRoot.getComponent(UIOpacity);
+        if (!opacity) opacity = this.gameRoot.addComponent(UIOpacity);
+        opacity.opacity = value;
     }
 
     private _applySymbolsSafe(): void {
         if (!this.gameRoot?.isValid || !this.gameRoot.active) return;
         const smc = this.gameRoot.getComponentInChildren(SlotMachineController);
-        if (smc) {
-            smc.applyInitialSymbols();
+        if (smc?.applyInitialSymbols()) {
             Log.d('[GameEntryController] applyInitialSymbols after GameRoot active');
         }
     }

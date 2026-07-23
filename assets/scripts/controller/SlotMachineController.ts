@@ -9,13 +9,15 @@
  *   Khi LONG_SPIN_TRIGGERED: Cột cuối (reel 5) delay thêm 2.5–3s.
  *   Ngay khi Cột áp chót dừng xong → bật longSpinVFXNode + emit LONG_SPIN_VFX_START (audio anticipation).
  *   Khi Cột cuối dừng hẳn     → tắt longSpinVFXNode + emit LONG_SPIN_VFX_END (audio thud).
+ *   Khi Long Spin ở reel cuối → Zoom In SlotMachine (scale) tạo hồi hộp; Zoom Out khi VFX tắt.
+ *   (Không dùng Camera.orthoHeight vì Canvas alignCanvasWithScreen sẽ nuốt thay đổi.)
  *
  * LONG SPIN VFX (lazy):
  *   Prefab `fxLongSpin` (Spine Longspin) tách khỏi Base — load qua LongSpinVFXLoader
  *   khi LONG_SPIN_TRIGGERED. Có thể gán sẵn longSpinVFXNode trong Editor (optional).
  */
 
-import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Prefab, instantiate, Vec3 } from 'cc';
+import { _decorator, Component, Node, Sprite, SpriteFrame, screen, Prefab, instantiate, Vec3, tween, Tween } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { SpinResponse, SymbolId, isFreeSpinTierReelIndex } from '../data/SlotTypes';
@@ -306,9 +308,73 @@ export class SlotMachineController extends Component {
     @property({ tooltip: 'Tốc độ chạy frame VFX (frames/giây)' })
     vfxFPS: number = 12;
 
+    // ─── LONG SPIN ZOOM (scale node — không dùng Camera.orthoHeight) ───
+    @property({ tooltip: 'Bật Zoom In khi Long Spin xuất hiện ở reel cuối' })
+    enableLongSpinCameraZoom: boolean = true;
+
+    @property({
+        type: Node,
+        tooltip: 'Node chính bị scale khi zoom (null = SlotMachine / this.node).',
+    })
+    longSpinZoomNode: Node | null = null;
+
+    @property({
+        type: [Node],
+        tooltip: 'Node phụ cũng zoom cùng (vd JackpotDisplay). Để trống → tự tìm sibling tên "JackpotDisplay".',
+    })
+    longSpinZoomExtraNodes: Node[] = [];
+
+    @property({
+        tooltip: [
+            'Mức Zoom In (1.0 = không zoom).',
+            'Recommended → 1.12 ~ 1.2 (rõ mắt, hồi hộp).',
+        ].join('\n'),
+    })
+    longSpinZoomScale: number = 1.15;
+
+    @property({ tooltip: 'Thời gian Zoom In khi anticipation bắt đầu (giây)' })
+    longSpinZoomInDuration: number = 1.1;
+
+    @property({ tooltip: 'Thời gian Zoom Out khi reel cuối dừng (giây)' })
+    longSpinZoomOutDuration: number = 0.3;
+
+    @property({
+        tooltip: [
+            'Dịch pivot zoom theo X về phía reel cuối (px world).',
+            '0 = zoom quanh tâm SlotMachine. 40~80 = kéo khung nhìn về cột cuối.',
+            'Recommended → 60',
+        ].join('\n'),
+    })
+    longSpinZoomPanX: number = 60;
+
+    @property({ tooltip: 'Rung nhẹ ngay khi bắt đầu Zoom In (anticipation)' })
+    enableLongSpinZoomShake: boolean = true;
+
+    @property({ tooltip: 'Biên độ rung (px). Recommended → 2~3 (nhẹ)' })
+    longSpinZoomShakeAmplitude: number = 2.5;
+
+    @property({ tooltip: 'Thời gian mỗi nhịp rung (giây). Recommended → 0.05~0.07' })
+    longSpinZoomShakeStep: number = 0.055;
+
     private _vfxSprite: Sprite | null = null;
     private _vfxFrameIdx: number = 0;
     private _vfxCb: (() => void) | null = null;
+    /** Snapshot transform từng node đang zoom (scale quanh pivot chung). */
+    private _zoomEntries: {
+        node: Node;
+        baseScale: Vec3;
+        basePos: Vec3;
+        endScale: Vec3;
+        endPos: Vec3;
+    }[] = [];
+    private _isZoomActive: boolean = false;
+    private _isZoomShaking: boolean = false;
+    /** Tiến độ Zoom In 0→1 — kết hợp với shake offset mỗi frame. */
+    private _zoomProgress: { t: number } = { t: 0 };
+    /** Offset rung chung — áp cùng lúc cho SlotMachine + JackpotDisplay. */
+    private _zoomShakeOffset: { x: number; y: number } = { x: 0, y: 0 };
+    private readonly _zoomTmpScale: Vec3 = new Vec3();
+    private readonly _zoomTmpPos: Vec3 = new Vec3();
     private _isFreeSpin: boolean = false;
     /** TopUp mode: reel dùng normal strips (không dùng freeSpinReelStrips), StickyOverlayController lo hiển thị coin */
     private _isTopUp: boolean = false;
@@ -395,13 +461,24 @@ export class SlotMachineController extends Component {
     }
 
     /**
-     * Gọi từ GameEntryController._onLoadingComplete() — đảm bảo symbols có hình đúng
-     * TRƯỚC KHI GuideView hiện ra. ENTER_SUCCESS luôn fire trước LOADING_COMPLETE nên
-     * GameData đã có real strips tại thời điểm này.
+     * Gọi từ GameEntryController — đảm bảo symbols có hình đúng trước khi lộ GameView.
+     * @returns false nếu strips/reels chưa sẵn (caller nên retry frame sau).
      */
-    public applyInitialSymbols(): void {
+    public applyInitialSymbols(): boolean {
+        const strips = GameData.instance.getReelStrips(false);
+        if (!strips || strips.length < this.reels.length) return false;
+        if (this.reels.length === 0 || this.reels.some((r) => !r?.isValid || !r.isInitialized)) return false;
         this._onEnterSuccess();
-        // Log removed for performance
+        return this.reels.every((r) => r.areSymbolsAssigned);
+    }
+
+    /** true khi đã có strip data + reel components sẵn để gán symbol. */
+    public isReelDataReady(): boolean {
+        const strips = GameData.instance.getReelStrips(false);
+        return !!strips
+            && strips.length >= this.reels.length
+            && this.reels.length > 0
+            && this.reels.every((r) => r?.isValid && r.isInitialized);
     }
 
     /**
@@ -469,6 +546,7 @@ export class SlotMachineController extends Component {
 
     onDestroy(): void {
         this._pendingReelStarts = [];
+        this._stopLongSpinCameraZoom(true);
         EventBus.instance.offTarget(this);
     }
 
@@ -664,11 +742,45 @@ export class SlotMachineController extends Component {
         this._updateSlotBackgroundSprite();
     }
 
-    /** Quick stop — người chơi nhấn Spin lại khi reel đang quay → decel ngay lập tức.
+    /** Quick stop — người chơi nhấn Spin lại khi reel đang quay → tất cả reel dừng cùng lúc.
      *  Chỉ hoạt động trong normal spin, không áp dụng cho FreeSpin/TopUp/PickGame. */
     private _onQuickStop(): void {
         this._logSpinState('[SPIN-HANG][SlotMC] QUICK_STOP received');
         if (this._isFreeSpin || this._isTopUp || this._isPickGame) return;
+
+        // 0) Bỏ stagger / long-spin delay trước khi ra lệnh dừng
+        for (const reel of this.reels) {
+            reel.stopDelay = 0;
+            reel.longSpinDelay = 0;
+        }
+
+        // 1) Hủy stagger start còn chờ — khởi động ngay mọi reel chưa quay
+        if (this._pendingReelStarts.length > 0) {
+            const pending = this._pendingReelStarts.splice(0);
+            for (const item of pending) {
+                item.reel.startSpin();
+            }
+        }
+
+        // 2) Bỏ long-spin queue / delay — stopAt ngay mọi reel đang chờ đến lượt
+        if (this._waitingReels.length > 0) {
+            const waiting = this._waitingReels.splice(0);
+            for (const item of waiting) {
+                const reel = this.reels[item.reelIndex];
+                if (!reel || this._stoppedReelSet.has(item.reelIndex)) continue;
+                // Quick stop: không dùng longSpin delay
+                reel.stopAt(item.centerIndex, false);
+            }
+        }
+
+        // 3) Tắt long-spin VFX / sequential boundary — không còn anticipation
+        this._longSpinBoundary = -1;
+        this._longSpinReelSet.clear();
+        if (this._isLongSpinActive) {
+            this._stopLongSpinVFX(false);
+        }
+
+        // 4) Mọi reel vào quick decel cùng frame
         for (const reel of this.reels) {
             reel.forceQuickStop();
         }
@@ -1275,6 +1387,12 @@ export class SlotMachineController extends Component {
             this._vfxFrameIdx = 0;
             this._startVFXLoop();
             EventBus.instance.emit(GameEvents.LONG_SPIN_VFX_START);
+
+            // Zoom khi Long Spin tới reel cuối (anticipation cột cuối)
+            const lastIdx = this.reels.length - 1;
+            if (reelIndex === lastIdx) {
+                this._startLongSpinCameraZoom(lastIdx);
+            }
         });
     }
 
@@ -1312,6 +1430,12 @@ export class SlotMachineController extends Component {
         const wasActive = this._isLongSpinActive && this.longSpinVFXNode?.active;
         if (!keepActive) {
             this._isLongSpinActive = false;
+            // Zoom Out async — LONG_SPIN_ZOOM_DONE chỉ emit khi về scale gốc
+            if (this._isZoomActive) {
+                this._stopLongSpinCameraZoom(false);
+            } else {
+                EventBus.instance.emit(GameEvents.LONG_SPIN_ZOOM_DONE);
+            }
         }
         this._stopVFXLoop();
         this._stopHintBounce();
@@ -1347,7 +1471,268 @@ export class SlotMachineController extends Component {
     private _resetVFX(): void {
         this._stopVFXLoop();
         this._stopHintBounce();
+        this._stopLongSpinCameraZoom(true);
         if (this.longSpinVFXNode) this.longSpinVFXNode.active = false;
+    }
+
+    // ─── LONG SPIN ZOOM ───────────────────────────────────────────────────────
+
+    /** SlotMachine + JackpotDisplay (+ extra), không trùng node. */
+    private _collectZoomNodes(): Node[] {
+        const primary = this.longSpinZoomNode?.isValid ? this.longSpinZoomNode : this.node;
+        const list: Node[] = [];
+        const pushUnique = (n: Node | null | undefined) => {
+            if (!n?.isValid) return;
+            if (list.indexOf(n) >= 0) return;
+            list.push(n);
+        };
+
+        pushUnique(primary);
+
+        for (const n of this.longSpinZoomExtraNodes) {
+            pushUnique(n);
+        }
+
+        // Auto-wire JackpotDisplay: sibling cùng parent với SlotMachine
+        if (this.longSpinZoomExtraNodes.length === 0) {
+            const parent = this.node.parent;
+            if (parent) {
+                for (const child of parent.children) {
+                    if (child.name === 'JackpotDisplay') {
+                        pushUnique(child);
+                        break;
+                    }
+                }
+            }
+        }
+
+        return list;
+    }
+
+    /**
+     * Zoom In SlotMachine + JackpotDisplay quanh pivot chung (cảm giác camera).
+     * Canvas alignCanvasWithScreen khiến Camera.orthoHeight không tạo cảm giác zoom — scale node mới ổn định.
+     */
+    private _startLongSpinCameraZoom(reelIndex: number): void {
+        if (!this.enableLongSpinCameraZoom) return;
+        if (this.longSpinZoomScale <= 1.001) return;
+
+        const nodes = this._collectZoomNodes();
+        if (nodes.length === 0) return;
+
+        const s = this.longSpinZoomScale;
+        const dur = Math.max(0.05, this.longSpinZoomInDuration);
+
+        // Pivot = tâm SlotMachine, lệch nhẹ về reel cuối
+        const pivot = this.node.worldPosition.clone();
+        const reel = this.reels[reelIndex];
+        if (reel && this.longSpinZoomPanX !== 0) {
+            const reelWorld = reel.node.worldPosition;
+            const dir = reelWorld.x >= pivot.x ? 1 : -1;
+            pivot.x += dir * Math.abs(this.longSpinZoomPanX);
+        }
+
+        // Nếu đang zoom dở → dừng tween, giữ baseline đã capture
+        if (!this._isZoomActive) {
+            this._zoomEntries = nodes.map((node) => ({
+                node,
+                baseScale: node.scale.clone(),
+                basePos: node.position.clone(),
+                endScale: new Vec3(),
+                endPos: new Vec3(),
+            }));
+        } else {
+            for (const node of nodes) {
+                if (!this._zoomEntries.some((e) => e.node === node)) {
+                    this._zoomEntries.push({
+                        node,
+                        baseScale: node.scale.clone(),
+                        basePos: node.position.clone(),
+                        endScale: new Vec3(),
+                        endPos: new Vec3(),
+                    });
+                }
+            }
+        }
+
+        const tmpWorld = new Vec3();
+        const tmpLocal = new Vec3();
+
+        this._stopLongSpinZoomDrivers();
+        this._isZoomActive = true;
+        this._zoomProgress.t = 0;
+
+        for (const entry of this._zoomEntries) {
+            const { node, baseScale, basePos } = entry;
+            if (!node?.isValid) continue;
+
+            Tween.stopAllByTarget(node);
+
+            entry.endScale.set(
+                baseScale.x * s,
+                baseScale.y * s,
+                baseScale.z,
+            );
+
+            const parent = node.parent;
+            if (parent) {
+                Vec3.transformMat4(tmpWorld, basePos, parent.worldMatrix);
+                tmpWorld.x = pivot.x + (tmpWorld.x - pivot.x) * s;
+                tmpWorld.y = pivot.y + (tmpWorld.y - pivot.y) * s;
+                tmpWorld.z = pivot.z + (tmpWorld.z - pivot.z) * s;
+                parent.inverseTransformPoint(tmpLocal, tmpWorld);
+                entry.endPos.set(tmpLocal);
+            } else {
+                entry.endPos.set(
+                    pivot.x + (basePos.x - pivot.x) * s,
+                    pivot.y + (basePos.y - pivot.y) * s,
+                    basePos.z,
+                );
+            }
+        }
+
+        // Zoom progress + rung ngay từ frame đầu
+        this._applyLongSpinZoomTransform();
+        this._startLongSpinZoomShake();
+
+        Tween.stopAllByTarget(this._zoomProgress);
+        tween(this._zoomProgress)
+            .to(dur, { t: 1 }, {
+                easing: 'sineOut',
+                onUpdate: () => this._applyLongSpinZoomTransform(),
+            })
+            .start();
+
+        Log.d(`[SlotMC] LongSpin Zoom In scale=${s} nodes=[${this._zoomEntries.map((e) => e.node.name).join(',')}] dur=${dur}`);
+    }
+
+    /** Áp scale/pos theo tiến độ zoom + shake offset. */
+    private _applyLongSpinZoomTransform(): void {
+        const t = this._zoomProgress.t;
+        const ox = this._zoomShakeOffset.x;
+        const oy = this._zoomShakeOffset.y;
+        for (const entry of this._zoomEntries) {
+            if (!entry.node?.isValid) continue;
+            const { baseScale, basePos, endScale, endPos } = entry;
+            this._zoomTmpScale.set(
+                baseScale.x + (endScale.x - baseScale.x) * t,
+                baseScale.y + (endScale.y - baseScale.y) * t,
+                baseScale.z,
+            );
+            this._zoomTmpPos.set(
+                basePos.x + (endPos.x - basePos.x) * t + ox,
+                basePos.y + (endPos.y - basePos.y) * t + oy,
+                basePos.z,
+            );
+            entry.node.setScale(this._zoomTmpScale);
+            entry.node.setPosition(this._zoomTmpPos);
+        }
+    }
+
+    /** Rung nhẹ ngay khi bắt đầu zoom — cùng offset cho mọi node. */
+    private _startLongSpinZoomShake(): void {
+        if (!this.enableLongSpinZoomShake) return;
+        if (!this._isZoomActive || this._zoomEntries.length === 0) return;
+        if (this.longSpinZoomShakeAmplitude <= 0) return;
+
+        this._isZoomShaking = true;
+        this._zoomShakeOffset.x = 0;
+        this._zoomShakeOffset.y = 0;
+        Log.d(`[SlotMC] LongSpin Zoom Shake start amp=${this.longSpinZoomShakeAmplitude}`);
+        this._runLongSpinZoomShakeCycle();
+    }
+
+    private _runLongSpinZoomShakeCycle(): void {
+        if (!this._isZoomShaking || !this._isZoomActive) return;
+
+        const a = this.longSpinZoomShakeAmplitude;
+        const step = Math.max(0.03, this.longSpinZoomShakeStep);
+        const apply = () => this._applyLongSpinZoomTransform();
+
+        Tween.stopAllByTarget(this._zoomShakeOffset);
+        // Chu kỳ ngắn, biên độ nhẹ — ít bước hơn để không bị “rung nhiều”
+        tween(this._zoomShakeOffset)
+            .to(step, { x: a, y: -a * 0.45 }, { onUpdate: apply })
+            .to(step, { x: -a * 0.85, y: a * 0.35 }, { onUpdate: apply })
+            .to(step, { x: 0, y: 0 }, { onUpdate: apply })
+            .call(() => this._runLongSpinZoomShakeCycle())
+            .start();
+    }
+
+    private _stopLongSpinZoomDrivers(): void {
+        this._isZoomShaking = false;
+        Tween.stopAllByTarget(this._zoomShakeOffset);
+        Tween.stopAllByTarget(this._zoomProgress);
+        this._zoomShakeOffset.x = 0;
+        this._zoomShakeOffset.y = 0;
+    }
+
+    /**
+     * Zoom Out / snap về scale gốc.
+     * @param instant true = cắt ngay (spin mới), false = tween khi reveal
+     */
+    private _stopLongSpinCameraZoom(instant: boolean = false): void {
+        if (!this._isZoomActive) return;
+
+        // Dừng rung + progress; giữ đúng vị trí zoom hiện tại (không offset)
+        this._stopLongSpinZoomDrivers();
+        this._applyLongSpinZoomTransform();
+
+        const entries = this._zoomEntries;
+        const finishAll = () => {
+            this._zoomEntries = [];
+            this._isZoomActive = false;
+            EventBus.instance.emit(GameEvents.LONG_SPIN_ZOOM_DONE);
+        };
+
+        if (entries.length === 0) {
+            finishAll();
+            return;
+        }
+
+        let pending = 0;
+        const finishOne = () => {
+            pending--;
+            if (pending > 0) return;
+            finishAll();
+        };
+
+        const dur = Math.max(0.05, this.longSpinZoomOutDuration);
+        if (!instant) {
+            Log.d(`[SlotMC] LongSpin Zoom Out dur=${dur}`);
+        }
+
+        for (const entry of entries) {
+            const { node, baseScale, basePos } = entry;
+            if (!node?.isValid) continue;
+
+            Tween.stopAllByTarget(node);
+
+            if (instant) {
+                node.setScale(baseScale);
+                node.setPosition(basePos);
+                continue;
+            }
+
+            pending++;
+            tween(node)
+                .to(dur, {
+                    scale: baseScale.clone(),
+                    position: basePos.clone(),
+                }, { easing: 'sineIn' })
+                .call(() => {
+                    if (node.isValid) {
+                        node.setScale(baseScale);
+                        node.setPosition(basePos);
+                    }
+                    finishOne();
+                })
+                .start();
+        }
+
+        if (instant || pending === 0) {
+            finishAll();
+        }
     }
 
     // ─── LONG SPIN SYMBOL BOUNCE HINT ─────────────────────────────────────────

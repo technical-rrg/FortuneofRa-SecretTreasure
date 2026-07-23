@@ -927,7 +927,7 @@ export class SymbolHighlighter extends Component {
                         Log.e(`[FreeYellow] REPLAY clone col=${col} row=${row}`);
                     }
                     const sv = symbolNode.getComponent(SymbolView);
-                    const symScale = sv?.defaultScale ?? 1;
+                    const symScale = sv?.getBaseScale() ?? 1;
                     clone.setScale(symScale, symScale, 1);
                     clone.setParent(this.paylineManagerNode, true);
                     clone.setWorldPosition(symbolNode.getWorldPosition());
@@ -1002,7 +1002,7 @@ export class SymbolHighlighter extends Component {
                         this._yellowClones.set(symbolNode, clone);
                         Log.e(`[FreeYellow] NEW clone col=${col} row=${row}`);
                     }
-                    const symScale = view?.defaultScale ?? 1;
+                    const symScale = view?.getBaseScale() ?? 1;
                     clone.setScale(symScale, symScale, 1);
                     clone.setParent(this.paylineManagerNode, true);
                     clone.setWorldPosition(symbolNode.getWorldPosition());
@@ -1116,7 +1116,7 @@ export class SymbolHighlighter extends Component {
             this._spriteBounceClones.set(symbolNode, clone);
         }
 
-        const baseScale = view?.defaultScale ?? this._getDefaultScale(symbolNode);
+        const baseScale = view?.getBaseScale() ?? this._getDefaultScale(symbolNode);
         clone.setScale(baseScale, baseScale, 1);
         clone.setParent(this.paylineManagerNode, true);
         clone.setWorldPosition(symbolNode.getWorldPosition());
@@ -1198,7 +1198,7 @@ export class SymbolHighlighter extends Component {
         entry.spineNode = bounceNode;
 
         Tween.stopAllByTarget(bounceNode);
-        const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
+        const baseScale = entry.view?.getBaseScale() ?? this._getDefaultScale(symbolNode);
         bounceNode.setScale(baseScale, baseScale, 1);
 
         if (!this._bounceOrigPos.has(bounceNode)) {
@@ -1253,7 +1253,7 @@ export class SymbolHighlighter extends Component {
         }
 
         if (symbolNode?.isValid) {
-            const baseScale = entry.view?.defaultScale ?? this._getDefaultScale(symbolNode);
+            const baseScale = entry.view?.getBaseScale() ?? this._getDefaultScale(symbolNode);
             symbolNode.setScale(baseScale, baseScale, 1);
             entry.spineNode = symbolNode;
         }
@@ -1409,7 +1409,7 @@ export class SymbolHighlighter extends Component {
         this._greenTintedNodes.push(symbolNode);
         // Zoom up cho coin vàng — scale lên 1.15 và GIỮ NGUYÊN cho tới lượt tiếp theo
         const view = symbolNode.getComponent(SymbolView);
-        const baseScale = view?.defaultScale ?? 1;
+        const baseScale = view?.getBaseScale() ?? 1;
         const s = 1.15; // hardcode zoom scale cho gold coin, không phụ thuộc inspector
         const d = this.cellZoomDuration;
         Tween.stopAllByTarget(symbolNode);
@@ -1917,10 +1917,10 @@ export class SymbolHighlighter extends Component {
         this._spriteBounceClones.clear();
     }
 
-    /** Lấy defaultScale từ SymbolView component của symbol node. Mặc định = 1 nếu không tìm thấy. */
+    /** Lấy base scale từ SymbolView (ExtraTop/ExtraBot = 0.8). Mặc định = 1 nếu không tìm thấy. */
     private _getDefaultScale(symbolNode: Node): number {
         const view = symbolNode.getComponent(SymbolView);
-        return view?.defaultScale ?? 1;
+        return view?.getBaseScale() ?? 1;
     }
 
     /**

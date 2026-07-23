@@ -18,8 +18,9 @@
  *   4. potSpine vẫn dùng xuyên suốt code (idle, transition, impact…).
  *
  * FLOW:
- *   - WILD_TRAIL_FLY_DONE  → _onFlyDone()   → đọc GameData.potLevel → animate transition
- *   - POT_LEVEL_CHANGED    → _onLevelChanged → transition nếu level khác
+ *   - WILD_TRAIL_FLY_DONE  → _onFlyDone()   → apply pending level (lên level SAU khi hết trail bay)
+ *   - POT_LEVEL_CHANGED    → _onLevelChanged → chỉ queue pending; có wild thì chờ FLY_DONE
+ *   - WILD_TRAIL_START     → hủy apply sớm (0.7s) — không lên level khi wild vừa xuất hiện
  *   - POT_WIN_INTRO        → _onPotWinIntro()→ particle + emit POT_WIN_DONE (level do server)
  *   - Nổ hũ xong (reset)   → level về 0, chạy LV{old}_transition_LV0 → idle_LV0
  *
@@ -87,6 +88,7 @@ export class PotController extends Component {
         const bus = EventBus.instance;
         bus.on(GameEvents.WILD_TRAIL_FLY_DONE,  this._onFlyDone,      this);
         bus.on(GameEvents.WILD_TRAIL_ONE_HIT,   this._onOneHit,        this);
+        bus.on(GameEvents.WILD_TRAIL_START,     this._onWildTrailStart, this);
         bus.on(GameEvents.POT_LEVEL_CHANGED,    this._onLevelChanged,  this);
         bus.on(GameEvents.POT_WIN_INTRO,        this._onPotWinIntro,   this);
         bus.on(GameEvents.TRANSITION_DONE,     this._onTransitionDone, this);
@@ -157,6 +159,15 @@ export class PotController extends Component {
 
     // ─── EVENT HANDLERS ────────────────────────────────────────────────────
 
+    /**
+     * WILD_TRAIL_START: có wild đang / sắp bay → hủy apply sớm.
+     * GameManager emit ngay sau POT_LEVEL_CHANGED; level-up chỉ chạy ở FLY_DONE.
+     */
+    private _onWildTrailStart(): void {
+        this.unschedule(this._applyPendingLevel);
+        Log.d('[PotController] WILD_TRAIL_START — defer level-up until WILD_TRAIL_FLY_DONE');
+    }
+
     /** WILD_TRAIL_FLY_DONE: tất cả particle đã bay vào hũ → apply pending level */
     private _onFlyDone(): void {
         Log.d(`[PotController] _onFlyDone — _currentLevel=${this._currentLevel}, pending=${this._pendingLevel}`);
@@ -203,49 +214,111 @@ export class PotController extends Component {
         }, 3.0);
 
         // ★ Play impact animation trên pot spine theo level hiện tại
-        this._playImpact();
+        void this.playImpactAsync();
     }
 
-    /** Play impact animation Idle_LV{level}_impact rồi quay lại idle */
-    private _playImpact(): void {
-        const potSpine = this._getPotSpine();
-        if (!potSpine || !potSpine.node?.active) return;
-        if (this._isTransitioning) return; // đang transition thì skip
-        const level = this._currentLevel;
-        if (level <= 0) return; // LV0 không có impact
-        const animName = `LV${level}_Impact`;
-        if (!this._hasSpineAnim(potSpine, animName)) {
-            Log.w(`[PotController] missing impact anim "${animName}" — skip`);
-            return;
-        }
-        Log.d(`[PotController] _playImpact — ${animName}`);
-        potSpine.setCompleteListener(() => {
-            if (this.potSpine) this.potSpine.setCompleteListener(null);
-            this._playIdle(this._currentLevel);
+    /**
+     * Play `LV{level}_Impact` rồi về idle.
+     * @param earlyResolveSec Resolve sớm hơn trước khi anim kết thúc (để caller bắn effect overlap).
+     *                        Anim vẫn chạy hết rồi mới về idle.
+     */
+    playImpactAsync(earlyResolveSec: number = 0): Promise<void> {
+        return new Promise((resolve) => {
+            const potSpine = this._getPotSpine();
+            if (!potSpine || !potSpine.node?.active || this._isTransitioning) {
+                resolve();
+                return;
+            }
+            const level = this._currentLevel;
+            if (level <= 0) {
+                resolve();
+                return;
+            }
+            const animName = `LV${level}_Impact`;
+            if (!this._hasSpineAnim(potSpine, animName)) {
+                Log.w(`[PotController] missing impact anim "${animName}" — skip`);
+                resolve();
+                return;
+            }
+
+            let resolved = false;
+            const resolveOnce = () => {
+                if (resolved) return;
+                resolved = true;
+                resolve();
+            };
+
+            let finished = false;
+            let earlyCb: (() => void) | null = null;
+            const finishAnim = () => {
+                if (finished) return;
+                finished = true;
+                this.unschedule(fallback);
+                if (earlyCb) this.unschedule(earlyCb);
+                if (potSpine.isValid) potSpine.setCompleteListener(null);
+                this._playIdle(this._currentLevel);
+                resolveOnce();
+            };
+            const fallback = () => {
+                Log.w(`[PotController] impact complete fallback → ${animName}`);
+                finishAnim();
+            };
+
+            const animDur = this._getSpineAnimDuration(potSpine, animName);
+            const early = Math.max(0, earlyResolveSec);
+            if (early > 0 && animDur > early) {
+                earlyCb = () => resolveOnce();
+                this.scheduleOnce(earlyCb, animDur - early);
+            }
+
+            Log.d(`[PotController] playImpactAsync — ${animName} early=${early}`);
+            potSpine.setCompleteListener((entry) => {
+                if (entry?.animation?.name && entry.animation.name !== animName) return;
+                finishAnim();
+            });
+            this.scheduleOnce(fallback, Math.max(2.0, animDur + 0.5));
+            potSpine.timeScale = 1;
+            try {
+                potSpine.setAnimation(0, animName, false);
+            } catch (e) {
+                Log.w(`[PotController] impact setAnimation failed "${animName}"`, e);
+                finishAnim();
+            }
         });
-        potSpine.timeScale = 1;
-        try {
-            potSpine.setAnimation(0, animName, false);
-        } catch (e) {
-            Log.w(`[PotController] impact setAnimation failed "${animName}"`, e);
-            potSpine.setCompleteListener(null);
-        }
     }
 
-    /** POT_LEVEL_CHANGED: queue pending level — chờ WILD_TRAIL_FLY_DONE mới transition */
+    private _getSpineAnimDuration(potSpine: sp.Skeleton, animName: string): number {
+        try {
+            const find = (potSpine as any).findAnimation;
+            if (typeof find === 'function') {
+                const anim = find.call(potSpine, animName);
+                const dur = anim?.duration;
+                if (typeof dur === 'number' && dur > 0) return dur;
+            }
+        } catch {
+            /* ignore */
+        }
+        return 0.5;
+    }
+
+    /**
+     * POT_LEVEL_CHANGED: chỉ queue pending — không play transition ngay.
+     * Có wild: WILD_TRAIL_START hủy timer dưới; FLY_DONE mới lên level.
+     * Không wild: safety apply sau 0.7s (không có FLY_DONE).
+     */
     private _onLevelChanged(payload: { level: number; total: number }): void {
         const newLevel = this._normalizeLevel(payload.level);
         Log.d(`[PotController] _onLevelChanged — visualLevel: ${this._currentLevel} → ${newLevel}, total=${payload.total}`);
         if (newLevel !== this._currentLevel) {
             this._pendingLevel = newLevel;
-            Log.d(`[PotController] level ${this._currentLevel} → ${newLevel} queued, waiting for FLY_DONE`);
-            // Safety: nếu không có WILD (không có FLY_DONE), apply sau 0.7s
+            Log.d(`[PotController] level ${this._currentLevel} → ${newLevel} queued (wait FLY_DONE or no-wild fallback)`);
             this.unschedule(this._applyPendingLevel);
+            // Chỉ dùng khi KHÔNG có wild; có wild thì _onWildTrailStart sẽ hủy timer này
             this.scheduleOnce(this._applyPendingLevel, 0.7);
         }
     }
 
-    /** Safety callback: apply pending level nếu FLY_DONE không bao giờ đến (no-WILD case) */
+    /** Safety: apply pending khi không có wild trail (FLY_DONE không tới) */
     private _applyPendingLevel(): void {
         if (this._pendingLevel !== null && this._pendingLevel !== this._currentLevel) {
             this._transitionToLevel(this._pendingLevel);
@@ -485,8 +558,8 @@ export class PotController extends Component {
 
     /**
      * Transition giữa các level bằng Spine animation.
-     *   - Tăng level: chạy "LV{old}_transition_LV{new}" rồi loop idle_LV{new}
-     *   - Reset sau nổ hũ (về 0): chạy "LV4_transition_LV0" rồi idle_LV0
+     *   - Tăng level: chạy "LV{old}_transition_LV{new}" rồi loop Idle_LV{new}
+     *   - Reset sau nổ hũ (về 0): chạy "LV{old}_transition_LV0" rồi Idle_LV0
      *   - Các trường hợp khác: set idle trực tiếp
      */
     private _transitionToLevel(newLevel: number): void {
@@ -513,12 +586,12 @@ export class PotController extends Component {
 
         if (newLevel > oldLevel) {
             this._playPotLevelUpSound(newLevel);
-            const animName = `LV${oldLevel}_trainsition_LV${newLevel}`;
+            const animName = `LV${oldLevel}_transition_LV${newLevel}`;
             Log.d(`[PotController] Play transition: ${animName}`);
             this._playTransitionSpine(potSpine, animName, newLevel);
         } else if (newLevel < oldLevel) {
             if (oldLevel > 0 && newLevel === 0) {
-                const resetAnim = `LV${oldLevel}_trainsition_LV0`;
+                const resetAnim = `LV${oldLevel}_transition_LV0`;
                 Log.d(`[PotController] Play reset transition: ${resetAnim}`);
                 this._playTransitionSpine(potSpine, resetAnim, newLevel);
             } else {

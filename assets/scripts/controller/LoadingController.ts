@@ -1050,9 +1050,46 @@ export class LoadingController extends Component {
     /** Await guide-first complete (có thể chờ Base nếu resume/skip) rồi mới BAR_100. */
     private async _finishBootAndEmitBar100(): Promise<void> {
         await this._onLoadCompleteAsync();
+
+        // Giữ Loading trên Base/GameRoot trong lúc BAR_100 handlers init (skipIntro)
+        this._bringLoadingToFront();
         EventBus.instance.emit(GameEvents.LOADING_BAR_100);
+
+        // skipIntro: chờ GameRoot (Reel + data + BG + Transition) xong mới ẩn Loading
+        const skipIntro = this._readSkipIntro();
+        let canDismissLoading = true;
+        if (skipIntro && !GameData.instance.isResumingFreeSpin) {
+            const base = this._instantiatedGameNode;
+            const gec = base?.getComponent(GameEntryController)
+                ?? base?.getComponentInChildren(GameEntryController)
+                ?? null;
+            if (gec) {
+                Log.d('[LoadingController] skipIntro — hold Loading until GameRoot ready');
+                try {
+                    await gec.waitSkipIntroEnter();
+                } catch (err) {
+                    Log.e('[LoadingController] Keep Loading visible — GameRoot preparation failed', err);
+                    return;
+                }
+                // Reveal và tắt Loading chạy liên tục, không await ở giữa:
+                // renderer không có cơ hội vẽ GameView trước khi dữ liệu hoàn chỉnh.
+                canDismissLoading = gec.revealPreparedSkipIntro();
+                Log.d(`[LoadingController] skipIntro — atomic reveal ready=${canDismissLoading}`);
+            } else {
+                canDismissLoading = false;
+                Log.e('[LoadingController] Keep Loading visible — GameEntryController missing');
+            }
+        }
+
+        if (!canDismissLoading) return;
         this._hideHtmlOverlay();
         this.node.active = false;
+    }
+
+    /** Đưa Loading lên trên cùng — che Base/GameRoot đang warm dưới. */
+    private _bringLoadingToFront(): void {
+        if (!this.node?.isValid || !this.node.parent) return;
+        this.node.setSiblingIndex(this.node.parent.children.length - 1);
     }
 
     private _onLoadComplete(): void {
@@ -1143,18 +1180,20 @@ export class LoadingController extends Component {
         const skipIntro = this._readSkipIntro();
 
         if (isResuming || skipIntro) {
-            Log.d(`[LoadingController] Guide-first bypass Guide (resume=${isResuming}, skip=${skipIntro}) → await Base+BG`);
+            Log.d(`[LoadingController] Guide-first bypass Guide (resume=${isResuming}, skip=${skipIntro}) → await Base+GameRoot`);
             await this._startBaseBackgroundLoad();
             const base = this._instantiatedGameNode;
             if (base) {
                 base.active = true;
-                // skipIntro: preload BG trong lúc loading bar còn hiện — tránh vào game màn trống
+                // Che Base trong lúc warm GameRoot — tránh lộ Reel/data chưa init
+                this._bringLoadingToFront();
+                // skipIntro: init Reel + data + BG dưới Loading trước BAR_100
                 if (skipIntro && !isResuming) {
                     const gec = base.getComponent(GameEntryController)
                         ?? base.getComponentInChildren(GameEntryController);
                     if (gec) {
                         await gec.prepareGameRootBackground();
-                        Log.d('[LoadingController] skipIntro — GameRoot BG ready before leave Loading');
+                        Log.d('[LoadingController] skipIntro — GameRoot Reels/data/BG ready under Loading');
                     }
                 }
             } else {

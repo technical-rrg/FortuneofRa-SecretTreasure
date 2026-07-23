@@ -576,9 +576,8 @@ export class CreditFlyInEffect extends Component {
 
     private _finish(): void {
         this._isPlaying = false;
-        // Ẩn lại CreditFlyLayer và eachWinNode sau khi fly xong
-        if (this.eachWinNode) this.eachWinNode.active = false;
-        this.node.active = false;
+        // Giữ CreditFlyLayer + eachWinNode hiện tới khi FeatureSelectionPopup mở
+        // (ẩn ở _cancelActiveFly khi spin/feature mode đổi — tránh nhấp tắt trước popup)
         Log.e(`[CreditFlyInEffect] Done — runningTotal=${this._runningTotal}`);
         EventBus.instance.emit(GameEvents.CREDIT_FLY_IN_DONE, { sumCredit: this._runningTotal });
     }

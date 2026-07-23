@@ -47,6 +47,8 @@ export class FeatureEntryController extends Component {
 
     private _running: boolean = false;
     private _data: ForceFeatureEntryData | null = null;
+    /** Khi true, FORCE_FEATURE_ENTRY_DONE bắt buộc phải chờ STICKY_FILL_DONE. */
+    private _waitingForFill: boolean = false;
 
     onLoad(): void {
         EventBus.instance.on(GameEvents.FORCE_FEATURE_ENTRY_START, this._onStart, this);
@@ -88,16 +90,24 @@ export class FeatureEntryController extends Component {
             this._onFillDone();
             return;
         }
+        this._waitingForFill = true;
         EventBus.instance.emit(GameEvents.STICKY_FILL_START, this._data);
     }
 
     private _onFillDone(): void {
         if (!this._running) return;
+        this._waitingForFill = false;
         this._finish();
     }
 
     private _safetyFinish = (): void => {
         if (!this._running) return;
+        if (this._waitingForFill) {
+            // Không được bypass StickyFillEffect: credit fly chỉ chạy sau STICKY_FILL_DONE.
+            Log.w('[FeatureEntryController] safety timeout while sticky fill is running — continue waiting');
+            this.scheduleOnce(this._safetyFinish, this.safetyTimeout);
+            return;
+        }
         Log.w('[FeatureEntryController] safety timeout → force DONE');
         this._finish();
     };
@@ -105,6 +115,7 @@ export class FeatureEntryController extends Component {
     private _finish(): void {
         this._running = false;
         this._data = null;
+        this._waitingForFill = false;
         this.unschedule(this._safetyFinish);
         Log.d('[FeatureEntryController] DONE — emit FORCE_FEATURE_ENTRY_DONE');
         EventBus.instance.emit(GameEvents.FORCE_FEATURE_ENTRY_DONE);

@@ -98,6 +98,12 @@ export class FeatureSelectionPopup extends Component {
     @property({ tooltip: 'Tên animation khi play (để trống = dùng anim đã gắn sẵn trên spine).' })
     choiceSpineAnimName: string = '';
 
+    @property({ tooltip: 'Độ tối spine các nút không được chọn (0–1, càng nhỏ càng tối).' })
+    unselectedSpineDim: number = 0.35;
+
+    @property({ tooltip: 'Thời gian tối dần spine không chọn (giây).' })
+    unselectedSpineDimDuration: number = 0.35;
+
     @property({ type: Node, tooltip: 'Fill đen khi đóng vào feature — fade UIOpacity, không fade alpha cả popup. Để trống = dùng child Overlay.' })
     closeFadeOverlay: Node | null = null;
 
@@ -347,6 +353,9 @@ export class FeatureSelectionPopup extends Component {
         skel.clearTrack(0);
         skel.setToSetupPose();
 
+        // Tối màu 5 spine còn lại trong lúc nút được chọn đang play
+        this._dimUnselectedChoiceSpines(skel);
+
         let finished = false;
         const finish = () => {
             if (finished) return;
@@ -410,6 +419,7 @@ export class FeatureSelectionPopup extends Component {
 
     /** Giữ spine hiện sẵn (anim đã gắn), đóng băng frame đầu bằng paused (không dùng timeScale=0). */
     private _freezeChoiceSpines(): void {
+        this._resetChoiceSpineColors();
         for (const skel of this._allChoiceSpines()) {
             this._freezeOneChoiceSpine(skel);
         }
@@ -441,6 +451,36 @@ export class FeatureSelectionPopup extends Component {
             if (s) list.push(s);
         }
         return list;
+    }
+
+    /** Reset màu tất cả choice spine về trắng (gọi khi show / reject / close). */
+    private _resetChoiceSpineColors(): void {
+        for (const skel of this._allChoiceSpines()) {
+            if (!skel?.isValid) continue;
+            Tween.stopAllByTarget(skel);
+            skel.color = Color.WHITE;
+        }
+    }
+
+    /** Tối dần spine các nút không được chọn khi đang play choice anim. */
+    private _dimUnselectedChoiceSpines(selected: sp.Skeleton): void {
+        const t = Math.max(0, Math.min(1, this.unselectedSpineDim));
+        const gray = Math.round(255 * t);
+        const dim = new Color(gray, gray, gray, 255);
+        const dur = Math.max(0, this.unselectedSpineDimDuration);
+
+        for (const skel of this._allChoiceSpines()) {
+            if (!skel?.isValid || skel === selected) continue;
+            Tween.stopAllByTarget(skel);
+            skel.color = Color.WHITE;
+            if (dur <= 0) {
+                skel.color = dim;
+                continue;
+            }
+            tween(skel)
+                .to(dur, { color: dim }, { easing: 'sineOut' })
+                .start();
+        }
     }
 
     private _clearChoiceFallback(): void {

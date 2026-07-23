@@ -113,7 +113,7 @@
       "z": 50
     },
     "_mobility": 0,
-    "_layer": 0,
+    "_layer": 8388608,
     "_euler": {
       "__type__": "cc.Vec3",
       "x": 89.99999999999999,
@@ -801,7 +801,7 @@
       "z": 50
     },
     "_mobility": 0,
-    "_layer": 0,
+    "_layer": 8388608,
     "_euler": {
       "__type__": "cc.Vec3",
       "x": 0,
@@ -1507,7 +1507,7 @@
       "z": 50
     },
     "_mobility": 0,
-    "_layer": 0,
+    "_layer": 8388608,
     "_euler": {
       "__type__": "cc.Vec3",
       "x": 0,
@@ -2213,7 +2213,7 @@
       "z": 50
     },
     "_mobility": 0,
-    "_layer": 0,
+    "_layer": 8388608,
     "_euler": {
       "__type__": "cc.Vec3",
       "x": 0,

@@ -95,6 +95,12 @@ export class JackpotPopup extends Component {
     @property({ type: SpriteNumber, tooltip: 'SpriteNumber node hiển thị số tiền (count-up)\n→ Kéo Node gắn SpriteNumber vào đây' })
     amountDisplay: SpriteNumber | null = null;
 
+    @property({ tooltip: 'Local Y của AmountDisplay khi màn NGANG' })
+    amountDisplayLocalYLandscape: number = -45;
+
+    @property({ tooltip: 'Local Y của AmountDisplay khi màn DỌC' })
+    amountDisplayLocalYPortrait: number = -45;
+
     /**
      * Index trong mảng currencySprites của SpriteNumber.
      * -1 = không hiển thị ký hiệu tiền tệ.
@@ -633,7 +639,8 @@ export class JackpotPopup extends Component {
 
     /**
      * Không đổi parent của amountDisplay; thay vào đó đồng bộ worldPosition
-     * của parent theo node con index 0 của spine đang active + offset Y.
+     * của parent theo node con index 0 của spine đang active, rồi gán local Y
+     * của AmountDisplay theo orientation (landscape / portrait).
      */
     private _attachAmountDisplayParentToSpine(spine: sp.Skeleton): void {
         if (!this.amountDisplay) return;
@@ -664,14 +671,18 @@ export class JackpotPopup extends Component {
         }
     }
 
-    /** Đồng bộ worldPosition của parent amountDisplay theo nodeA của spine. */
+    /** Đồng bộ parent theo nodeA + gán local Y AmountDisplay theo orientation. */
     private _syncAmountDisplayPosition(): void {
         if (!this._activeNodeA || !this.amountDisplay) return;
-        const parentNode = this.amountDisplay.node.parent;
+        const amountNode = this.amountDisplay.node;
+        const parentNode = amountNode.parent;
         if (!parentNode) return;
-        const worldPos = this._activeNodeA.getWorldPosition().clone();
-        worldPos.y += -45;
-        parentNode.setWorldPosition(worldPos);
+        parentNode.setWorldPosition(this._activeNodeA.getWorldPosition());
+        const localY = this._isLandscape()
+            ? this.amountDisplayLocalYLandscape
+            : this.amountDisplayLocalYPortrait;
+        const pos = amountNode.position;
+        amountNode.setPosition(pos.x, localY, pos.z);
     }
 
     /** Khôi phục vị trí gốc của parent amountDisplay và dừng đồng bộ. */

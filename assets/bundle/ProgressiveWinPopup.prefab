@@ -13996,6 +13996,8 @@
     },
     "tierLabel": null,
     "amountDisplay": null,
+    "amountDisplayLocalYLandscape": -51.774,
+    "amountDisplayLocalYPortrait": -51.774,
     "currencyIndex": 0,
     "clickOverlay": {
       "__id__": 150

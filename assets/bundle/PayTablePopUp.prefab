@@ -582,9 +582,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 746.913,
     "richTextMaxWidth": 0
   },
@@ -7587,9 +7587,9 @@
     "top": -449.366,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 729.467,
     "richTextMaxWidth": 0
   },
@@ -7682,8 +7682,8 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 880,
-      "y": 425.978,
+      "x": 879,
+      "y": 427.978,
       "z": 0
     },
     "_lrot": {
@@ -7750,7 +7750,7 @@
       "__id__": 341
     },
     "_lineHeight": 50,
-    "_string": "Appears on reels 2, 3, and 4 and is WILD for all symbols appearing in the base game except <img src = '11' height=50 offset=20 />.",
+    "_string": "Lumilitaw sa reels 2, 3, at 4 at nagsisilbing WILD \npara sa lahat ng simbolo sa  base game maliban sa  <img src = '13' height=50 offset=20 /> .",
     "_horizontalAlign": 1,
     "_verticalAlign": 0,
     "_fontSize": 24,
@@ -7903,7 +7903,7 @@
     "_alignFlags": 32,
     "_target": null,
     "_left": -820,
-    "_right": -860,
+    "_right": -859,
     "_top": 210.64299999999997,
     "_bottom": 666.077,
     "_horizontalCenter": 0,
@@ -9126,7 +9126,7 @@
         "__id__": 435
       }
     ],
-    "_active": true,
+    "_active": false,
     "_components": [
       {
         "__id__": 447
@@ -9388,9 +9388,9 @@
     "top": -449.366,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 726.478,
     "richTextMaxWidth": 0
   },
@@ -10321,9 +10321,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 743.874,
     "richTextMaxWidth": 0
   },
@@ -10458,7 +10458,7 @@
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 2580,
-      "height": 484.3000000000002
+      "height": 624.3000000000002
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -10534,8 +10534,8 @@
     "_target": null,
     "_left": -820,
     "_right": -820,
-    "_top": 391.0279999999999,
-    "_bottom": 204.6719999999999,
+    "_top": 321.0279999999999,
+    "_bottom": 134.6719999999999,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -10704,7 +10704,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -312.919,
+      "y": -322.774,
       "z": 0
     },
     "_lrot": {
@@ -10744,8 +10744,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 2580,
-      "height": 230.40000000000032
+      "width": 900,
+      "height": 135.5999999999999
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -10770,8 +10770,8 @@
     "__prefab": {
       "__id__": 485
     },
-    "_lineHeight": 40,
-    "_string": "<color=yellow>5 High Symbols: A Free Games Bonus with a value of 128  <img src = '10' height=50 offset=-5/> , 118 <img src = '9' height=50 offset=-5/>  , 108 <img src = '8' height=50 offset=-5/>  , 98 <img src = '7' height=50 offset=-5/>  , or 88 <img src = '6' height=50 offset=-5/>  , or a Top Up Bonus with a value of 88 <img src = '6' height=50 offset=-5/> is awarded. <color=white>",
+    "_lineHeight": 60,
+    "_string": "<color=yellow>5 High Symbols: Free Games Bonus dengan nilai 128 <img src = '10' height=50 offset=5/> , 118 <img src = '9' height=50 offset=5/> , 108 <img src = '8' height=50 offset=5/> , 98 <img src = '7' height=50 offset=5/> , atau 88 <img src = '6' height=50 offset=5/> , atau Top Up Bonus dengan nilai 88 <img src = '6' height=50 offset=5/>  dianugerahkan. <color=white>",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_fontSize": 20,
@@ -10819,10 +10819,10 @@
     },
     "_alignFlags": 45,
     "_target": null,
-    "_left": -820,
-    "_right": -820,
-    "_top": 737.7189999999998,
-    "_bottom": 111.88099999999983,
+    "_left": 20,
+    "_right": 20,
+    "_top": 794.974,
+    "_bottom": 149.42600000000004,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -10920,11 +10920,11 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": -312.919,
+    "posY": -322.774,
     "anchorX": 0.5,
     "anchorY": 0.5,
-    "width": 900,
-    "height": 90.40000000000032,
+    "width": 4260,
+    "height": 234.80000000000155,
     "scaleX": 1,
     "scaleY": 1,
     "scaleZ": 1,
@@ -10932,13 +10932,13 @@
     "rotationY": 0,
     "rotationZ": 0,
     "isAlignLeft": true,
-    "left": -820,
+    "left": -1660,
     "isAlignRight": true,
-    "right": -820,
+    "right": -1660,
     "isAlignTop": true,
-    "top": 737.7189999999998,
+    "top": 745.3739999999992,
     "isAlignBottom": true,
-    "bottom": 111.88099999999983,
+    "bottom": 99.82599999999925,
     "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
     "isAlignVerticalCenter": false,
@@ -10991,7 +10991,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -493.049,
+      "y": -523.404,
       "z": 0
     },
     "_lrot": {
@@ -11031,8 +11031,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 2580,
-      "height": 237.79999999999927
+      "width": 900,
+      "height": 135.60000000000002
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -11057,8 +11057,8 @@
     "__prefab": {
       "__id__": 499
     },
-    "_lineHeight": 30,
-    "_string": "Only the selected symbol,<img src = '5' height=70 offset= -15/>,  <img src = '4' height=70 offset= -15/>  ,<img src = '3' height=70 offset= -15/>   , <img src = '2' height=70 offset= -15/>  , <img src = '1' height=70 offset= -15/> ,<img src = '0' height=70 offset= -15/>, and  <img src = '13' height=50 offset= -5/>  will appear during the Free Games Bonus.\n",
+    "_lineHeight": 60,
+    "_string": "Hanya simbol yang dipilih,<img src = '5' height=70 offset=-5/>  ,<img src = '4' height=70 offset=-5/>  ,<img src = '3' height=70 offset=-5/>  ,<img src = '2' height=70 offset=-5/>  ,<img src = '1' height=70 offset=-5/>  ,<img src = '0' height=70 offset=-5/>  , dan  <img src = '13' height=50 offset=0/>  akan muncul semasa Free Games Bonus.",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_fontSize": 20,
@@ -11106,10 +11106,10 @@
     },
     "_alignFlags": 45,
     "_target": null,
-    "_left": -820,
-    "_right": -820,
-    "_top": 914.1490000000003,
-    "_bottom": -71.94899999999967,
+    "_left": 20,
+    "_right": 20,
+    "_top": 995.6039999999999,
+    "_bottom": -51.20399999999998,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -11207,11 +11207,11 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": -493.049,
+    "posY": -523.404,
     "anchorX": 0.5,
     "anchorY": 0.5,
-    "width": 900,
-    "height": 97.79999999999927,
+    "width": 4260,
+    "height": 84.39999999999748,
     "scaleX": 1,
     "scaleY": 1,
     "scaleZ": 1,
@@ -11219,13 +11219,13 @@
     "rotationY": 0,
     "rotationZ": 0,
     "isAlignLeft": true,
-    "left": -820,
+    "left": -1660,
     "isAlignRight": true,
-    "right": -820,
+    "right": -1660,
     "isAlignTop": true,
-    "top": 914.1490000000003,
+    "top": 1021.2040000000012,
     "isAlignBottom": true,
-    "bottom": -71.94899999999967,
+    "bottom": -25.603999999998734,
     "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
     "isAlignVerticalCenter": false,
@@ -12686,9 +12686,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 744.398,
     "richTextMaxWidth": 0
   },
@@ -12782,7 +12782,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -56.615999999999985,
+      "y": -56.6160000000001,
       "z": 0
     },
     "_lrot": {
@@ -12822,8 +12822,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 2580,
-      "height": 1120.8
+      "width": 99.80000000000018,
+      "height": 1720.8000000000102
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -12849,7 +12849,7 @@
       "__id__": 581
     },
     "_lineHeight": 80,
-    "_string": "6 free games are awarded.\nIf at least 1  <img src = '12' height=50 offset= 15/>   appears on screen, then the sum of all values displayed on the triggering symbols is awarded for each  <img src = '12' height=50 offset= 15/>   on screen.\nAdditionally, if the Top Up Bonus was available during the Feature Selection, the value displayed on the Fortune Grand Jackpot meter may be awarded.\nAn alternate set of reels is used during the Free Games Bonus. Winning combinations for these reels are identical to the base game except where otherwise stated.\n<img src = '12' height=50 offset= 15/>  only appears on reels 2–4 and is WILD for all symbols except  <img src = '13' height=50 offset= 15/>   .\nThe “Shou Bonus” during the Free Games Bonus is the cumulative awards of all  <img src = '12' height=50 offset= 15/> and the sum of all values displayed on each  <img src = '13' height=50 offset= 15/>  during the base game.\nThe “Shou Bonus” does not include any jackpots awarded.\n",
+    "_string": "6 na free games ang ibinibigay.\nKung may hindi bababa sa 1   <img src = '12' height=50 offset= 15/>   na lumitaw sa screen, ang kabuuan ng lahat ng value na ipinakita sa mga triggering symbol ay ibibigay para sa bawat   <img src = '12' height=50 offset= 15/>   na nasa screen.\nBukod dito, kung available ang Top Up Bonus sa panahon ng Feature Selection, maaaring maibigay ang value na ipinapakita sa Fortune Grand Jackpot meter.\nIsang alternatibong set ng reels ang gagamitin sa panahon ng Free Games Bonus. Ang mga winning combination para sa mga reel na ito ay katulad ng sa base game maliban kung may ibang nakasaad.\nAng   <img src = '12' height=50 offset= 15/>   ay lumilitaw lamang sa reels 2–4 at nagsisilbing WILD para sa lahat ng simbolo maliban sa   <img src = '13' height=50 offset= 15/>  .\nAng “Shou Bonus” sa panahon ng Free Games Bonus ay ang pinagsama-samang gantimpala ng lahat ng \n<img src = '12' height=50 offset= 15/>   at ang kabuuan ng lahat ng value na ipinakita sa bawat   <img src = '13' height=50 offset= 15/>   sa base game.\nAng “Shou Bonus” ay hindi kasama ang anumang jackpot na napanalunan.",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_fontSize": 20,
@@ -12897,10 +12897,10 @@
     },
     "_alignFlags": 45,
     "_target": null,
-    "_left": -820,
-    "_right": -820,
-    "_top": 36.216000000000065,
-    "_bottom": -77.01599999999999,
+    "_left": 420.0999999999999,
+    "_right": 420.0999999999999,
+    "_top": -263.78400000000516,
+    "_bottom": -377.0160000000052,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -13391,9 +13391,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 743.105,
     "richTextMaxWidth": 0
   },
@@ -14099,9 +14099,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 742.923,
     "richTextMaxWidth": 0
   },
@@ -14195,7 +14195,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -321.2,
+      "y": -452.7359999999999,
       "z": 0
     },
     "_lrot": {
@@ -14236,7 +14236,7 @@
     "_contentSize": {
       "__type__": "cc.Size",
       "width": 950,
-      "height": 406.9
+      "height": 406.9000000000001
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -14262,7 +14262,7 @@
       "__id__": 649
     },
     "_lineHeight": 65,
-    "_string": "The Jackpot Bonus may be triggered if 1 or more <img src = '11' height=50 offset=10/> land on screen during the base game.\nA pick field is displayed with 12 <img src = '16' height=50 offset=5/>. Picks will reveal one of the available prizes.\nAvailable prizes include the Mini Jackpot, Minor Jackpot, Major Jackpot, and Grand Jackpot.\nPicks are made until 3 matching symbols are revealed, and the value displayed in the corresponding meter is awarded.\nThe accumulation of coins in the bowl increases the chances of triggering the Jackpot Bonus.",
+    "_string": "The Jackpot Bonus may be triggered if 1 or more     <img src = '11' height=50 offset=10/>    land on screen during the base game.\nA pick field is displayed with 12     <img src = '16' height=50 offset=10/>   . Picks will reveal one of the available prizes.\nAvailable prizes include the Mini Jackpot, Minor Jackpot, Major Jackpot, and Grand Jackpot.\nPicks are made until 3 matching symbols are revealed, and the value displayed in the corresponding meter is awarded.\nThe accumulation of coins in the bowl increases the chances of triggering the Jackpot Bonus.",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
     "_fontSize": 20,
@@ -14310,10 +14310,10 @@
     },
     "_alignFlags": 45,
     "_target": null,
-    "_left": -845,
-    "_right": -845,
-    "_top": 587.75,
-    "_bottom": -54.64999999999998,
+    "_left": -5,
+    "_right": -5,
+    "_top": 789.2859999999998,
+    "_bottom": -116.18599999999986,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
     "_isAbsLeft": true,
@@ -14411,11 +14411,11 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 0,
-    "posY": -321.2,
+    "posY": -452.7359999999999,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 950,
-    "height": 406.9,
+    "height": 406.9000000000001,
     "scaleX": 1,
     "scaleY": 1,
     "scaleZ": 1,
@@ -14423,13 +14423,13 @@
     "rotationY": 0,
     "rotationZ": 0,
     "isAlignLeft": true,
-    "left": -845,
+    "left": -5,
     "isAlignRight": true,
-    "right": -845,
+    "right": -5,
     "isAlignTop": true,
-    "top": 587.75,
+    "top": 789.2859999999998,
     "isAlignBottom": true,
-    "bottom": -54.64999999999998,
+    "bottom": -116.18599999999986,
     "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
     "isAlignVerticalCenter": false,
@@ -16222,8 +16222,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": -740,
-      "height": 940
+      "width": 940,
+      "height": 1080
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -16563,9 +16563,9 @@
     "top": -446.96999999999997,
     "isAlignBottom": false,
     "bottom": 379.079,
-    "isAlignHorizontalCenter": true,
+    "isAlignHorizontalCenter": false,
     "horizontalCenter": 0,
-    "isAlignVerticalCenter": true,
+    "isAlignVerticalCenter": false,
     "verticalCenter": 742.703,
     "richTextMaxWidth": 0
   },
@@ -17022,7 +17022,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 1310.1319999999998,
+      "x": 1310.1319999999996,
       "y": 964.793,
       "z": 0
     },
@@ -18105,7 +18105,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 940,
+      "width": 939.9999999999998,
       "height": 1080
     },
     "_anchorPoint": {

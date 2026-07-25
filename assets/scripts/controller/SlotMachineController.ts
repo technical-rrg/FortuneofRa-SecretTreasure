@@ -335,6 +335,9 @@ export class SlotMachineController extends Component {
     @property({ tooltip: 'Thời gian Zoom In khi anticipation bắt đầu (giây)' })
     longSpinZoomInDuration: number = 1.1;
 
+    @property({ tooltip: 'Delay sau khi reel cuối dừng trước khi Zoom Out về vị trí cũ (giây)' })
+    longSpinZoomOutDelay: number = 0.5;
+
     @property({ tooltip: 'Thời gian Zoom Out khi reel cuối dừng (giây)' })
     longSpinZoomOutDuration: number = 0.3;
 
@@ -375,6 +378,8 @@ export class SlotMachineController extends Component {
     private _zoomShakeOffset: { x: number; y: number } = { x: 0, y: 0 };
     private readonly _zoomTmpScale: Vec3 = new Vec3();
     private readonly _zoomTmpPos: Vec3 = new Vec3();
+    /** Callback delay Zoom Out sau khi reel cuối dừng */
+    private _zoomOutDelayCb: (() => void) | null = null;
     private _isFreeSpin: boolean = false;
     /** TopUp mode: reel dùng normal strips (không dùng freeSpinReelStrips), StickyOverlayController lo hiển thị coin */
     private _isTopUp: boolean = false;
@@ -777,7 +782,8 @@ export class SlotMachineController extends Component {
         this._longSpinBoundary = -1;
         this._longSpinReelSet.clear();
         if (this._isLongSpinActive) {
-            this._stopLongSpinVFX(false);
+            // Quick stop: zoom về ngay, không chờ delay
+            this._stopLongSpinVFX(false, true);
         }
 
         // 4) Mọi reel vào quick decel cùng frame
@@ -1425,14 +1431,15 @@ export class SlotMachineController extends Component {
     /**
      * Tắt VFX khi longspin reel dừng.
      * @param keepActive true = còn longspin reel tiếp theo (không reset _isLongSpinActive)
+     * @param instantZoom true = Zoom Out ngay (quick stop / reset), false = delay rồi mới Zoom Out
      */
-    private _stopLongSpinVFX(keepActive: boolean = false): void {
+    private _stopLongSpinVFX(keepActive: boolean = false, instantZoom: boolean = false): void {
         const wasActive = this._isLongSpinActive && this.longSpinVFXNode?.active;
         if (!keepActive) {
             this._isLongSpinActive = false;
             // Zoom Out async — LONG_SPIN_ZOOM_DONE chỉ emit khi về scale gốc
             if (this._isZoomActive) {
-                this._stopLongSpinCameraZoom(false);
+                this._stopLongSpinCameraZoom(instantZoom);
             } else {
                 EventBus.instance.emit(GameEvents.LONG_SPIN_ZOOM_DONE);
             }
@@ -1558,6 +1565,7 @@ export class SlotMachineController extends Component {
         const tmpWorld = new Vec3();
         const tmpLocal = new Vec3();
 
+        this._cancelZoomOutDelay();
         this._stopLongSpinZoomDrivers();
         this._isZoomActive = true;
         this._zoomProgress.t = 0;
@@ -1667,16 +1675,40 @@ export class SlotMachineController extends Component {
         this._zoomShakeOffset.y = 0;
     }
 
+    private _cancelZoomOutDelay(): void {
+        if (!this._zoomOutDelayCb) return;
+        this.unschedule(this._zoomOutDelayCb);
+        this._zoomOutDelayCb = null;
+    }
+
     /**
      * Zoom Out / snap về scale gốc.
-     * @param instant true = cắt ngay (spin mới), false = tween khi reveal
+     * @param instant true = cắt ngay (spin mới / quick stop), false = delay rồi tween về
      */
     private _stopLongSpinCameraZoom(instant: boolean = false): void {
+        this._cancelZoomOutDelay();
         if (!this._isZoomActive) return;
 
         // Dừng rung + progress; giữ đúng vị trí zoom hiện tại (không offset)
         this._stopLongSpinZoomDrivers();
         this._applyLongSpinZoomTransform();
+
+        if (!instant && this.longSpinZoomOutDelay > 0) {
+            Log.d(`[SlotMC] LongSpin Zoom Out delay=${this.longSpinZoomOutDelay}s`);
+            this._zoomOutDelayCb = () => {
+                this._zoomOutDelayCb = null;
+                this._performLongSpinZoomOut(false);
+            };
+            this.scheduleOnce(this._zoomOutDelayCb, this.longSpinZoomOutDelay);
+            return;
+        }
+
+        this._performLongSpinZoomOut(instant);
+    }
+
+    /** Thực hiện Zoom Out / snap (sau delay hoặc instant). */
+    private _performLongSpinZoomOut(instant: boolean): void {
+        if (!this._isZoomActive) return;
 
         const entries = this._zoomEntries;
         const finishAll = () => {

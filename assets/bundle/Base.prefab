@@ -28617,6 +28617,7 @@
     "longSpinZoomExtraNodes": [],
     "longSpinZoomScale": 1.15,
     "longSpinZoomInDuration": 1.1,
+    "longSpinZoomOutDelay": 0.5,
     "longSpinZoomOutDuration": 0.3,
     "longSpinZoomPanX": 60,
     "enableLongSpinZoomShake": true,
@@ -30865,13 +30866,16 @@
     "landEffectTemplate": {
       "__id__": 1895
     },
-    "screenShakeNode": null,
+    "screenShakeNode": {
+      "__id__": 15
+    },
     "sfxCharge": null,
     "sfxLaunch": null,
     "sfxLand": null,
     "sfxConvert": null,
     "impactToLaunchDelay": 0,
     "impactEarlyLaunch": 0.18,
+    "potHitSfxLead": 0.12,
     "orbScaleInDuration": 0.18,
     "orbFallDuration": 0.5,
     "orbLaunchInterval": 0.08,
@@ -71887,7 +71891,7 @@
     "_debugSlots": false,
     "_enableBatch": false,
     "loop": true,
-    "_id": "75WrFC0GdF8KbiyyZrV+Cn"
+    "_id": "31hCiwGKVE95eFL5Rqi30F"
   },
   {
     "__type__": "cc.CompPrefabInfo",
@@ -78363,8 +78367,18 @@
     "mxBonusIdle": null,
     "mxBonusLoop": null,
     "mxBonusCongratulation": null,
-    "mxProgressiveWin": null,
-    "mxProgressiveWinSkip": null,
+    "mxProgressiveWin": {
+      "__uuid__": "89a41bcc-f3e4-4cbd-933a-f626cc146022",
+      "__expectedType__": "cc.AudioClip"
+    },
+    "mxProgressiveTransImpact": {
+      "__uuid__": "9b004c46-3597-42b5-a448-0e81952cdb2f",
+      "__expectedType__": "cc.AudioClip"
+    },
+    "mxProgressiveWinSkip": {
+      "__uuid__": "ac915860-bd9c-4113-94e1-aa8d631161de",
+      "__expectedType__": "cc.AudioClip"
+    },
     "mxGrandJackpotWin": null,
     "mxMajorJackpotWin": null,
     "mxMinorJackpotWin": null,
@@ -78423,11 +78437,13 @@
     "sxPlus1Spin": null,
     "sxGirlSymbolAnim": null,
     "sxBannerDisappear": null,
+    "sxIndicaterLighton": null,
     "bgmVolume": 1,
     "sfxVolume": 1,
     "ambienceVolume": 1,
     "introToLoopDelayMs": 3500,
     "bgmFadeOutDurationMs": 300,
+    "progressiveTransImpactDelay": 0,
     "_id": ""
   },
   {

@@ -19,6 +19,7 @@ import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { Log } from '../core/Logger';
 import { ServerWinBroadcast } from '../data/SlotTypes';
+import { SoundManager } from '../manager/SoundManager';
 
 const { ccclass, property } = _decorator;
 
@@ -266,6 +267,7 @@ export class BroadcastManager extends Component {
         this._isShowing = true;
         this._isResting = false;
         this._applyMessage(message);
+        SoundManager.instance?.playGlobalWin();
 
         // Đọc vị trí mỗi lần show — đảm bảo đúng theo layout hiện tại (cả landscape lẫn portrait)
         const fromPos = this.posFrom ? this._nodeToParentLocal(this.posFrom) : this.node.position.clone();

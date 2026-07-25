@@ -5755,7 +5755,7 @@
         "__id__": 447
       }
     ],
-    "_active": false,
+    "_active": true,
     "_components": [
       {
         "__id__": 451
@@ -11905,8 +11905,8 @@
     ],
     "value": {
       "__type__": "cc.Vec3",
-      "x": 4.201764705882354,
-      "y": -23.245,
+      "x": 4.202,
+      "y": -74.456,
       "z": 0
     }
   },
@@ -12180,8 +12180,6 @@
     },
     "titleLabel": null,
     "amountDisplay": null,
-    "amountDisplayLocalYLandscape": -80,
-    "amountDisplayLocalYPortrait": -80,
     "currencyIndex": 0,
     "clickOverlay": {
       "__id__": 2

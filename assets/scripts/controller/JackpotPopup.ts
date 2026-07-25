@@ -95,12 +95,6 @@ export class JackpotPopup extends Component {
     @property({ type: SpriteNumber, tooltip: 'SpriteNumber node hiển thị số tiền (count-up)\n→ Kéo Node gắn SpriteNumber vào đây' })
     amountDisplay: SpriteNumber | null = null;
 
-    @property({ tooltip: 'Local Y của AmountDisplay khi màn NGANG' })
-    amountDisplayLocalYLandscape: number = -45;
-
-    @property({ tooltip: 'Local Y của AmountDisplay khi màn DỌC' })
-    amountDisplayLocalYPortrait: number = -45;
-
     /**
      * Index trong mảng currencySprites của SpriteNumber.
      * -1 = không hiển thị ký hiệu tiền tệ.
@@ -671,18 +665,12 @@ export class JackpotPopup extends Component {
         }
     }
 
-    /** Đồng bộ parent theo nodeA + gán local Y AmountDisplay theo orientation. */
+    /** Đồng bộ parent AmountDisplay theo nodeA (giữ local position đã set trong Editor). */
     private _syncAmountDisplayPosition(): void {
         if (!this._activeNodeA || !this.amountDisplay) return;
-        const amountNode = this.amountDisplay.node;
-        const parentNode = amountNode.parent;
+        const parentNode = this.amountDisplay.node.parent;
         if (!parentNode) return;
         parentNode.setWorldPosition(this._activeNodeA.getWorldPosition());
-        const localY = this._isLandscape()
-            ? this.amountDisplayLocalYLandscape
-            : this.amountDisplayLocalYPortrait;
-        const pos = amountNode.position;
-        amountNode.setPosition(pos.x, localY, pos.z);
     }
 
     /** Khôi phục vị trí gốc của parent amountDisplay và dừng đồng bộ. */

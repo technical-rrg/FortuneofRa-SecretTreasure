@@ -271,7 +271,8 @@ export class MiniSetting extends Component {
         if (!sm) return;
         // Only set master mute — do NOT touch individual music/sfx mutes
         sm.setMasterMuted(this._soundMuted);
-        // DO NOT sync with SettingPopup — master mute is separate from individual mutes
+        // Sync volume slider in GameSettingPopUp (0 khi mute, restore khi unmute)
+        EventBus.instance.emit(GameEvents.MASTER_MUTE_CHANGED, this._soundMuted);
     }
 
     private _refreshSoundIcon(): void {

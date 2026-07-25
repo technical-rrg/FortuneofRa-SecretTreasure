@@ -247,6 +247,8 @@ export const GameEvents = {
     BET_SETTING_OPEN: 'ui:betsetting:open',
     /** Mở GameSettingPopup (âm thanh, intro, broadcast) */
     GAME_SETTING_OPEN: 'ui:gamesetting:open',
+    /** Master mute từ MiniSetting thay đổi — payload: muted: boolean */
+    MASTER_MUTE_CHANGED: 'setting:master:mute:changed',
 
     // ─── PAY TABLE ───
     /** Mở popup PayTable (Info) */

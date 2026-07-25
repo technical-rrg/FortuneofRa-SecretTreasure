@@ -2026,9 +2026,7 @@ export class GameManager extends Component {
         const data = GameData.instance;
         data.wildTrailCount = 0;
         data.potLevel       = 1;
-        data.featureGaugeAccumulated = 0;
-        data.featureGaugeStage = 0;
-        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_RESET);
+        this._resetFeatureGauge();
         EventBus.instance.emit(GameEvents.POT_LEVEL_CHANGED, { level: 1, total: 0 });
         // Restore game state bị block bởi _transitionStage(POT_WIN)
         this._gameState = GameState.IDLE;
@@ -2091,6 +2089,7 @@ export class GameManager extends Component {
         data.isResumingFreeSpin = false;
         this._currentStage = SlotStageType.SPIN;
         this._gameState = GameState.IDLE;
+        this._resetFeatureGauge();
 
         EventBus.instance.emit(GameEvents.FREE_SPIN_END, totalWin);
 
@@ -2476,6 +2475,13 @@ export class GameManager extends Component {
      * Chỉ track ở Normal Spin; Free/Feature Spin = 0, reset khi vào feature.
      * PotVisualLevel chỉ dùng cho Pot UI, KHÔNG dùng cho gauge.
      */
+    private _resetFeatureGauge(): void {
+        const data = GameData.instance;
+        data.featureGaugeAccumulated = 0;
+        data.featureGaugeStage = 0;
+        EventBus.instance.emit(GameEvents.FEATURE_GAUGE_RESET);
+    }
+
     private _updateFeatureGauge(resp: SpinResponse | null): void {
         if (!resp) return;
         const data = GameData.instance;
@@ -4110,6 +4116,7 @@ export class GameManager extends Component {
             data.isResumingFreeSpin     = false;
             this._currentStage          = SlotStageType.SPIN;
             this._gameState             = GameState.IDLE;
+            this._resetFeatureGauge();
             this._updateDisplayVisibility();
             this._updateBackgroundSprite();
             EventBus.instance.emit(GameEvents.FREE_SPIN_GOLD_END, totalWin);
@@ -4159,6 +4166,7 @@ export class GameManager extends Component {
         this._claimTopUpAfterEndPopup = false;
         this._currentStage = SlotStageType.SPIN;
         this._gameState = GameState.IDLE;
+        this._resetFeatureGauge();
 
         // Emit TOPUP_END để các controller cleanup (StickyOverlay, etc.)
         EventBus.instance.emit(GameEvents.TOPUP_END, totalWin);
@@ -4206,6 +4214,7 @@ export class GameManager extends Component {
         data.isResumingFreeSpin = false;
         this._currentStage = SlotStageType.SPIN;
         this._gameState = GameState.IDLE;
+        this._resetFeatureGauge();
 
         // Thay vì hiện popup, emit FREE_SPIN_END trực tiếp + check progressive win
         Log.d(`[RESUME-DEBUG] _endFreeSpin() → emit FREE_SPIN_END directly totalWin=${totalWin}`);

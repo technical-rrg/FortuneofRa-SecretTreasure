@@ -64,6 +64,8 @@ export class StickyFillEffect extends Component {
     impactToLaunchDelay: number = 0;
     @property({ tooltip: 'Bắn orb sớm hơn trước khi Impact kết thúc (giây).' })
     impactEarlyLaunch: number = 0.18;
+    @property({ tooltip: 'Play sx_pot_hit sớm hơn lúc orb bay ra (giây) — bù latency clip/visual.' })
+    potHitSfxLead: number = 0.12;
     @property({ tooltip: 'Thời gian zoom orb từ 0 → scale gốc khi bay ra (giây).' })
     orbScaleInDuration: number = 0.18;
     @property({ tooltip: 'Thời gian rơi của mỗi orb (Phase 2).' })
@@ -128,8 +130,12 @@ export class StickyFillEffect extends Component {
             return;
         }
 
-        // Trước mỗi lần bắn: Pot play LV{level}_Impact → mới phóng orb.
+        // Trước mỗi lần bắn: Pot play LV{level}_Impact → (SFX sớm) → phóng orb.
         await this._playPotImpactThenDelay();
+        // sx_pot_hit sớm hơn visual orb một chút (potHitSfxLead).
+        SoundManager.instance?.playSfxByName('sxPotHit');
+        const lead = Math.max(0, this.potHitSfxLead);
+        if (lead > 0) await this._wait(lead);
 
         const cell = fillCells[index];
         const target = this._cellWorldPos(cell);
@@ -149,7 +155,6 @@ export class StickyFillEffect extends Component {
             return;
         }
 
-        SoundManager.instance?.playSFX(this.sfxLaunch);
         const potPos = this.potNode?.worldPosition.clone() ?? new Vec3();
         const orb = this._acquireOrb();
         if (!orb) {
@@ -194,11 +199,15 @@ export class StickyFillEffect extends Component {
             .start();
     }
 
-    /** Pot play LV{level}_Impact → resolve sớm (overlap) → delay rồi mới bắn effect. */
+    /**
+     * Pot play LV{level}_Impact → resolve sớm (overlap + potHitSfxLead)
+     * để caller kịp play SFX rồi đợi lead trước khi bắn orb (visual timing giữ nguyên).
+     */
     private async _playPotImpactThenDelay(): Promise<void> {
         const pot = this._findPotController();
+        const early = Math.max(0, this.impactEarlyLaunch) + Math.max(0, this.potHitSfxLead);
         if (pot) {
-            await pot.playImpactAsync(Math.max(0, this.impactEarlyLaunch));
+            await pot.playImpactAsync(early);
         } else {
             Log.w('[StickyFillEffect] PotController not found — skip Impact anim');
         }
@@ -288,7 +297,8 @@ export class StickyFillEffect extends Component {
     }
 
     private _convertCell(cell: StickyCell): void {
-        SoundManager.instance?.playSFX(this.sfxConvert);
+        // Va chạm + tạo StickyRed → progressive sticky land (giống normal trúng Sticky).
+        SoundManager.instance?.playStickyLandSfx();
         const view = this._getSymbolView(cell);
         if (!view) {
             Log.w(`[StickyFillEffect] no SymbolView r${cell.reel}row${cell.row}`);
@@ -298,7 +308,6 @@ export class StickyFillEffect extends Component {
     }
 
     private _onOrbLand(worldPos: Vec3): void {
-        SoundManager.instance?.playSFX(this.sfxLand);
         this._spawnLandFx(worldPos);
         this._shakeScreen();
     }

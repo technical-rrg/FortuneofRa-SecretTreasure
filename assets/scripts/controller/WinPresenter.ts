@@ -3,10 +3,11 @@
  *
  * FLOW MỚI:
  *   1. Khi reel dừng (WIN_PRESENT_START):
- *      - Hiện TẤT CẢ winning lines cùng 1 lúc (WIN_SHOW_ALL_LINES)
+ *      - Hiện TẤT CẢ winning lines cùng 1 lúc (WIN_SHOW_ALL_LINES / WAYS)
  *      - Show BigWin popup nếu cần
  *   2. Sau 1 giây: emit WIN_PRESENT_END → GameManager bật nút Spin
  *   3. Đồng thời bắt đầu vòng lặp cycling: line1 → (1s) → line2 → ... → loop
+ *      (bỏ qua cycling trong FreeSpin / AutoSpin — chỉ highlight multiple 1 lần)
  *   4. Khi REELS_START_SPIN: hủy cycling, reset hoàn toàn
  */
 
@@ -264,7 +265,10 @@ export class WinPresenter extends Component {
 
         const willAutoSpin = response.nextStage === SlotStageType.FREE_SPIN
             || response.nextStage === SlotStageType.FREE_SPIN_START
-            || response.nextStage === SlotStageType.FREE_SPIN_RE_TRIGGER;
+            || response.nextStage === SlotStageType.FREE_SPIN_RE_TRIGGER
+            || response.nextStage === SlotStageType.BUY_FREE_SPIN
+            || response.nextStage === SlotStageType.BUY_FREE_SPIN_START;
+        const inFreeSpin = this._isInFreeSpinMode();
 
         // Dừng nhanh + có thắng thường: hiện 1 lần trong quickStopWinDuration rồi kết thúc
         if (isQuickStopWin) {
@@ -311,19 +315,22 @@ export class WinPresenter extends Component {
         }
 
         // 5) Sau showAllHighlightDuration: bắt đầu cycling từng way/line
-        // Không cycling khi auto-spin: next spin bắt đầu ngay sau WIN_PRESENT_END,
-        // cycling chạy đồng thời sẽ emit line lẻ ngay lập tức trước khi bị _stopCycling.
+        // Không cycling khi:
+        //   - auto-spin / free-spin (next spin ngay sau WIN_PRESENT_END)
+        //   - FreeSpin mode: chỉ highlight multiple 1 lần, không cycle line lẻ
+        //     (kể cả lượt FS cuối remaining=0 — dùng currentMode, không chỉ flag remaining)
         //
         // BUG FIX: 1 WaysPayWin (vd. chỉ symbol J) vẫn có thể có nhiều combinations.
         // Trước đây điều kiện `ways.length > 1` khiến case này fallback sang line-cycle
         // (UI_UPDATE_WIN_LABEL) → WaysPayDisplay không nhận WIN_CYCLE_ONE_WAY →
         // 5 spine overlay show-all bị kẹt trên màn hình.
-        const shouldCycle = !willAutoSpin && !this._isAutoSpinMode;
+        const shouldCycle = !willAutoSpin && !this._isAutoSpinMode && !inFreeSpin;
         const waysForCycle = response.waysPayWins ?? [];
         const waysComboCount = this._countWaysCombos(waysForCycle);
         Log.d(
             `[WinHL] _emitHighlights | gen=${myGen} ways=${waysForCycle.length} combos=${waysComboCount} ` +
-            `lines=${response.matchedLinePays?.length ?? 0} showAll=${showAllDuration}s cycle=${shouldCycle}`
+            `lines=${response.matchedLinePays?.length ?? 0} showAll=${showAllDuration}s ` +
+            `cycle=${shouldCycle} freeSpin=${inFreeSpin}`
         );
         if (shouldCycle && waysComboCount > 1) {
             this.scheduleOnce(() => {
@@ -432,7 +439,7 @@ export class WinPresenter extends Component {
      */
     private _onJackpotEndForCycle(): void {
         if (this._isPickGameJackpotFlow()) return;
-        if (this._isFreeSpinMode) return;
+        if (this._isInFreeSpinMode()) return;
 
         const resp = GameData.instance.lastSpinResponse;
         // Luôn lấy từ resp của vòng quay HIỆN TẠI — KHÔNG dùng _lastMatchedLines vì jackpot
@@ -507,7 +514,7 @@ export class WinPresenter extends Component {
 
     /** Lấy delay phù hợp dựa vào mode hiện tại (Normal / Auto / Free) */
     private _getSpinEnableDelay(): number {
-        if (this._isFreeSpinMode) {
+        if (this._isInFreeSpinMode()) {
             return this.spinEnableDelayFreeSpin;
         } else if (this._isAutoSpinMode) {
             return this.spinEnableDelayAuto;
@@ -575,16 +582,26 @@ export class WinPresenter extends Component {
         if (ways.length > 0) {
             EventBus.instance.emit(GameEvents.WIN_SHOW_ALL_WAYS, ways, this.showAllHighlightDuration);
             this.scheduleOnce(() => {
-                if (this._generation !== gen || this._isAutoSpinMode) return;
+                if (this._generation !== gen || this._isAutoSpinMode || this._isInFreeSpinMode()) return;
                 if (ways.length > 1) this._startWaysCycle(ways, gen);
             }, this.showAllHighlightDuration);
         } else {
             EventBus.instance.emit(GameEvents.WIN_SHOW_ALL_LINES, lines, this.showAllHighlightDuration);
             this.scheduleOnce(() => {
-                if (this._generation !== gen || this._isAutoSpinMode) return;
+                if (this._generation !== gen || this._isAutoSpinMode || this._isInFreeSpinMode()) return;
                 if (lines.length > 1) this._startLineCycle(lines, gen);
             }, this.showAllHighlightDuration);
         }
+    }
+
+    /**
+     * FreeSpin / FreeSpin Gold đang chạy.
+     * Dùng currentMode (ổn định cả lượt FS cuối remaining=0) + flag remaining.
+     */
+    private _isInFreeSpinMode(): boolean {
+        if (this._isFreeSpinMode) return true;
+        const mode = GameData.instance.currentMode;
+        return mode === 'freespin' || mode === 'freespin_gold';
     }
 
     private _isPickGameJackpotFlow(): boolean {

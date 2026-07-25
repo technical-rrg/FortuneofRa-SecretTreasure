@@ -41,7 +41,7 @@ import { SpriteNumber } from '../core/SpriteNumber';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
-import { MatchedLinePay, PS_TO_CLIENT, SymbolId, WaysPayWin } from '../data/SlotTypes';
+import { MatchedLinePay, PS_TO_CLIENT, SymbolId, WaysPayWin, isMajor, isMinor } from '../data/SlotTypes';
 import { SoundManager } from '../manager/SoundManager';
 import { AutoSpinManager, SpeedMode } from '../manager/AutoSpinManager';
 import { ReelController } from './ReelController';
@@ -216,6 +216,13 @@ export class SymbolHighlighter extends Component {
     /** Sprite bounce highlight: clone trên WaysPayDisplay (symbolNode gốc -> clone bounce) */
     private _spriteBounceClones: Map<Node, Node> = new Map();
     private _currentLineWinCount: number = 0;
+    /**
+     * Số popup đang chặn match SFX khi cycle line lẻ
+     * (Jackpot / ProgressiveWin / PickGame / FeatureSelect / End popup…).
+     */
+    private _matchSfxBlockCount: number = 0;
+    /** FreeSpin entry popup (không có event close riêng). */
+    private _blockingFreeSpinPopup: boolean = false;
 
     /** Prefab đã lazy-load theo SymbolId — không serialize trên Base. */
     private _spinePrefabCache: Map<number, Prefab> = new Map();
@@ -265,6 +272,26 @@ export class SymbolHighlighter extends Component {
         bus.on(GameEvents.PICK_GAME_CLOSE, this._onPickGameBoundary, this);
         // Red symbol bounce trước khi fly-in (6+ Red → feature)
         bus.on(GameEvents.RED_SYMBOL_BOUNCE, this._onRedSymbolBounce, this);
+
+        // Chặn match SFX khi cycle line lẻ nếu đang có popup / feature flow
+        bus.on(GameEvents.JACKPOT_TRIGGER, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.JACKPOT_END, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.PROGRESSIVE_WIN_SHOW, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.PROGRESSIVE_WIN_END, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.PICK_GAME_OPEN, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.PICK_GAME_CLOSE, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.FEATURE_SELECT_OPEN, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.FEATURE_SELECT_CLOSE, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.FREE_SPIN_END_POPUP, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.FREE_SPIN_END_POPUP_CLOSED, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.TOPUP_END_POPUP, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.TOPUP_END_POPUP_CLOSED, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.TOPUP_TRANSITION_SHOW, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.TOPUP_TRANSITION_DONE, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.FORCE_FEATURE_ENTRY_START, this._onMatchSfxBlockBegin, this);
+        bus.on(GameEvents.FORCE_FEATURE_ENTRY_DONE, this._onMatchSfxBlockEnd, this);
+        bus.on(GameEvents.FREE_SPIN_POPUP, () => { this._blockingFreeSpinPopup = true; }, this);
+        bus.on(GameEvents.FREE_SPIN_START, () => { this._blockingFreeSpinPopup = false; }, this);
     }
 
     start(): void {
@@ -298,29 +325,67 @@ export class SymbolHighlighter extends Component {
         // tránh highlight line trước còn sót (orphan clone trên PaylineManager).
         this._deactivateAllSpines();
         this.paylineIndicator?.showWinLine(linePay.payLineIndex);
-        this._playSymbolMatchSound(linePay.matchedSymbols);
+        if (this._canPlayCycleMatchSound()) {
+            // Cycle lẻ: không play wild_layer — có Wild thì dùng high_value.
+            this._playSymbolMatchSound(linePay.matchedSymbols ?? [], linePay.containsWild, false);
+        }
         void this._runHighlightWithSpines(cells, this.lineCycleHighlightDuration, false, () => {
             this._zoomCells(cells);
         });
     }
 
     /**
-     * Phát sound tương ứng với loại symbol thắng của line.
-     * matchedSymbols chứa raw PS IDs từ server — cần convert qua psToClientMap trước khi so sánh.
-     * @param playWildLayer chỉ true khi show lineWin lần đầu (SHOW_ALL) và line có Wild.
+     * Play đúng 1 SFX match:
+     *   allowWildLayer + có Wild → sx_symbol_match_wild_layer (chỉ show-all / multiply)
+     *   có Wild nhưng cycle lẻ → sx_symbol_match_high_value
+     *   highCount > lowCount → sx_symbol_match_high_value
+     *   còn lại → sx_symbol_match_low_value
      */
-    private _playSymbolMatchSound(syms: number[], playWildLayer = false): void {
+    private _playSymbolMatchSound(syms: number[], containsWild = false, allowWildLayer = false): void {
         const snd = SoundManager.instance;
-        if (!snd || syms.length === 0) return;
-        // Convert raw PS IDs → client SymbolIds; fallback to raw value when map empty (mock mode)
+        if (!snd) return;
+
         const clientSyms = this._normalizeSymbols(syms);
-        const isCleopatra = clientSyms.includes(SymbolId.MAJOR_CLEOPATRA);
-        if (isCleopatra) {
+        if (clientSyms.includes(SymbolId.MAJOR_CLEOPATRA)) {
             snd.playGirlSymbolAnim();
         }
-        if (playWildLayer) {
+
+        const hasWild = containsWild || clientSyms.includes(SymbolId.WILD);
+        if (hasWild && allowWildLayer) {
             snd.playSymbolMatchWild();
+            return;
         }
+        if (hasWild) {
+            // Cycle line/way lẻ: Wild → high_value (wild_layer chỉ 1 lần ở show-all)
+            snd.playSymbolMatchHigh();
+            return;
+        }
+        if (clientSyms.length === 0) return;
+
+        let high = 0;
+        let low = 0;
+        for (const s of clientSyms) {
+            if (isMajor(s)) high++;
+            else if (isMinor(s)) low++;
+        }
+        if (high === 0 && low === 0) return;
+
+        if (high > low) snd.playSymbolMatchHigh();
+        else snd.playSymbolMatchLow();
+    }
+
+    /** Cycle line/way lẻ: chỉ play khi không popup và chưa vào Feature. */
+    private _canPlayCycleMatchSound(): boolean {
+        if (this._matchSfxBlockCount > 0 || this._blockingFreeSpinPopup) return false;
+        return GameData.instance.currentMode === 'normal';
+    }
+
+    private _onMatchSfxBlockBegin(): void {
+        this._matchSfxBlockCount++;
+    }
+
+    private _onMatchSfxBlockEnd(): void {
+        this._matchSfxBlockCount = Math.max(0, this._matchSfxBlockCount - 1);
     }
 
     /** Hiện tất cả winning lines cùng lúc → highlight union của mọi cell thắng */
@@ -378,11 +443,11 @@ export class SymbolHighlighter extends Component {
         const loopSpine = lines.length === 1;
         this.paylineIndicator?.showMultipleWinLines(lines.map(l => l.payLineIndex));
 
-        // Lần đầu show lineWin: phát wild layer nếu bất kỳ line nào có Wild
+        // Match SFX: Wild ưu tiên; không thì high vs low theo số lượng symbol.
         const allSyms = lines.flatMap(l => l.matchedSymbols ?? []);
         const hasWild = lines.some(l => l.containsWild)
             || this._normalizeSymbols(allSyms).includes(SymbolId.WILD);
-        if (allSyms.length > 0) this._playSymbolMatchSound(allSyms, hasWild);
+        this._playSymbolMatchSound(allSyms, hasWild, true);
 
         // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
         void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
@@ -418,10 +483,15 @@ export class SymbolHighlighter extends Component {
         // Nếu chỉ có 1 way win duy nhất → loop spine animation thay vì play once
         const loopSpine = ways.length === 1;
 
-        // Lần đầu show ways: phát wild layer nếu bất kỳ way nào có Wild
-        const waySyms = ways.map(w => w.symbolId);
-        const hasWild = ways.some(w => w.containsWild || w.symbolId === SymbolId.WILD);
-        if (waySyms.length > 0) this._playSymbolMatchSound(waySyms, hasWild);
+        // Match SFX: Wild ưu tiên; không thì đếm high/low theo từng ô trong mọi way.
+        const waySyms: number[] = [];
+        let hasWild = false;
+        for (const w of ways) {
+            if (w.containsWild || w.symbolId === SymbolId.WILD) hasWild = true;
+            const n = Math.max(1, w.cells?.length ?? 1);
+            for (let i = 0; i < n; i++) waySyms.push(w.symbolId);
+        }
+        this._playSymbolMatchSound(waySyms, hasWild, true);
 
         // Chờ prefab (Wild/11…) sẵn sàng TRƯỚC fillBlack — tránh overlay hiện sớm hơn spine.
         void this._runHighlightWithSpines(allCells, duration ?? this.showAllHighlightDuration, loopSpine)
@@ -452,6 +522,14 @@ export class SymbolHighlighter extends Component {
     private _onCycleOneWay(way: WaysPayWin): void {
         // grid row ngược với visual row: displayRow = 2 - gridRow
         const cells: CellPos[] = way.cells.map(({ reel, row }) => ({ col: reel, row: 2 - row }));
+
+        // Cycle từng way: chỉ play match SFX khi không popup / chưa vào Feature.
+        if (this._canPlayCycleMatchSound()) {
+            const n = Math.max(1, way.cells?.length ?? 1);
+            const syms = Array(n).fill(way.symbolId);
+            // Cycle lẻ: không play wild_layer — có Wild thì dùng high_value.
+            this._playSymbolMatchSound(syms, way.containsWild || way.symbolId === SymbolId.WILD, false);
+        }
 
         // Deactivate spine/bounce cho symbol không còn trong way mới (cả active + pending)
         // Freemode: giữ STICKY_YELLOW entries (loop spine) — không deactivate khi cycle sang way khác

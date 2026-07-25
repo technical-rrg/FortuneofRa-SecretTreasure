@@ -62,6 +62,7 @@ const { ccclass, property } = _decorator;
 const LS_VOLUME       = 'setting_volume';
 const LS_MUSIC_MUTED  = 'setting_music_muted';
 const LS_SFX_MUTED    = 'setting_sfx_muted';
+const LS_MASTER_MUTED = 'setting_master_muted';
 const LS_INTRO_ON     = 'setting_intro_on';
 const LS_BROADCAST_ON = 'setting_broadcast_on';
 
@@ -160,8 +161,10 @@ export class SettingPopup extends Component {
     private _isAutoSpinActive = false;
     private _musicMuted    = false;
     private _sfxMuted      = false;
+    private _masterMuted   = false;
     private _introEnabled  = true;
     private _broadcastOn   = true;
+    /** Volume thực (persist) — không bị ghi đè khi mute từ MiniSetting */
     private _volume        = 1.0;
 
     // ─── LIFECYCLE ───
@@ -188,6 +191,8 @@ export class SettingPopup extends Component {
 
         // Lắng nghe event mở popup từ MiniSetting / bất kỳ nơi nào
         EventBus.instance.on(GameEvents.GAME_SETTING_OPEN, this._open, this);
+        // MiniSetting mute → Volume slider về 0 / restore giá trị cũ
+        EventBus.instance.on(GameEvents.MASTER_MUTE_CHANGED, this._onMasterMuteChanged, this);
 
         // Nút đóng
         if (this.closeButton) {
@@ -196,7 +201,7 @@ export class SettingPopup extends Component {
 
         // Volume slider
         if (this.volumeSlider) {
-            this.volumeSlider.progress = this._volume;
+            this.volumeSlider.progress = this._getDisplayVolume();
             this.volumeSlider.node.on('slide', this._onVolumeSlide, this);
         }
 
@@ -303,6 +308,20 @@ export class SettingPopup extends Component {
     }
 
     // ─── VOLUME ───
+
+    /** Volume hiển thị trên slider: 0 khi master mute, ngược lại là volume đã lưu */
+    private _getDisplayVolume(): number {
+        return this._masterMuted ? 0 : this._volume;
+    }
+
+    /** MiniSetting bật/tắt mute → cập nhật Volume slider (không ghi đè volume đã lưu) */
+    private _onMasterMuteChanged(muted: boolean): void {
+        this._masterMuted = muted;
+        const display = this._getDisplayVolume();
+        if (this.volumeSlider) this.volumeSlider.progress = display;
+        this._updateVolumeFill(display);
+        Log.d(`[SettingPopup] Master mute → ${muted ? 'ON (volume UI=0)' : `OFF (volume UI=${(this._volume * 100).toFixed(0)}%)`}`);
+    }
 
     private _onVolumeSlide(slider: Slider): void {
         this._volume = slider.progress;
@@ -413,8 +432,8 @@ export class SettingPopup extends Component {
         sm.setMasterVolume(this._volume);
         sm.setBGMMuted(this._musicMuted);
         sm.setSFXMuted(this._sfxMuted);
-        if (this.volumeSlider) this.volumeSlider.progress = this._volume;
-        this._updateVolumeFill(this._volume);
+        if (this.volumeSlider) this.volumeSlider.progress = this._getDisplayVolume();
+        this._updateVolumeFill(this._getDisplayVolume());
         // Refresh UI buttons to reflect loaded settings
         this._refreshUI();
         Log.d(`[SettingPopup] ✓ Applied settings to SoundManager → volume=${(this._volume * 100).toFixed(0)}%, music=${this._musicMuted ? 'OFF' : 'ON'}, sfx=${this._sfxMuted ? 'OFF' : 'ON'}`); 
@@ -432,17 +451,15 @@ export class SettingPopup extends Component {
 
     /** Đồng bộ trạng thái sound từ MiniSetting (cập nhật UI trong popup nếu đang mở) */
     public syncSoundState(muted: boolean): void {
-        this._musicMuted = muted;
-        this._sfxMuted   = muted;
-        this._refreshMusicUI();
-        this._refreshSoundUI();
+        this._onMasterMuteChanged(muted);
     }
 
     // ─── UI REFRESH ───
 
     private _refreshUI(): void {
-        if (this.volumeSlider) this.volumeSlider.progress = this._volume;
-        this._updateVolumeFill(this._volume);
+        const display = this._getDisplayVolume();
+        if (this.volumeSlider) this.volumeSlider.progress = display;
+        this._updateVolumeFill(display);
         this._refreshMusicUI();
         this._refreshSoundUI();
         this._refreshIntroUI();
@@ -502,6 +519,9 @@ export class SettingPopup extends Component {
 
             const sfxMuted = localStorage.getItem(LS_SFX_MUTED);
             if (sfxMuted !== null) this._sfxMuted = sfxMuted === 'true';
+
+            const masterMuted = localStorage.getItem(LS_MASTER_MUTED);
+            if (masterMuted !== null) this._masterMuted = masterMuted === 'true';
 
             const introOn = localStorage.getItem(LS_INTRO_ON);
             if (introOn !== null) this._introEnabled = introOn !== 'false';

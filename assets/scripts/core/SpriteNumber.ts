@@ -246,6 +246,9 @@ export class SpriteNumber extends Component {
     private _lastJoltTime: number = -Infinity;
     /** Tween hiệu ứng giật đang chạy (nếu có). */
     private _joltTween: Tween<Node> | null = null;
+    /** Scale/position cần khôi phục nếu jolt bị cắt giữa chừng. */
+    private _joltRestoreScale: Vec3 | null = null;
+    private _joltRestorePos: Vec3 | null = null;
     /** True nếu trong session count-up hiện tại đã từng xuất hiện phần lẻ khác 0. */
     private _hasSeenNonZeroDecimal: boolean = false;
 
@@ -405,6 +408,8 @@ export class SpriteNumber extends Component {
     endCountUp(): void {
         this._isCounting = false;
         this._hasSeenNonZeroDecimal = false;
+        // Dừng jolt đang chạy — tránh số tiếp tục nhún sau khi đã tới đích
+        this._stopJolt();
         if (this.enableCountSound) {
             Log.d(`[coinloop][SpriteNumber.endCountUp] node=${this.node?.name} → stopCoinLoop + playCoinEnd`);
             SoundManager.instance?.stopCoinLoop();
@@ -710,10 +715,16 @@ export class SpriteNumber extends Component {
         const fall = this.joltDuration * 0.65;
         const origPos = this.node.position.clone();
         const peakPos = new Vec3(origPos.x, origPos.y + this.joltOffsetY, origPos.z);
+        this._joltRestoreScale = restoreScale.clone();
+        this._joltRestorePos = origPos.clone();
         this._joltTween = tween(this.node)
             .to(rise, { scale: new Vec3(peak, peak, 1), position: peakPos }, { easing: 'backOut' })
             .to(fall, { scale: restoreScale, position: origPos }, { easing: 'elasticOut' })
-            .call(() => { this._joltTween = null; })
+            .call(() => {
+                this._joltTween = null;
+                this._joltRestoreScale = null;
+                this._joltRestorePos = null;
+            })
             .start();
     }
 
@@ -885,10 +896,19 @@ export class SpriteNumber extends Component {
     }
 
     /** Dừng tween giật đang chạy. */
+    /** Dừng tween giật đang chạy và khôi phục scale/position nếu bị cắt giữa chừng. */
     private _stopJolt(): void {
         if (this._joltTween) {
             this._joltTween.stop();
             this._joltTween = null;
+        }
+        if (this._joltRestoreScale) {
+            this.node.setScale(this._joltRestoreScale);
+            this._joltRestoreScale = null;
+        }
+        if (this._joltRestorePos) {
+            this.node.setPosition(this._joltRestorePos);
+            this._joltRestorePos = null;
         }
     }
 

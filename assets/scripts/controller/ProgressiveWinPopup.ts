@@ -44,7 +44,7 @@
  *   5. Spine play "out" → delay → deactivate node → callback().
  */
 
-import { _decorator, Component, Node, Label, tween, Vec3, Tween, screen } from 'cc';
+import { _decorator, Component, Node, Label, tween, Vec3, Tween } from 'cc';
 import { sp } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
@@ -129,12 +129,6 @@ export class ProgressiveWinPopup extends Component {
      */
     @property({ type: SpriteNumber, tooltip: 'SpriteNumber node hiển thị số tiền (count-up)\n→ Kéo Node gắn SpriteNumber vào đây' })
     amountDisplay: SpriteNumber | null = null;
-
-    @property({ tooltip: 'Local Y của AmountDisplay khi màn NGANG' })
-    amountDisplayLocalYLandscape: number = -45;
-
-    @property({ tooltip: 'Local Y của AmountDisplay khi màn DỌC' })
-    amountDisplayLocalYPortrait: number = -45;
 
     /**
      * Index trong mảng currencySprites của SpriteNumber.
@@ -267,6 +261,8 @@ export class ProgressiveWinPopup extends Component {
         // Always start with BIG WIN spine
         const startTier = this._segments[0].tier;
         this._activeTier = startTier;
+        // Gọi trực tiếp (không chỉ dựa EventBus) — đảm bảo music play khi popup mở
+        SoundManager.instance?.startProgressiveWinMusic();
         SoundManager.instance?.playCounterStart();
         this._activeSpine = this._getSpineForTier(startTier);
         if (this.tierLabel) this.tierLabel.string = L(startTier);
@@ -429,23 +425,12 @@ export class ProgressiveWinPopup extends Component {
         }
     }
 
-    private _isLandscape(): boolean {
-        const size = screen.windowSize;
-        return size.width >= size.height;
-    }
-
-    /** Đồng bộ parent theo nodeA + gán local Y AmountDisplay theo orientation. */
+    /** Đồng bộ parent AmountDisplay theo nodeA (giữ local position đã set trong Editor). */
     private _syncAmountDisplayPosition(): void {
         if (!this._activeNodeA || !this.amountDisplay) return;
-        const amountNode = this.amountDisplay.node;
-        const parentNode = amountNode.parent;
+        const parentNode = this.amountDisplay.node.parent;
         if (!parentNode) return;
         parentNode.setWorldPosition(this._activeNodeA.getWorldPosition());
-        const localY = this._isLandscape()
-            ? this.amountDisplayLocalYLandscape
-            : this.amountDisplayLocalYPortrait;
-        const pos = amountNode.position;
-        amountNode.setPosition(pos.x, localY, pos.z);
     }
 
     /** Khôi phục vị trí gốc của parent amountDisplay và dừng đồng bộ. */
@@ -468,6 +453,20 @@ export class ProgressiveWinPopup extends Component {
      * Deactivates current spine, activates new spine, plays "in" → "loop".
      * Updates tierLabel and particle rateOverTime values.
      */
+    private _getLevelForTier(tier: ProgressiveWinTier): number {
+        switch (tier) {
+            case ProgressiveWinTier.BIG:     return 1;
+            case ProgressiveWinTier.MEGA:    return 2;
+            case ProgressiveWinTier.MAJOR:   return 3;
+            case ProgressiveWinTier.SUPER:   return 4;
+            case ProgressiveWinTier.EPIC:    return 5;
+            case ProgressiveWinTier.ULTRA:   return 6;
+            case ProgressiveWinTier.MONSTER: return 7;
+            case ProgressiveWinTier.MAX:     return 8;
+            default:                         return 1;
+        }
+    }
+
     private _transitionToTier(tier: ProgressiveWinTier): void {
         Log.d(`[ProgressiveWinPopup] _transitionToTier → ${tier}`);
         if (this._activeSpine) {
@@ -476,6 +475,7 @@ export class ProgressiveWinPopup extends Component {
         }
 
         this._activeTier = tier;
+        SoundManager.instance?.playProgressiveWinLevel(this._getLevelForTier(tier));
         const newSpine = this._getSpineForTier(tier);
         this._activeSpine = newSpine;
 
@@ -527,9 +527,10 @@ export class ProgressiveWinPopup extends Component {
                 SoundManager.instance?.playCoinLoop();
             }
 
-            // Determine current segment by cumulative elapsed time
+            // Determine current segment by cumulative elapsed time.
+            // When elapsed >= totalDuration, clamp to the last segment (do NOT leave segIndex at 0).
             let segStartTime = 0;
-            let segIndex = 0;
+            let segIndex = this._segments.length - 1;
             for (let i = 0; i < this._segments.length; i++) {
                 const segDuration = this._getTierDuration(i);
                 if (elapsed < segStartTime + segDuration) {
@@ -537,8 +538,11 @@ export class ProgressiveWinPopup extends Component {
                     break;
                 }
                 segStartTime += segDuration;
+                if (i === this._segments.length - 1) {
+                    // Past all segments — keep last segment's start time for localT=1
+                    segStartTime -= segDuration;
+                }
             }
-            segIndex = Math.min(segIndex, this._segments.length - 1);
 
             // Transition tier when segment changes
             if (segIndex > this._currentSegIndex) {
@@ -547,15 +551,27 @@ export class ProgressiveWinPopup extends Component {
             }
 
             const seg = this._segments[segIndex];
-            const segDuration = this._getTierDuration(segIndex);
-            const localT = Math.min((elapsed - segStartTime) / segDuration, 1);
+            const segDuration = Math.max(this._getTierDuration(segIndex), 0.0001);
+            const localT = Math.min(Math.max((elapsed - segStartTime) / segDuration, 0), 1);
             // Linear interpolation within segment: constant small increments at 30fps
             const cur = seg.startAmount + (seg.endAmount - seg.startAmount) * localT;
             // Truncate to 3 decimals (do NOT round) to match JackpotPopup behavior
             const curTrunc = Math.floor(cur * 1000) / 1000;
             this.amountDisplay!.setData(curTrunc, this.currencyIndex, 3);
 
-            if (elapsed >= totalDuration) {
+            // Finish when time is up OR amount already reached target.
+            // Zero-range trailing segments (finalAmount == tier threshold) reach `to` early;
+            // without this check, coin-loop/jolt keep running for the leftover tierDuration
+            // and _waitForClose (autoCloseTimeout) never starts.
+            const reachedTarget = cur >= to - 1e-9;
+            if (elapsed >= totalDuration || reachedTarget) {
+                // Ensure final tier spine is showing before we hand off to _waitForClose
+                const finalSeg = this._segments[this._segments.length - 1];
+                if (this._activeTier !== finalSeg.tier) {
+                    this._currentSegIndex = this._segments.length - 1;
+                    this._transitionToTier(finalSeg.tier);
+                }
+
                 this._isCountingUp = false;
                 this.amountDisplay!.endCountUp();
                 if (isInteger(to)) {
@@ -568,7 +584,7 @@ export class ProgressiveWinPopup extends Component {
                 this._stopCountUp();
                 SoundManager.instance?.stopCoinLoop();
                 SoundManager.instance?.playCoinEnd();
-                Log.d(`[ProgressiveWinPopup] count-up DONE — elapsed=${elapsed.toFixed(2)}s finalTier=${this._activeTier}`);
+                Log.d(`[ProgressiveWinPopup] count-up DONE — elapsed=${elapsed.toFixed(2)}s totalDuration=${totalDuration.toFixed(2)}s reachedTarget=${reachedTarget} finalTier=${this._activeTier}`);
                 onDone();
             }
         };
@@ -592,13 +608,14 @@ export class ProgressiveWinPopup extends Component {
 
     private _onClickClose(): void {
         SoundManager.instance?.playButtonClick();
-        SoundManager.instance?.stopProgressiveWinMusic();
         if (this._autoCloseCb) {
             this.unschedule(this._autoCloseCb);
             this._autoCloseCb = null;
         }
         if (this._isCountingUp) {
-            // Skip count-up: jump directly to final tier + final amount
+            // Skip count-up: play mx_progressive_win_skip once, jump to final amount.
+            // Lần click sau (đóng popup) không gọi lại — _closePopup sẽ play sx_banner_disappear.
+            SoundManager.instance?.stopProgressiveWinMusic();
             this._isCountingUp = false;
             this._stopCountUp();
 

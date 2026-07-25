@@ -9,7 +9,8 @@
  *   bottom-left(1) → bottom-right(2) → 2nd-left(3) → 2nd-right(4) → …
  *   → top-left(9) → top-right(10)
  *
- * Khi vào Feature → gauge giữ theo server; reset khi vào feature spin (StickyAccumulated=0).
+ * Khi vào Feature → ẩn gauge + reset đèn (StickyAccumulated=0).
+ * Thoát feature → hiện lại gauge đã tắt; không giữ lit stage cũ.
  *
  * ── GAUGE DATA (server API) ──
  *   StickyAccumulated = Red Sticky tích lũy (normal spin only) → lighting stage 0..10.
@@ -28,7 +29,8 @@
  *      Kéo 5 node lit TRỤ TRÁI (DƯỚI→TRÊN) vào `leftLitNodes`,
  *      5 node lit TRỤ PHẢI (DƯỚI→TRÊN) vào `rightLitNodes`.
  *      → stage 1 = left[0], stage 2 = right[0], stage 3 = left[1], … (flat index = stage - 1).
- *   6. (Optional) Kéo AudioClip vào `sfxLightOn` để phát khi 1 đèn bật.
+ *   6. (Optional) `sfxLightOn` — override clip khi đèn bật.
+ *      Null → SoundManager play `sx_indicater_lighton`.
  *   7. (Optional) Node `DotHighlight` (sp.Skeleton) — effect spine khi đèn bật.
  *      Không gán `lightSpineEffectNode` → tự lấy child tên "DotHighlight".
  *   8. (Optional) Kéo Node Pot vào `potShakeNode`; SlotMachine tự rung (parent / `slotShakeNode`).
@@ -238,7 +240,7 @@ export class FeatureEntryGaugeController extends Component {
     private _onReset(): void {
         this._pendingGaugeUpdate = null;
         this._longSpinBusy = false;
-        this._applyStage(0, true);
+        this._resetGaugeToZero(true);
     }
 
     /** PICK_GAME_OPEN: chỉ đánh dấu — ẩn khi TransitionPopup READY. */
@@ -271,17 +273,28 @@ export class FeatureEntryGaugeController extends Component {
         this._wasActiveBeforeFeature = this.node.active;
         this._hiddenForFeature = true;
         this.node.active = false;
+        // Reset đèn ngay khi vào feature (StickyAccumulated=0) —
+        // tránh thoát feature vẫn còn lit tới spin normal tiếp theo.
+        this._pendingGaugeUpdate = null;
+        this._resetGaugeToZero(false);
     }
 
-    /** Thoát feature → hiện lại gauge (giữ / reset stage theo GameData). */
+    /** Thoát feature → hiện lại gauge đã reset (stage 0). */
     private _onFeatureEnded(): void {
         this._pendingPickGameHide = false;
         if (!this._hiddenForFeature) return;
         this._hiddenForFeature = false;
+        // Safety: đảm bảo GameData + UI đều tắt đèn kể cả khi reset lúc ẩn bị miss.
+        this._resetGaugeToZero(false);
         if (this._wasActiveBeforeFeature) {
             this.node.active = true;
-            this._applyStage(GameData.instance.featureGaugeStage, false);
         }
+    }
+
+    /** Tắt toàn bộ light + đồng bộ GameData (accumulated/stage = 0). */
+    private _resetGaugeToZero(animate: boolean): void {
+        GameData.instance.featureGaugeAccumulated = 0;
+        this._applyStage(0, animate);
     }
 
     // ─── CORE ───────────────────────────────────────────────────────────────
@@ -334,8 +347,12 @@ export class FeatureEntryGaugeController extends Component {
 
         this._playLightEffect(node);
         this._playLightSpineEffect(node);
-        if (!this._suppressSfx && this.sfxLightOn) {
-            SoundManager.instance?.playSFX(this.sfxLightOn);
+        if (!this._suppressSfx) {
+            if (this.sfxLightOn) {
+                SoundManager.instance?.playSFX(this.sfxLightOn);
+            } else {
+                SoundManager.instance?.playSfxByName('sxIndicaterLighton');
+            }
         }
         if (!this._skipPotShake) {
             this._shakePot();

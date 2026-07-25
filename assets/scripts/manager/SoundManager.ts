@@ -11,6 +11,12 @@ const { ccclass, property } = _decorator;
 type ReelStoppedPayload = number | { reelIndex: number; result?: unknown };
 type StickyCellLike = { symbolId?: number; credit?: number };
 
+/** UI volume 100% maps to this actual engine level (keeps relative balance). */
+const VOLUME_BASE_SCALE = 0.8;
+
+/** mx_normal_loop plays at this fraction of the normal BGM level. */
+const MX_NORMAL_LOOP_VOLUME_SCALE = 0.6;
+
 /** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
 const LAZY_AUDIO_PATHS: Record<string, string> = {
     // Boot BGM/SFX — tách khỏi Base.prefab (~1MB); load ngay khi SoundManager warm
@@ -23,6 +29,7 @@ const LAZY_AUDIO_PATHS: Record<string, string> = {
     mxBonusLoop: 'sound/mx_bonus_loop',
     mxBonusCongratulation: 'sound/mx_bonus_congratulation',
     mxProgressiveWin: 'sound/mx_progressive_win',
+    mxProgressiveTransImpact: 'sound/mx_progressive_trans_impact',
     mxProgressiveWinSkip: 'sound/mx_progressive_win_skip',
     mxGrandJackpotWin: 'sound/mx_grand_jackpot_win',
     mxMajorJackpotWin: 'sound/mx_major_jackpot_win',
@@ -70,6 +77,8 @@ const LAZY_AUDIO_PATHS: Record<string, string> = {
     sxPlus1Spin: 'sound/sx_plus_1_anim',
     sxGirlSymbolAnim: 'sound/sx_girl_symbol_anim',
     sxBannerDisappear: 'sound/sx_banner_disappear',
+    sxIndicaterLighton: 'sound/sx_indicater_lighton',
+    sxGlobalWin: 'sound/sx_global_win',
 };
 
 const SOUND_BUNDLE = 'MainBundle';
@@ -103,6 +112,7 @@ export class SoundManager extends Component {
     @property({ type: AudioClip }) mxBonusLoop: AudioClip | null = null;
     @property({ type: AudioClip }) mxBonusCongratulation: AudioClip | null = null;
     @property({ type: AudioClip }) mxProgressiveWin: AudioClip | null = null;
+    @property({ type: AudioClip }) mxProgressiveTransImpact: AudioClip | null = null;
     @property({ type: AudioClip }) mxProgressiveWinSkip: AudioClip | null = null;
     @property({ type: AudioClip }) mxGrandJackpotWin: AudioClip | null = null;
     @property({ type: AudioClip }) mxMajorJackpotWin: AudioClip | null = null;
@@ -154,6 +164,8 @@ export class SoundManager extends Component {
     @property({ type: AudioClip }) sxPlus1Spin: AudioClip | null = null;
     @property({ type: AudioClip }) sxGirlSymbolAnim: AudioClip | null = null;
     @property({ type: AudioClip }) sxBannerDisappear: AudioClip | null = null;
+    @property({ type: AudioClip }) sxIndicaterLighton: AudioClip | null = null;
+    @property({ type: AudioClip }) sxGlobalWin: AudioClip | null = null;
 
     @property({ range: [0, 1, 0.05], slide: true })
     bgmVolume = 0.5;
@@ -170,6 +182,10 @@ export class SoundManager extends Component {
     @property({ min: 0, max: 1000, step: 50 })
     bgmFadeOutDurationMs = 300;
 
+    /** Delay từ lúc chuyển level Progressive Win tới lúc play mx_progressive_trans_impact (giây) */
+    @property({ tooltip: 'Delay (giây) từ lúc chuyển level Progressive Win → play mx_progressive_trans_impact' })
+    progressiveTransImpactDelay = 0;
+
     private _masterMuted = false;
     private _bgmMuted = false;
     private _sfxMuted = false;
@@ -179,6 +195,7 @@ export class SoundManager extends Component {
     private _turboLandPlayed = false;
     private _coinLoopActive = false;
     private _bgmFadeTick: (() => void) | null = null;
+    private _crossfadeFadeTick: (() => void) | null = null;
     private _bonusLoopCallback: (() => void) | null = null;
     private _transitionSoundPlayed: boolean = false;
     private _featureSelectSoundPlayed: boolean = false;
@@ -187,10 +204,15 @@ export class SoundManager extends Component {
     /** In-flight lazy clip loads — avoid duplicate bundle.load */
     private _lazyLoading: Map<string, Promise<AudioClip | null>> = new Map();
     private _deferredAudioKickStarted = false;
+    /** Progressive Win đang mở (đang play mx_progressive_win) */
+    private _progressiveWinActive = false;
+    private _progressiveTransImpactCb: (() => void) | null = null;
+    /** Đang play mx_progressive_win_skip trên BGM chính */
+    private _progressiveSkipPlaying = false;
 
     onLoad(): void {
         SoundManager._instance = this;
-        Log.enable('coinloop');
+        // Log.enable('coinloop');
         this._loadMuteSettings();
         // ★ Không addPersistRootNode(this.node): component đang gắn trên Base root.
         //   Persist cả Base lúc attach sớm (loading) phá hierarchy → bar kẹt ~81%.
@@ -221,7 +243,6 @@ export class SoundManager extends Component {
         bus.on(GameEvents.LONG_SPIN_VFX_START, this._onLongSpinTriggered, this);
         bus.on(GameEvents.WIN_PRESENT_START,     this._onWinPresentStart,   this);
 
-        bus.on(GameEvents.PROGRESSIVE_WIN_SHOW, this._onProgressiveWinShow, this);
         bus.on(GameEvents.PROGRESSIVE_WIN_SKIP, this._onProgressiveWinSkip, this);
         bus.on(GameEvents.PROGRESSIVE_WIN_END, this._onProgressiveWinEnd, this);
 
@@ -239,6 +260,10 @@ export class SoundManager extends Component {
         bus.on(GameEvents.TOPUP_END_POPUP, this._onFeatureEndPopup, this);
         bus.on(GameEvents.FREE_SPIN_END_POPUP_CLOSED, this._onFeatureEndPopupClosed, this);
         bus.on(GameEvents.TOPUP_END_POPUP_CLOSED, this._onFeatureEndPopupClosed, this);
+        // FreeSpin thường không có end popup — restore normal BGM khi feature kết thúc
+        bus.on(GameEvents.FREE_SPIN_END, this._onFeatureGameEnded, this);
+        bus.on(GameEvents.FREE_SPIN_GOLD_END, this._onFeatureGameEnded, this);
+        bus.on(GameEvents.TOPUP_END, this._onFeatureGameEnded, this);
 
         bus.on(GameEvents.POT_WIN_INTRO,          this._onPotWinIntro,    this);
         bus.on(GameEvents.PICK_GAME_CLOSE,          this._onPickGameClose,  this);
@@ -268,7 +293,7 @@ export class SoundManager extends Component {
                 }
             }
         } catch (err) {
-            Log.d('[SoundManager] localStorage not available', err);
+            // Log.d('[SoundManager] localStorage not available', err);
         }
     }
 
@@ -292,6 +317,7 @@ export class SoundManager extends Component {
         // Priority: boot BGM/SFX (tách khỏi Base) → land/spin → feature/jackpot
         const priority = [
             'mxNormalIntro', 'mxNormalLoop', 'sxAmbience', 'sxUiClick', 'sxReelSpin',
+            'mxProgressiveWin', 'mxProgressiveTransImpact', 'mxProgressiveWinSkip',
             'sxReelLand1', 'sxReelLand2', 'sxReelLand3', 'sxReelLand4', 'sxReelLand5', 'sxReelLandAll',
             'sxReelSpinQuickTurbo', 'sxSymbolMatchLowValue', 'sxSymbolMatchHighValue',
             'sxSymbolMatchWildLayer', 'sxSymbolPayout',
@@ -300,7 +326,6 @@ export class SoundManager extends Component {
             'sxBonusStickyLand', 'sxBonusStickyLand2', 'sxBonusStickyLand3',
             'sxBonusStickyLand4', 'sxBonusStickyLand5', 'sxBonusStickyWin',
             'sxPotTrailWhoosh', 'sxPotHit', 'sxSelectAFeature', 'sxFeatureSelect',
-            'mxProgressiveWin', 'mxProgressiveWinSkip',
             'mxGrandJackpotWin', 'mxMajorJackpotWin', 'mxMinorJackpotWin', 'mxMiniJackpotWin',
         ];
         const rest = Object.keys(LAZY_AUDIO_PATHS).filter((k) => !priority.includes(k));
@@ -330,6 +355,23 @@ export class SoundManager extends Component {
         this._playSfxProp(prop);
     }
 
+    /**
+     * Sticky Red land SFX — progressive sx_bonus_sticky_land → _5 (reset mỗi spin).
+     * Dùng chung cho reel stop thường và StickyFillEffect (Force Feature Entry).
+     */
+    playStickyLandSfx(): void {
+        const props = [
+            'sxBonusStickyLand',
+            'sxBonusStickyLand2',
+            'sxBonusStickyLand3',
+            'sxBonusStickyLand4',
+            'sxBonusStickyLand5',
+        ];
+        const idx = Math.min(this._stickyLandCount, props.length - 1);
+        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand');
+        this._stickyLandCount++;
+    }
+
     private _ensureClip(prop: string): Promise<AudioClip | null> {
         const current = (this as any)[prop] as AudioClip | null | undefined;
         if (current) return Promise.resolve(current);
@@ -343,14 +385,14 @@ export class SoundManager extends Component {
         const promise = new Promise<AudioClip | null>((resolve) => {
             const bundle = assetManager.getBundle(SOUND_BUNDLE);
             if (!bundle) {
-                Log.w(`[SoundManager] Bundle '${SOUND_BUNDLE}' missing — cannot lazy-load ${prop}`);
+                // Log.w(`[SoundManager] Bundle '${SOUND_BUNDLE}' missing — cannot lazy-load ${prop}`);
                 resolve(null);
                 return;
             }
             bundle.load(path, AudioClip, (err, clip) => {
                 this._lazyLoading.delete(prop);
                 if (err || !clip) {
-                    Log.w(`[SoundManager] Lazy load failed: ${path}`, err);
+                    // Log.w(`[SoundManager] Lazy load failed: ${path}`, err);
                     resolve(null);
                     return;
                 }
@@ -410,7 +452,7 @@ export class SoundManager extends Component {
     }
 
     private _onSpinStart(): void {
-        Log.d(`[coinloop][SM._onSpinStart] stopCoinLoop()`);
+        // Log.d(`[coinloop][SM._onSpinStart] stopCoinLoop()`);
         this._turboLandPlayed = false;
         this._stickyLandCount = 0;
         this._stickyWinSoundPlayedThisSpin = false;
@@ -457,29 +499,225 @@ export class SoundManager extends Component {
         this.playSymbolPayoutForLine(lineCount);
     }
 
-    private _onProgressiveWinShow(): void {
+    /** Play mx_progressive_win một lần khi ProgressiveWinPopup mở (gọi từ popup, không nghe EventBus — tránh double). */
+    startProgressiveWinMusic(): void {
+        if (this._progressiveWinActive
+            && this.mxProgressiveWin
+            && this.bgmSource?.clip === this.mxProgressiveWin
+            && this.bgmSource.playing) {
+            return;
+        }
+        this._progressiveWinActive = true;
+        this._progressiveSkipPlaying = false;
+        this._cancelProgressiveTransImpact();
         this._playMusicProp('mxProgressiveWin', false);
+        this._logProgressivePlaying('mx_progressive_win');
+    }
+
+    /**
+     * Chuyển level Progressive Win — chỉ play mx_progressive_trans_impact (có delay).
+     * Không đổi BGM (vẫn giữ mx_progressive_win đang chạy).
+     */
+    playProgressiveWinLevel(_level: number): void {
+        if (!this._progressiveWinActive) return;
+        this._scheduleProgressiveTransImpact();
+    }
+
+    private _logProgressivePlaying(label: string): void {
+        Log.d(`[ProgressiveBGM] playing: ${label}`);
+    }
+
+    private _scheduleProgressiveTransImpact(): void {
+        this._cancelProgressiveTransImpact();
+        this._progressiveTransImpactCb = () => {
+            this._progressiveTransImpactCb = null;
+            if (!this._progressiveWinActive) return;
+            this._playSfxProp('mxProgressiveTransImpact');
+            this._logProgressivePlaying('mx_progressive_trans_impact');
+        };
+        this.scheduleOnce(this._progressiveTransImpactCb, Math.max(0, this.progressiveTransImpactDelay));
+    }
+
+    private _cancelProgressiveTransImpact(): void {
+        if (!this._progressiveTransImpactCb) return;
+        this.unschedule(this._progressiveTransImpactCb);
+        this._progressiveTransImpactCb = null;
     }
 
     private _onProgressiveWinSkip(): void {
         this.stopProgressiveWinMusic();
     }
 
+    /**
+     * Skip Progressive Win: dừng mx_progressive_win → play mx_progressive_win_skip.
+     * Chỉ play skip một lần khi progressive win còn active; lần gọi sau là no-op
+     * (đóng popup dùng sx_banner_disappear, không replay skip).
+     * Đóng popup lúc skip đang chạy → fade out skip về 0 + play loop ngay (không cắt ngang).
+     */
     stopProgressiveWinMusic(): void {
-        void this._ensureClip('mxProgressiveWinSkip').then((skipClip) => {
-            if (!this.bgmSource || !skipClip) return;
-            if (this._bgmFadeTick) { this.unschedule(this._bgmFadeTick); this._bgmFadeTick = null; }
-            this.bgmSource.stop();
-            this.bgmSource.clip = skipClip;
+        if (!this._progressiveWinActive) return;
+        this._progressiveWinActive = false;
+        this._cancelProgressiveTransImpact();
+        if (this._bgmFadeTick) { this.unschedule(this._bgmFadeTick); this._bgmFadeTick = null; }
+        this._removeBonusLoopCallback();
+
+        const playSkip = (skip: AudioClip | null) => {
+            if (!this.bgmSource) return;
+            if (this.bgmSource.playing) this.bgmSource.stop();
+            if (!skip) {
+                this._progressiveSkipPlaying = false;
+                this._cutToCurrentLoopNow();
+                return;
+            }
+            this._progressiveSkipPlaying = true;
+            this.bgmSource.clip = skip;
             this.bgmSource.loop = false;
-            this.bgmSource.volume = this.bgmVolume;
-            this.bgmSource.node.once(AudioSource.EventType.ENDED, () => this._restoreCurrentLoop(), this);
+            this.bgmSource.volume = this._scaledVolume(this.bgmVolume);
+            // Fallback: nếu popup chưa đóng mà skip hết → về loop
+            this._bonusLoopCallback = () => {
+                this._bonusLoopCallback = null;
+                this._progressiveSkipPlaying = false;
+                this._cutToCurrentLoopNow();
+            };
+            this.bgmSource.node.once(AudioSource.EventType.ENDED, this._bonusLoopCallback, this);
             if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
-        });
+            this._logProgressivePlaying('mx_progressive_win_skip');
+        };
+
+        const clip = this.mxProgressiveWinSkip;
+        if (clip) {
+            playSkip(clip);
+            return;
+        }
+        void this._ensureClip('mxProgressiveWinSkip').then(playSkip);
     }
 
     private _onProgressiveWinEnd(): void {
-        this._restoreCurrentLoop();
+        this._progressiveWinActive = false;
+        this._cancelProgressiveTransImpact();
+        // Đang play skip → chuyển sang crossfade, fade dần về 0, đồng thời bật loop ngay
+        if (this._progressiveSkipPlaying
+            && this.mxProgressiveWinSkip
+            && this.bgmSource?.clip === this.mxProgressiveWinSkip
+            && this.bgmSource.playing) {
+            this._fadeOutProgressiveSkipAndRestoreLoop();
+            return;
+        }
+        this._progressiveSkipPlaying = false;
+        this._cutToCurrentLoopNow();
+    }
+
+    /**
+     * Hand-off mx_progressive_win_skip sang bgmCrossfadeSource → fade volume → 0,
+     * đồng thời play loop trên bgmSource ngay (không chờ hết clip, không cắt ngang).
+     */
+    private _fadeOutProgressiveSkipAndRestoreLoop(): void {
+        this._removeBonusLoopCallback();
+        const main = this.bgmSource;
+        if (!main) {
+            this._progressiveSkipPlaying = false;
+            this._cutToCurrentLoopNow();
+            return;
+        }
+
+        const skipClip = main.clip;
+        const skipVol = main.volume;
+        const skipTime = main.currentTime;
+        main.stop();
+        this._progressiveSkipPlaying = false;
+
+        // Bật loop ngay trên BGM chính
+        this._startCurrentLoopImmediate();
+
+        // Fade skip trên crossfade source (nếu không có → fallback fade tuần tự đã xong vì main đã stop)
+        const xf = this.bgmCrossfadeSource;
+        if (!xf || !skipClip) return;
+
+        if (this._crossfadeFadeTick) {
+            this.unschedule(this._crossfadeFadeTick);
+            this._crossfadeFadeTick = null;
+        }
+        xf.stop();
+        xf.clip = skipClip;
+        xf.loop = false;
+        xf.volume = skipVol;
+        if (!this._masterMuted && !this._bgmMuted) {
+            xf.play();
+            if (skipTime > 0) {
+                try { xf.currentTime = skipTime; } catch { /* platform may not support seek */ }
+            }
+        }
+        this._fadeOutAudioSource(xf, () => {
+            if (xf.isValid) {
+                xf.stop();
+                xf.clip = null;
+            }
+        });
+    }
+
+    /** Play mx_normal_loop / mx_bonus_loop ngay trên bgmSource, không đụng crossfade source. */
+    private _startCurrentLoopImmediate(): void {
+        if (this._bgmFadeTick) {
+            this.unschedule(this._bgmFadeTick);
+            this._bgmFadeTick = null;
+        }
+        this._removeBonusLoopCallback();
+
+        const wantBonus = this._inFeatureMusic;
+        const prop = wantBonus ? 'mxBonusLoop' : 'mxNormalLoop';
+        const clip = wantBonus ? this.mxBonusLoop : this.mxNormalLoop;
+        if (!this.bgmSource) return;
+
+        const start = (c: AudioClip) => {
+            if (!this.bgmSource) return;
+            if (this.bgmSource.clip === c && this.bgmSource.playing && this.bgmSource.loop) return;
+            this.bgmSource.stop();
+            this.bgmSource.clip = c;
+            this.bgmSource.loop = true;
+            this.bgmSource.volume = this._bgmVolumeForClip(c);
+            if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
+        };
+
+        if (clip) {
+            start(clip);
+            return;
+        }
+        void this._ensureClip(prop).then((c) => { if (c) start(c); });
+    }
+
+    /** Fade volume của AudioSource về 0 rồi gọi onDone (dùng cho crossfade skip). */
+    private _fadeOutAudioSource(source: AudioSource, onDone?: () => void): void {
+        if (this._crossfadeFadeTick) {
+            this.unschedule(this._crossfadeFadeTick);
+            this._crossfadeFadeTick = null;
+        }
+        if (!source.isValid || !source.playing || this.bgmFadeOutDurationMs <= 0) {
+            if (source.isValid && source.playing) source.stop();
+            onDone?.();
+            return;
+        }
+        const startVolume = source.volume;
+        const steps = 10;
+        let step = 0;
+        const interval = (this.bgmFadeOutDurationMs / 1000) / steps;
+        const tick = () => {
+            if (!source.isValid) {
+                this.unschedule(tick);
+                if (this._crossfadeFadeTick === tick) this._crossfadeFadeTick = null;
+                onDone?.();
+                return;
+            }
+            step++;
+            source.volume = startVolume * Math.max(0, 1 - step / steps);
+            if (step >= steps) {
+                this.unschedule(tick);
+                if (this._crossfadeFadeTick === tick) this._crossfadeFadeTick = null;
+                source.stop();
+                onDone?.();
+            }
+        };
+        this._crossfadeFadeTick = tick;
+        this.schedule(tick, interval);
     }
 
     private _onJackpotTrigger(type: JackpotType): void {
@@ -493,7 +731,8 @@ export class SoundManager extends Component {
     }
 
     private _onFeatureOrJackpotEnd(): void {
-        this._restoreCurrentLoop();
+        // Cắt jackpot BGM ngay → loop, không fade/chờ hết clip
+        this._cutToCurrentLoopNow();
     }
 
     private _onFeatureSelectOpen(): void {
@@ -516,16 +755,51 @@ export class SoundManager extends Component {
     }
 
     private _onFeatureEndPopup(): void {
-        Log.d(`[coinloop][SM._onFeatureEndPopup] coinLoopActive=${this._coinLoopActive}`);
+        // Log.d(`[coinloop][SM._onFeatureEndPopup] coinLoopActive=${this._coinLoopActive}`);
         this._inFeatureMusic = false;
-        this._playMusicProp('mxBonusCongratulation', false, () => this._playMusicProp('mxNormalLoop', true));
+        this._playMusicProp('mxBonusCongratulation', false, () => this._cutToNormalLoopNow());
     }
 
     private _onFeatureEndPopupClosed(): void {
-        Log.d(`[coinloop][SM._onFeatureEndPopupClosed] coinLoopActive=${this._coinLoopActive}`);
+        // Log.d(`[coinloop][SM._onFeatureEndPopupClosed] coinLoopActive=${this._coinLoopActive}`);
         this.stopCoinLoop();
-        if (this.bgmSource?.clip === this.mxBonusCongratulation && this.bgmSource.playing) return;
-        this._playMusicProp('mxNormalLoop', true);
+        // Cắt congratulation ngay — không chờ hết clip (gây delay vài giây sau khi đóng popup)
+        this._cutToNormalLoopNow();
+    }
+
+    /** FreeSpin/TopUp kết thúc (có hoặc không qua end popup) → về mx_normal_loop. */
+    private _onFeatureGameEnded(): void {
+        this._cutToNormalLoopNow();
+    }
+
+    /** Ngắt BGM hiện tại và play mx_normal_loop ngay (skip nếu đang progressive / đã là normal). */
+    private _cutToNormalLoopNow(): void {
+        this._inFeatureMusic = false;
+        if (this._progressiveWinActive) return;
+        this._cutToCurrentLoopNow();
+    }
+
+    /**
+     * Ngắt BGM hiện tại (progressive skip / jackpot / …) → loop phù hợp ngay.
+     * Feature còn mở → mx_bonus_loop; không thì mx_normal_loop.
+     */
+    private _cutToCurrentLoopNow(): void {
+        if (this._progressiveWinActive) return;
+        // Skip đang trên BGM chính — để ENDED / _onProgressiveWinEnd (fade) xử lý
+        if (this._progressiveSkipPlaying) return;
+
+        const wantBonus = this._inFeatureMusic;
+        const targetProp = wantBonus ? 'mxBonusLoop' : 'mxNormalLoop';
+        const targetClip = wantBonus ? this.mxBonusLoop : this.mxNormalLoop;
+        if (targetClip && this.bgmSource?.clip === targetClip && this.bgmSource.playing) return;
+
+        if (this._bgmFadeTick) {
+            this.unschedule(this._bgmFadeTick);
+            this._bgmFadeTick = null;
+        }
+        this._removeBonusLoopCallback();
+        if (this.bgmSource?.playing) this.bgmSource.stop();
+        this._playMusicProp(targetProp, true);
     }
 
     private _onPickGameMatchFound(): void {
@@ -563,21 +837,12 @@ export class SoundManager extends Component {
 
     private _onRedCreditUpdated(payload?: { totalRedCredit?: number; redCount?: number; reelIndex?: number }): void {
         const redCount = payload?.redCount ?? 0;
-        const props = [
-            'sxBonusStickyLand',
-            'sxBonusStickyLand2',
-            'sxBonusStickyLand3',
-            'sxBonusStickyLand4',
-            'sxBonusStickyLand5',
-        ];
-        const idx = Math.min(this._stickyLandCount, props.length - 1);
-        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand');
-        this._stickyLandCount++;
+        this.playStickyLandSfx();
 
         // Big red-coin win sound: play once per spin when normal-reel red coins exceed 6
         if (GameData.instance.currentMode === 'normal' && redCount > 6 && !this._stickyWinSoundPlayedThisSpin) {
             this._stickyWinSoundPlayedThisSpin = true;
-            Log.d(`[coinloop][SM._onRedCreditUpdated] redCount=${redCount} > 6 → play sxBonusStickyWin`);
+            // Log.d(`[coinloop][SM._onRedCreditUpdated] redCount=${redCount} > 6 → play sxBonusStickyWin`);
             this._playSfxProp('sxBonusStickyWin');
         }
     }
@@ -597,6 +862,8 @@ export class SoundManager extends Component {
     }
 
     private _restoreCurrentLoop(): void {
+        // Đừng để listener ENDED cũ / call khác ghi đè nhạc Progressive / skip đang chạy
+        if (this._progressiveWinActive || this._progressiveSkipPlaying) return;
         if (this._inFeatureMusic) {
             this._playMusicProp('mxBonusLoop', true);
         } else {
@@ -607,13 +874,16 @@ export class SoundManager extends Component {
     private _playMusic(clip: AudioClip | null, loop: boolean, onEnded?: () => void): void {
         if (!this.bgmSource || !clip) return;
         this._removeBonusLoopCallback();
-        if (this.bgmCrossfadeSource?.playing) this.bgmCrossfadeSource.stop();
+        // Đừng cắt crossfade đang fade-out progressive skip
+        if (this.bgmCrossfadeSource?.playing && !this._crossfadeFadeTick) {
+            this.bgmCrossfadeSource.stop();
+        }
         const start = () => {
             if (!this.bgmSource || !clip) return;
             this.bgmSource.stop();
             this.bgmSource.clip = clip;
             this.bgmSource.loop = loop;
-            this.bgmSource.volume = this.bgmVolume;
+            this.bgmSource.volume = this._bgmVolumeForClip(clip);
             if (onEnded) {
                 this._bonusLoopCallback = onEnded;
                 this.bgmSource.node.once(AudioSource.EventType.ENDED, onEnded, this);
@@ -665,7 +935,7 @@ export class SoundManager extends Component {
             if (!clip || !this.ambienceSource || this.ambienceSource.playing) return;
             this.ambienceSource.clip = clip;
             this.ambienceSource.loop = true;
-            this.ambienceSource.volume = this.ambienceVolume;
+            this.ambienceSource.volume = this._scaledVolume(this.ambienceVolume);
             if (!this._masterMuted && !this._sfxMuted) this.ambienceSource.play();
         });
     }
@@ -702,7 +972,7 @@ export class SoundManager extends Component {
 
     playSFX(clip: AudioClip | null): void {
         if (!this.sfxSource || !clip || this._masterMuted || this._sfxMuted) return;
-        this.sfxSource.playOneShot(clip, this.sfxVolume);
+        this.sfxSource.playOneShot(clip, this._scaledVolume(this.sfxVolume));
     }
 
     playBGM(clip: AudioClip | null): void {
@@ -710,32 +980,36 @@ export class SoundManager extends Component {
     }
 
     playCoinLoop(): void {
+        // Mark intent immediately so a late async load still plays,
+        // and stopCoinLoop() can cancel that intent before start() runs.
+        this._coinLoopActive = true;
         const start = (clip: AudioClip) => {
+            // stopCoinLoop() may have run while clip was still loading
+            if (!this._coinLoopActive) return;
             if (!this.coinSource || !this.coinSource.isValid) {
                 this._recreateCoinSource();
             }
             if (!this.coinSource) {
-                Log.d(`[coinloop][SM.playCoinLoop] SKIP — failed to recreate coinSource`);
+                // Log.d(`[coinloop][SM.playCoinLoop] SKIP — failed to recreate coinSource`);
                 return;
             }
-            this._coinLoopActive = true;
-            this.coinSource.volume = this.sfxVolume;
+            this.coinSource.volume = this._scaledVolume(this.sfxVolume);
             if (this._masterMuted || this._sfxMuted) {
-                Log.d(`[coinloop][SM.playCoinLoop] SKIP — muted (master=${this._masterMuted} sfx=${this._sfxMuted})`);
+                // Log.d(`[coinloop][SM.playCoinLoop] SKIP — muted (master=${this._masterMuted} sfx=${this._sfxMuted})`);
                 return;
             }
             const needRestart = this.coinSource.clip !== clip || !this.coinSource.loop;
-            Log.d(`[coinloop][SM.playCoinLoop] valid=${this.coinSource.isValid} playing=${this.coinSource.playing} needRestart=${needRestart}`);
+            // Log.d(`[coinloop][SM.playCoinLoop] valid=${this.coinSource.isValid} playing=${this.coinSource.playing} needRestart=${needRestart}`);
             if (needRestart) {
                 this.coinSource.stop();
                 this.coinSource.clip = clip;
                 this.coinSource.loop = true;
             }
             if (!this.coinSource.playing) {
-                Log.d(`[coinloop][SM.playCoinLoop] ▶ play()`);
+                // Log.d(`[coinloop][SM.playCoinLoop] ▶ play()`);
                 this.coinSource.play();
             } else {
-                Log.d(`[coinloop][SM.playCoinLoop] already playing, skip play()`);
+                // Log.d(`[coinloop][SM.playCoinLoop] already playing, skip play()`);
             }
         };
 
@@ -745,7 +1019,7 @@ export class SoundManager extends Component {
         }
         void this._ensureClip('sxCounterLoop').then((clip) => {
             if (!clip) {
-                Log.d(`[coinloop][SM.playCoinLoop] SKIP — sxCounterLoop load failed`);
+                // Log.d(`[coinloop][SM.playCoinLoop] SKIP — sxCounterLoop load failed`);
                 return;
             }
             start(clip);
@@ -753,7 +1027,7 @@ export class SoundManager extends Component {
     }
 
     stopCoinLoop(): void {
-        Log.d(`[coinloop][SM.stopCoinLoop] coinLoopActive=${this._coinLoopActive} playing=${this.coinSource?.playing}`);
+        // Log.d(`[coinloop][SM.stopCoinLoop] coinLoopActive=${this._coinLoopActive} playing=${this.coinSource?.playing}`);
         this._coinLoopActive = false;
         if (!this.coinSource) return;
 
@@ -771,14 +1045,14 @@ export class SoundManager extends Component {
         if (!this.node) return;
         const oldSource = this.coinSource;
         this.coinSource = this.node.addComponent(AudioSource);
-        Log.d(`[coinloop][SM._recreateCoinSource] oldValid=${oldSource?.isValid ?? false} newValid=${this.coinSource?.isValid ?? false}`);
+        // Log.d(`[coinloop][SM._recreateCoinSource] oldValid=${oldSource?.isValid ?? false} newValid=${this.coinSource?.isValid ?? false}`);
         if (oldSource && oldSource.isValid) {
             oldSource.destroy();
         }
     }
 
     playCoinEnd(): void {
-        Log.d(`[coinloop][SM.playCoinEnd] ► play sxCounterEnd`);
+        // Log.d(`[coinloop][SM.playCoinEnd] ► play sxCounterEnd`);
         this._playSfxProp('sxCounterEnd');
     }
 
@@ -792,6 +1066,10 @@ export class SoundManager extends Component {
 
     playBannerDisappear(): void {
         this._playSfxProp('sxBannerDisappear');
+    }
+
+    playGlobalWin(): void {
+        this._playSfxProp('sxGlobalWin');
     }
 
     playBonusSelect(type: JackpotType): void {
@@ -808,12 +1086,19 @@ export class SoundManager extends Component {
         this._playSfxProp('sxGirlSymbolAnim');
     }
 
-    playSymbolPayoutForLine(lineCount: number): void {
-        // Dùng winSource riêng: âm thắng tiếp tục qua lượt quay kế tiếp;
-        // thắng mới → recreate source để cắt âm cũ rồi phát lại từ đầu.
+    playSymbolPayoutForLine(_lineCount: number): void {
+        // Chỉ play payout; high/low/wild match do SymbolHighlighter chọn theo symbol.
         this._recreateWinSource();
-        this._playWinOneShot(lineCount >= 5 ? 'sxSymbolMatchHighValue' : 'sxSymbolMatchLowValue');
         this._playWinOneShot('sxSymbolPayout');
+    }
+
+    /** Match SFX theo loại symbol thắng — chỉ gọi 1 trong 3 (high / low / wild). */
+    playSymbolMatchHigh(): void {
+        this._playWinOneShot('sxSymbolMatchHighValue');
+    }
+
+    playSymbolMatchLow(): void {
+        this._playWinOneShot('sxSymbolMatchLowValue');
     }
 
     private _ensureWinSource(): AudioSource | null {
@@ -822,7 +1107,7 @@ export class SoundManager extends Component {
         this._winSource = this.node.addComponent(AudioSource);
         this._winSource.playOnAwake = false;
         this._winSource.loop = false;
-        this._winSource.volume = this.sfxVolume;
+        this._winSource.volume = this._scaledVolume(this.sfxVolume);
         return this._winSource;
     }
 
@@ -832,7 +1117,7 @@ export class SoundManager extends Component {
         this._winSource = this.node.addComponent(AudioSource);
         this._winSource.playOnAwake = false;
         this._winSource.loop = false;
-        this._winSource.volume = this.sfxVolume;
+        this._winSource.volume = this._scaledVolume(this.sfxVolume);
         if (old?.isValid) {
             old.stop();
             old.destroy();
@@ -845,8 +1130,9 @@ export class SoundManager extends Component {
             if (this._masterMuted || this._sfxMuted) return;
             const src = this._ensureWinSource();
             if (!src) return;
-            src.volume = this.sfxVolume;
-            src.playOneShot(clip, this.sfxVolume);
+            const vol = this._scaledVolume(this.sfxVolume);
+            src.volume = vol;
+            src.playOneShot(clip, vol);
         };
 
         const clip = (this as any)[prop] as AudioClip | null;
@@ -916,15 +1202,32 @@ export class SoundManager extends Component {
         const v = Math.max(0, Math.min(1, ratio));
         this.bgmVolume = v;
         this.sfxVolume = v;
-        if (this.bgmSource && !this._bgmMuted) this.bgmSource.volume = v;
-        if (this.sfxSource) this.sfxSource.volume = v;
-        if (this.coinSource) this.coinSource.volume = v;
-        if (this._winSource) this._winSource.volume = v;
-        if (this.ambienceSource) this.ambienceSource.volume = v * this.ambienceVolume;
+        const scaled = this._scaledVolume(v);
+        if (this.bgmSource && !this._bgmMuted) {
+            this.bgmSource.volume = this._bgmVolumeForClip(this.bgmSource.clip);
+        }
+        if (this.sfxSource) this.sfxSource.volume = scaled;
+        if (this.coinSource) this.coinSource.volume = scaled;
+        if (this._winSource) this._winSource.volume = scaled;
+        if (this.ambienceSource) this.ambienceSource.volume = this._scaledVolume(v * this.ambienceVolume);
         try { localStorage.setItem('setting_volume', String(v)); } catch (_) {}
     }
 
     get masterVolume(): number { return this.bgmVolume; }
+
+    /** Apply global base scale so UI 100% = VOLUME_BASE_SCALE. */
+    private _scaledVolume(ratio: number): number {
+        return Math.max(0, Math.min(1, ratio)) * VOLUME_BASE_SCALE;
+    }
+
+    /** BGM volume for a clip — mx_normal_loop is quieter than other tracks. */
+    private _bgmVolumeForClip(clip: AudioClip | null): number {
+        const base = this._scaledVolume(this.bgmVolume);
+        if (clip && this.mxNormalLoop && clip === this.mxNormalLoop) {
+            return base * MX_NORMAL_LOOP_VOLUME_SCALE;
+        }
+        return base;
+    }
 
     setBGMMuted(muted: boolean): void {
         if (this._bgmMuted === muted) return;
@@ -943,7 +1246,7 @@ export class SoundManager extends Component {
         if (this._sfxMuted === muted) return;
         this._sfxMuted = muted;
         if (muted) {
-            Log.d(`[coinloop][SM.setSFXMuted] muted=true → stopCoinLoop()`);
+            // Log.d(`[coinloop][SM.setSFXMuted] muted=true → stopCoinLoop()`);
             this.stopCoinLoop();
             this._recreateWinSource();
             this.ambienceSource?.stop();

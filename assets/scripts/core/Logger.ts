@@ -62,5 +62,5 @@ export const Log = {
     clearWhitelist: (): void => { _white.clear(); },
 };
 
-// TEMP DEBUG session: chỉ spin hang flow
-Log.setWhitelist([DEBUG_ONLY_TAG]);
+// TEMP DEBUG session: spin hang + Progressive BGM
+Log.setWhitelist([DEBUG_ONLY_TAG, 'progressivebgm']);

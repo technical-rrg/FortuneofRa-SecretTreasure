@@ -15,13 +15,14 @@
  *   → mới handoff chest sang Pot.potSpine → TRANSITION_DONE
  */
 
-import { _decorator, Component, UIOpacity, tween, Node, Vec3, ParticleSystem, easing, sp } from 'cc';
+import { _decorator, Component, UIOpacity, tween, Tween, Node, Vec3, ParticleSystem, easing, sp, screen } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
 import { SoundManager } from '../manager/SoundManager';
 import { Log } from '../core/Logger';
 import { PotController } from './PotController';
+import { OrientationLayout } from './OrientationLayout';
 
 const { ccclass, property } = _decorator;
 
@@ -86,17 +87,100 @@ export class TransitionController extends Component {
     private _finishCb: (() => void) | null = null;
     private _pendingPot: PotController | null = null;
 
+    /** true từ lúc bắt đầu dip/fly đến khi hạ cánh */
+    private _flyActive: boolean = false;
+    /** true sau khi icon đã hạ cánh (hold / fade) */
+    private _hasLanded: boolean = false;
+    private _landedSkel: sp.Skeleton | null = null;
+
+    private readonly _targetLocalPos = new Vec3();
+    private readonly _abovePotPos = new Vec3();
+    private readonly _targetLocalScale = new Vec3();
+    private readonly _midScale = new Vec3();
+
     // ─── LIFECYCLE ───
 
     onLoad(): void {
         this.node.active = false; // ẩn cho đến khi event trigger
         EventBus.instance.on(GameEvents.GUIDE_COMPLETE, this._onGuideComplete, this);
+        screen.on('window-resize', this._onScreenChange, this);
+        screen.on('orientation-change', this._onScreenChange, this);
     }
 
     onDestroy(): void {
         this._cleanupRunningTweens();
+        this.unschedule(this._retargetFlyAfterLayout);
+        this.unschedule(this._retargetFlyAfterLayoutLate);
+        screen.off('window-resize', this._onScreenChange, this);
+        screen.off('orientation-change', this._onScreenChange, this);
         EventBus.instance.offTarget(this);
     }
+
+    /**
+     * Xoay màn lúc Pot đang bay:
+     * 1) Force OrientationLayout trên Pot/target ngay
+     * 2) Retarget frame 0 + lần nữa sau 50ms (Widget/Responsive kịp settle)
+     */
+    private _onScreenChange(): void {
+        if (!this._isPlaying) return;
+        this._forceTargetLayoutNow();
+        this.unschedule(this._retargetFlyAfterLayout);
+        this.unschedule(this._retargetFlyAfterLayoutLate);
+        this.scheduleOnce(this._retargetFlyAfterLayout, 0);
+        this.scheduleOnce(this._retargetFlyAfterLayoutLate, 0.05);
+    }
+
+    private _retargetFlyAfterLayoutLate = (): void => {
+        this._retargetFlyAfterLayout();
+    };
+
+    /** Refresh target từ Pot + apply OrientationLayout trên chuỗi parent. */
+    private _forceTargetLayoutNow(): void {
+        this._refreshTargetFromPot();
+        let cur: Node | null = this.targetNode;
+        for (let i = 0; i < 8 && cur?.isValid; i++) {
+            const layout = cur.getComponent(OrientationLayout);
+            if (layout) layout.applyOrientation();
+            cur = cur.parent;
+        }
+    }
+
+    private _refreshTargetFromPot(): void {
+        const pot = this._pendingPot?.isValid ? this._pendingPot : this._findPotController();
+        if (!pot?.isValid) return;
+        const t = pot.getTransitionTargetNode();
+        if (t?.isValid) this.targetNode = t;
+        this._pendingPot = pot;
+    }
+
+    private _retargetFlyAfterLayout = (): void => {
+        if (!this._isPlaying || !this.iconNode?.isValid) return;
+
+        this._forceTargetLayoutNow();
+        if (!this.targetNode?.isValid) return;
+
+        this._computeFlyTarget();
+
+        // Đã hạ cánh: snap icon + effect về Pot mới
+        if (this._hasLanded) {
+            this.iconNode.setPosition(this._targetLocalPos);
+            this.iconNode.setScale(this._targetLocalScale);
+            if (this.effectNode2?.isValid && this.effectNode2.active) {
+                this.effectNode2.setWorldPosition(this.targetNode.getWorldPosition());
+            }
+            Log.d('[TransitionController] snap landed chest to new Pot pos after rotate');
+            return;
+        }
+
+        // Đang bay: dừng tween cũ, bay tiếp từ vị trí hiện tại tới Pot mới (bỏ nhún)
+        if (this._flyActive) {
+            this._startChestFlyPath(0.45, true);
+            Log.d(
+                `[TransitionController] retarget fly → local(${this._targetLocalPos.x.toFixed(1)}, ${this._targetLocalPos.y.toFixed(1)})`,
+            );
+        }
+        // Zoom / hold: _startChestFlyPath sẽ _computeFlyTarget lại khi bắt đầu bay
+    };
 
     // ─── TRANSITION EFFECT ───
 
@@ -149,6 +233,8 @@ export class TransitionController extends Component {
         }
         this._cleanupRunningTweens();
         this._pendingPot = this._findPotController();
+        this._flyActive = false;
+        this._hasLanded = false;
 
         // targetNode = Pot anchor (empty) — iconNode bay tới rồi reparent SAU khi overlay ẩn
         this.iconNode.active = true;
@@ -156,6 +242,7 @@ export class TransitionController extends Component {
 
         // 1. Mới vào: play loop Idle_LV6 trên icon spine
         const skel = this.iconNode.getComponent(sp.Skeleton);
+        this._landedSkel = skel;
         if (skel) {
             skel.setAnimation(0, 'Idle_LV6', true);
         }
@@ -173,47 +260,6 @@ export class TransitionController extends Component {
         const uiOpacity = this.iconNode.getComponent(UIOpacity);
         if (uiOpacity) uiOpacity.opacity = 255;
 
-        // Tính vị trí target trong local space của parent iconNode
-        const targetWorldPos = this.targetNode.getWorldPosition();
-        const targetLocalPos = new Vec3();
-        if (this.iconNode.parent) {
-            this.iconNode.parent.inverseTransformPoint(targetLocalPos, targetWorldPos);
-        } else {
-            Vec3.copy(targetLocalPos, targetWorldPos);
-        }
-
-        // Tính scale target theo world scale (tránh parent scale != 1)
-        const targetWorldScale = new Vec3();
-        this.targetNode.getWorldScale(targetWorldScale);
-        const iconParentWorldScale = new Vec3(1, 1, 1);
-        if (this.iconNode.parent) {
-            this.iconNode.parent.getWorldScale(iconParentWorldScale);
-        }
-        const targetLocalScale = new Vec3(
-            targetWorldScale.x / iconParentWorldScale.x,
-            targetWorldScale.y / iconParentWorldScale.y,
-            targetWorldScale.z / iconParentWorldScale.z,
-        );
-
-        // Đường bay 3 đoạn trong iconFlyDuration:
-        // 1) nhún nhẹ xuống → 2) bay lên phía trên Pot → 3) hạ xuống Pot
-        const startPos = this.iconNode.position.clone();
-        const dipPos = new Vec3(startPos.x, startPos.y - Math.max(0, this.flyDipOffset), startPos.z);
-        const abovePotPos = new Vec3(
-            targetLocalPos.x,
-            targetLocalPos.y + Math.max(0, this.flyArcHeight),
-            targetLocalPos.z,
-        );
-        const flyDur = Math.max(0.05, this.iconFlyDuration);
-        const dipT = flyDur * 0.18;
-        const arcT = flyDur * 0.47;
-        const landT = flyDur - dipT - arcT;
-        const midScale = new Vec3(
-            1 + (targetLocalScale.x - 1) * 0.45,
-            1 + (targetLocalScale.y - 1) * 0.45,
-            1 + (targetLocalScale.z - 1) * 0.45,
-        );
-
         tween(this.iconNode)
             // Zoom nhanh ra 0 → 1.3
             .to(this.iconZoomInDuration, { scale: new Vec3(1.3, 1.3, 1.3) })
@@ -221,36 +267,117 @@ export class TransitionController extends Component {
             .to(this.iconZoomOutDuration, { scale: new Vec3(1, 1, 1) })
             // Giữ yên trước khi bay
             .delay(this.holdBeforeFlyDuration)
-            // Vừa bắt đầu bay: stop effectNode (spine transition chờ tới khi hạ cánh)
+            // Bắt đầu bay: target lấy lúc này (sau hold / có thể đã xoay)
             .call(() => {
                 if (this.effectNode) {
                     for (const ps of this.effectNode.getComponentsInChildren(ParticleSystem)) ps.stop();
                     this.effectNode.active = false;
                 }
                 this._fadeOutFlashNode();
-            })
-            // 1. Nhún nhẹ xuống dưới
-            .to(dipT, { position: dipPos }, { easing: easing.sineOut })
-            // 2. Bay lên phía trên Pot + bắt đầu thu nhỏ
-            .to(arcT, { position: abovePotPos, scale: midScale }, { easing: easing.cubicOut })
-            // 3. Hạ xuống đúng Pot
-            .to(landT, { position: targetLocalPos, scale: targetLocalScale }, { easing: easing.cubicIn })
-            .call(() => {
-                // Đến đích mới play spine transition + effectNode2
-                if (skel) {
-                    const potLevel = GameData.instance.potLevel;
-                    skel.setAnimation(0, `LV6_transition_LV${potLevel}`, false);
-                }
-                if (this.effectNode2 && this.targetNode) {
-                    this.effectNode2.setWorldPosition(this.targetNode.getWorldPosition());
-                    this.effectNode2.active = true;
-                    for (const ps of this.effectNode2.getComponentsInChildren(ParticleSystem)) {
-                        ps.stop(); ps.play();
-                    }
-                }
-                this._beginHideSequence();
+                this._startChestFlyPath();
             })
             .start();
+    }
+
+    /**
+     * Bay tới Pot. Gọi lúc bắt đầu fly (và khi retarget sau xoay màn)
+     * để luôn dùng targetNode world pos mới nhất.
+     * @param skipDip true khi retarget giữa chừng — bỏ đoạn nhún, bay thẳng tới Pot mới.
+     */
+    private _startChestFlyPath(durationScale: number = 1, skipDip: boolean = false): void {
+        if (!this.iconNode?.isValid || this._hasLanded) return;
+
+        // Luôn lấy lại Pot anchor mới nhất (sau xoay màn)
+        this._refreshTargetFromPot();
+        if (!this.targetNode?.isValid) return;
+
+        this._computeFlyTarget();
+        this._flyActive = true;
+
+        const flyDur = Math.max(0.05, this.iconFlyDuration * Math.max(0.2, durationScale));
+        // Clone end values — Cocos snapshot props lúc tạo tween
+        const above = this._abovePotPos.clone();
+        const land = this._targetLocalPos.clone();
+        const midScale = this._midScale.clone();
+        const landScale = this._targetLocalScale.clone();
+
+        Tween.stopAllByTarget(this.iconNode);
+        let tw = tween(this.iconNode);
+
+        if (!skipDip) {
+            const startPos = this.iconNode.position.clone();
+            const dipPos = new Vec3(startPos.x, startPos.y - Math.max(0, this.flyDipOffset), startPos.z);
+            const dipT = flyDur * 0.18;
+            const arcT = flyDur * 0.47;
+            const landT = flyDur - dipT - arcT;
+            tw = tw
+                .to(dipT, { position: dipPos }, { easing: easing.sineOut })
+                .to(arcT, { position: above, scale: midScale }, { easing: easing.cubicOut })
+                .to(landT, { position: land, scale: landScale }, { easing: easing.cubicIn });
+        } else {
+            const arcT = flyDur * 0.55;
+            const landT = flyDur - arcT;
+            tw = tw
+                .to(arcT, { position: above, scale: midScale }, { easing: easing.cubicOut })
+                .to(landT, { position: land, scale: landScale }, { easing: easing.cubicIn });
+        }
+
+        tw.call(() => this._onChestLanded()).start();
+    }
+
+    /** Tính lại target local pos/scale theo targetNode hiện tại (sau xoay màn). */
+    private _computeFlyTarget(): void {
+        if (!this.iconNode?.isValid || !this.targetNode?.isValid) return;
+
+        const targetWorldPos = this.targetNode.getWorldPosition();
+        if (this.iconNode.parent) {
+            this.iconNode.parent.inverseTransformPoint(this._targetLocalPos, targetWorldPos);
+        } else {
+            Vec3.copy(this._targetLocalPos, targetWorldPos);
+        }
+
+        const targetWorldScale = new Vec3();
+        this.targetNode.getWorldScale(targetWorldScale);
+        const iconParentWorldScale = new Vec3(1, 1, 1);
+        if (this.iconNode.parent) {
+            this.iconNode.parent.getWorldScale(iconParentWorldScale);
+        }
+        this._targetLocalScale.set(
+            targetWorldScale.x / iconParentWorldScale.x,
+            targetWorldScale.y / iconParentWorldScale.y,
+            targetWorldScale.z / iconParentWorldScale.z,
+        );
+
+        this._abovePotPos.set(
+            this._targetLocalPos.x,
+            this._targetLocalPos.y + Math.max(0, this.flyArcHeight),
+            this._targetLocalPos.z,
+        );
+        this._midScale.set(
+            1 + (this._targetLocalScale.x - 1) * 0.45,
+            1 + (this._targetLocalScale.y - 1) * 0.45,
+            1 + (this._targetLocalScale.z - 1) * 0.45,
+        );
+    }
+
+    private _onChestLanded(): void {
+        if (this._hasLanded) return;
+        this._hasLanded = true;
+        this._flyActive = false;
+
+        const skel = this._landedSkel;
+        if (skel?.isValid) {
+            const potLevel = GameData.instance.potLevel;
+            skel.setAnimation(0, `LV6_transition_LV${potLevel}`, false);
+        }
+        if (this.effectNode2 && this.targetNode?.isValid) {
+            this.effectNode2.setWorldPosition(this.targetNode.getWorldPosition());
+            this.effectNode2.active = true;
+            for (const ps of this.effectNode2.getComponentsInChildren(ParticleSystem)) {
+                ps.stop(); ps.play();
+            }
+        }
+        this._beginHideSequence();
     }
 
     /**
@@ -391,10 +518,15 @@ export class TransitionController extends Component {
             this.unschedule(this._finishCb);
             this._finishCb = null;
         }
+        this.unschedule(this._retargetFlyAfterLayout);
+        this.unschedule(this._retargetFlyAfterLayoutLate);
+        this._flyActive = false;
+        this._hasLanded = false;
+        this._landedSkel = null;
         if (this.iconNode?.isValid) {
-            tween(this.iconNode).stop();
+            Tween.stopAllByTarget(this.iconNode);
             const uiOpacity = this.iconNode.getComponent(UIOpacity);
-            if (uiOpacity) tween(uiOpacity).stop();
+            if (uiOpacity) Tween.stopAllByTarget(uiOpacity);
         }
         const overlayOp = this.overlayNode?.isValid
             ? this.overlayNode.getComponent(UIOpacity)

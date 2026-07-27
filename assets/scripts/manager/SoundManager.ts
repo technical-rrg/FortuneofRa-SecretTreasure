@@ -79,6 +79,8 @@ const LAZY_AUDIO_PATHS: Record<string, string> = {
     sxBannerDisappear: 'sound/sx_banner_disappear',
     sxIndicaterLighton: 'sound/sx_indicater_lighton',
     sxGlobalWin: 'sound/sx_global_win',
+    sxPickGame: 'sound/sx_pick_game',
+    sxLuchHas: 'sound/sx_luch_has',
 };
 
 const SOUND_BUNDLE = 'MainBundle';
@@ -166,6 +168,8 @@ export class SoundManager extends Component {
     @property({ type: AudioClip }) sxBannerDisappear: AudioClip | null = null;
     @property({ type: AudioClip }) sxIndicaterLighton: AudioClip | null = null;
     @property({ type: AudioClip }) sxGlobalWin: AudioClip | null = null;
+    @property({ type: AudioClip }) sxPickGame: AudioClip | null = null;
+    @property({ type: AudioClip }) sxLuchHas: AudioClip | null = null;
 
     @property({ range: [0, 1, 0.05], slide: true })
     bgmVolume = 0.5;
@@ -368,7 +372,8 @@ export class SoundManager extends Component {
             'sxBonusStickyLand5',
         ];
         const idx = Math.min(this._stickyLandCount, props.length - 1);
-        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand');
+        // Sticky land: giữ volume UI 100% (không nhân VOLUME_BASE_SCALE).
+        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand', true);
         this._stickyLandCount++;
     }
 
@@ -405,14 +410,14 @@ export class SoundManager extends Component {
     }
 
     /** playSFX after ensuring deferred clip is ready (no-op if still loading). */
-    private _playSfxProp(prop: string): void {
+    private _playSfxProp(prop: string, fullVolume = false): void {
         const clip = (this as any)[prop] as AudioClip | null;
         if (clip) {
-            this.playSFX(clip);
+            this.playSFX(clip, fullVolume);
             return;
         }
         void this._ensureClip(prop).then((c) => {
-            if (c) this.playSFX(c);
+            if (c) this.playSFX(c, fullVolume);
         });
     }
 
@@ -489,7 +494,8 @@ export class SoundManager extends Component {
     }
 
     private _onLongSpinTriggered(): void {
-        this._playSfxProp('sxBonusTrigger');
+        // Longspin anticipation: giữ volume UI 100% (không nhân VOLUME_BASE_SCALE).
+        this._playSfxProp('sxBonusTrigger', true);
     }
 
     private _onWinPresentStart(resp: SpinResponse): void {
@@ -520,7 +526,8 @@ export class SoundManager extends Component {
      */
     playProgressiveWinLevel(_level: number): void {
         if (!this._progressiveWinActive) return;
-        this._scheduleProgressiveTransImpact();
+        // [TEMP] Tắt mx_progressive_trans_impact — bật lại khi cần.
+        // this._scheduleProgressiveTransImpact();
     }
 
     private _logProgressivePlaying(label: string): void {
@@ -970,9 +977,16 @@ export class SoundManager extends Component {
         return typeof duration === 'number' && duration > 0 ? duration : 0;
     }
 
-    playSFX(clip: AudioClip | null): void {
+    /**
+     * @param fullVolume true = dùng đúng sfxVolume UI (không nhân VOLUME_BASE_SCALE).
+     *                   Dùng cho Longspin anticipation cần giữ loudness 100%.
+     */
+    playSFX(clip: AudioClip | null, fullVolume = false): void {
         if (!this.sfxSource || !clip || this._masterMuted || this._sfxMuted) return;
-        this.sfxSource.playOneShot(clip, this._scaledVolume(this.sfxVolume));
+        const vol = fullVolume
+            ? Math.max(0, Math.min(1, this.sfxVolume))
+            : this._scaledVolume(this.sfxVolume);
+        this.sfxSource.playOneShot(clip, vol);
     }
 
     playBGM(clip: AudioClip | null): void {
@@ -1070,6 +1084,16 @@ export class SoundManager extends Component {
 
     playGlobalWin(): void {
         this._playSfxProp('sxGlobalWin');
+    }
+
+    /** TransitionPopup vừa bắt đầu play spine anim. */
+    playPickGame(): void {
+        this._playSfxProp('sxPickGame');
+    }
+
+    /** FeatureEntryGuide vừa xuất hiện / bắt đầu anim. */
+    playLuchHas(): void {
+        this._playSfxProp('sxLuchHas');
     }
 
     playBonusSelect(type: JackpotType): void {

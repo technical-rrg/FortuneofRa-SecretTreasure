@@ -2,6 +2,7 @@ import { _decorator, Component, Node, tween, UIOpacity, BlockInputEvents, Tween,
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { Log } from '../core/Logger';
+import { SoundManager } from '../manager/SoundManager';
 
 const { ccclass, property } = _decorator;
 
@@ -339,6 +340,10 @@ export class TopUpTransitionPopup extends Component {
             if (entry && resumeAt > 0) {
                 const duration = (entry.animation as { duration?: number } | null)?.duration ?? 0;
                 entry.trackTime = duration > 0 ? Math.min(resumeAt, Math.max(0, duration - 0.001)) : resumeAt;
+            }
+            // Chỉ play SFX lần đầu show — không play lại khi đổi orientation giữa chừng.
+            if (!preserveProgress) {
+                SoundManager.instance?.playPickGame();
             }
             Log.d(`[TopUpTransitionPopup] Spine OK ${isLandscape ? 'landscape' : 'portrait'} → "${animName}" @${resumeAt.toFixed(2)}s`);
         } else {

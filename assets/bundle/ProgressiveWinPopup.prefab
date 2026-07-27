@@ -14028,14 +14028,14 @@
     "particleSet3": {
       "__id__": 783
     },
-    "tierDurationBig": 5.3,
-    "tierDurationMega": 5,
-    "tierDurationMajor": 5,
-    "tierDurationSuper": 5.2,
-    "tierDurationEpic": 5.3,
-    "tierDurationUltra": 5,
-    "tierDurationMonster": 5,
-    "tierDurationMax": 5,
+    "tierDurationBig": 5.9,
+    "tierDurationMega": 5.5,
+    "tierDurationMajor": 5.5,
+    "tierDurationSuper": 5.5,
+    "tierDurationEpic": 5.5,
+    "tierDurationUltra": 5.5,
+    "tierDurationMonster": 5.5,
+    "tierDurationMax": 5.5,
     "autoCloseTimeout": 3,
     "outAnimCloseDelay": 0.5,
     "_id": ""

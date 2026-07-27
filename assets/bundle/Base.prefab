@@ -28615,11 +28615,12 @@
     "enableLongSpinCameraZoom": true,
     "longSpinZoomNode": null,
     "longSpinZoomExtraNodes": [],
-    "longSpinZoomScale": 1.15,
-    "longSpinZoomInDuration": 1.1,
+    "longSpinZoomScale": 1.3,
+    "longSpinZoomInDuration": 1,
     "longSpinZoomOutDelay": 0.5,
     "longSpinZoomOutDuration": 0.3,
-    "longSpinZoomPanX": 60,
+    "longSpinZoomPanX": 280,
+    "longSpinZoomPanY": 300,
     "enableLongSpinZoomShake": true,
     "longSpinZoomShakeAmplitude": 2.5,
     "longSpinZoomShakeStep": 0.055,
@@ -40681,7 +40682,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -810.485,
+      "x": -810.4850000000001,
       "y": 139.157,
       "z": 0
     },
@@ -40741,7 +40742,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 195.1690000000001,
+      "x": 195.16899999999998,
       "y": 332.063,
       "z": 0
     },
@@ -46162,7 +46163,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 204.59500000000014,
+      "x": 204.59500000000003,
       "y": 232.649,
       "z": 0
     },
@@ -62115,7 +62116,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1379.9999999999998,
+      "width": 1380,
       "height": 600
     },
     "_anchorPoint": {
@@ -66261,7 +66262,7 @@
     "_pressedSprite": null,
     "_disabledSprite": null,
     "_duration": 0.3,
-    "_zoomScale": 1.2,
+    "_zoomScale": 1.05,
     "_target": {
       "__id__": 4498
     },
@@ -69614,7 +69615,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079.9999999999998,
+      "width": 1080,
       "height": 100
     },
     "_anchorPoint": {
@@ -71674,7 +71675,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079.9999999999998,
+      "width": 1080,
       "height": 100
     },
     "_anchorPoint": {
@@ -71751,7 +71752,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079.9999999999998,
+      "width": 1080,
       "height": 100
     },
     "_anchorPoint": {
@@ -71891,7 +71892,7 @@
     "_debugSlots": false,
     "_enableBatch": false,
     "loop": true,
-    "_id": "31hCiwGKVE95eFL5Rqi30F"
+    "_id": "27kLOMzcxEKZcwWcNfsYqR"
   },
   {
     "__type__": "cc.CompPrefabInfo",
@@ -77285,7 +77286,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079.9999999999998,
+      "width": 1080,
       "height": 100
     },
     "_anchorPoint": {
@@ -77415,7 +77416,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": -937.6629999999999,
+      "x": -937.663,
       "y": 511.677,
       "z": 0
     },
@@ -77601,7 +77602,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1079.9999999999998,
+      "width": 1080,
       "height": 100
     },
     "_anchorPoint": {
@@ -77825,7 +77826,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 770.5729999999999,
+      "x": 770.573,
       "y": 982.867,
       "z": 0
     },
@@ -78035,7 +78036,7 @@
     },
     "_lpos": {
       "__type__": "cc.Vec3",
-      "x": 770.5729999999999,
+      "x": 770.573,
       "y": 303.654,
       "z": 0
     },
@@ -78233,7 +78234,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1919.9999999999998,
+      "width": 1920,
       "height": 1080
     },
     "_anchorPoint": {
@@ -78438,6 +78439,9 @@
     "sxGirlSymbolAnim": null,
     "sxBannerDisappear": null,
     "sxIndicaterLighton": null,
+    "sxGlobalWin": null,
+    "sxPickGame": null,
+    "sxLuchHas": null,
     "bgmVolume": 1,
     "sfxVolume": 1,
     "ambienceVolume": 1,

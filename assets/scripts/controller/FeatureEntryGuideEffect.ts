@@ -97,7 +97,7 @@ export class FeatureEntryGuideEffect extends Component {
         this.node.active = true;
         Log.d('[FeatureEntryGuide] play — node.active=true');
 
-        SoundManager.instance?.playSFX(this.sfxAppear);
+        SoundManager.instance?.playLuchHas();
         this._phaseAppear();
     }
 

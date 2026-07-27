@@ -185,6 +185,9 @@ export class SlotMachineController extends Component {
     @property({ tooltip: 'Thời gian giảm tốc của Reel cuối khi Long Spin — ngắn hơn để dừng dứt khoát (seconds)' })
     longSpinDecelDuration: number = 0.5;
 
+    @property({ tooltip: 'Thêm delay (giây) cho longspin ở reel cuối so với longspin thường — kéo anticipation lâu hơn một chút' })
+    longSpinLastReelExtraDelay: number = 0.5;
+
     @property({ tooltip: 'Chiều cao nhảy lên khi bắt đầu spin (nhân với symbolHeight). VD: 0.5 = nhảy lên 50% chiều cao symbol.' })
     launchBounceHeightRatio: number = 0.5;
 
@@ -327,13 +330,13 @@ export class SlotMachineController extends Component {
     @property({
         tooltip: [
             'Mức Zoom In (1.0 = không zoom).',
-            'Recommended → 1.12 ~ 1.2 (rõ mắt, hồi hộp).',
+            'Recommended → 1.4 ~ 1.55 (zoom nhanh, mạnh vào reel cuối).',
         ].join('\n'),
     })
-    longSpinZoomScale: number = 1.15;
+    longSpinZoomScale: number = 1.45;
 
-    @property({ tooltip: 'Thời gian Zoom In khi anticipation bắt đầu (giây)' })
-    longSpinZoomInDuration: number = 1.1;
+    @property({ tooltip: 'Thời gian Zoom In khi anticipation bắt đầu (giây). Nhỏ hơn = nhanh hơn.' })
+    longSpinZoomInDuration: number = 0.4;
 
     @property({ tooltip: 'Delay sau khi reel cuối dừng trước khi Zoom Out về vị trí cũ (giây)' })
     longSpinZoomOutDelay: number = 0.5;
@@ -343,12 +346,20 @@ export class SlotMachineController extends Component {
 
     @property({
         tooltip: [
-            'Dịch pivot zoom theo X về phía reel cuối (px world).',
-            '0 = zoom quanh tâm SlotMachine. 40~80 = kéo khung nhìn về cột cuối.',
-            'Recommended → 60',
+            'Camera pan X (px world): đặt pivot sang phía ngoài reel cuối.',
+            'Dương = đẩy camera về reel → reel bị kéo sang trái vào giữa màn.',
+            'Recommended → 220 ~ 320',
         ].join('\n'),
     })
-    longSpinZoomPanX: number = 60;
+    longSpinZoomPanX: number = 280;
+
+    @property({
+        tooltip: [
+            'Camera pan Y (px world). Dương = đẩy camera xuống → reel bị kéo lên giữa màn.',
+            '0 = không lệch Y. Recommended → 200 ~ 320',
+        ].join('\n'),
+    })
+    longSpinZoomPanY: number = 300;
 
     @property({ tooltip: 'Rung nhẹ ngay khi bắt đầu Zoom In (anticipation)' })
     enableLongSpinZoomShake: boolean = true;
@@ -1080,9 +1091,13 @@ export class SlotMachineController extends Component {
             }
             reel.setResultStripIndex(stripIdx);
 
-            // Reel 3 long spin: kéo dài thời gian giảm tốc để tạo cảm giác hồi hộp
+            // Reel long spin: kéo dài thời gian giảm tốc để tạo cảm giác hồi hộp
             if (isLong) {
                 reel.decelDuration = this.longSpinDecelDuration;
+                // Reel cuối: anticipation lâu hơn longspin thường một chút
+                if (i === this.reels.length - 1) {
+                    reel.longSpinDelay += this.longSpinLastReelExtraDelay;
+                }
             }
 
             reel.onSnapComplete = () => {
@@ -1530,13 +1545,22 @@ export class SlotMachineController extends Component {
         const s = this.longSpinZoomScale;
         const dur = Math.max(0.05, this.longSpinZoomInDuration);
 
-        // Pivot = tâm SlotMachine, lệch nhẹ về reel cuối
+        // Camera pivot: gốc tại tâm SlotMachine, rồi pan về phía reel cần focus
         const pivot = this.node.worldPosition.clone();
         const reel = this.reels[reelIndex];
-        if (reel && this.longSpinZoomPanX !== 0) {
+        if (reel) {
             const reelWorld = reel.node.worldPosition;
-            const dir = reelWorld.x >= pivot.x ? 1 : -1;
-            pivot.x += dir * Math.abs(this.longSpinZoomPanX);
+            // PanX: đặt pivot sang phía ngoài reel → khi zoom, reel bị đẩy về giữa (trái)
+            if (this.longSpinZoomPanX !== 0) {
+                const dir = reelWorld.x >= pivot.x ? 1 : -1;
+                pivot.x = reelWorld.x + dir * Math.abs(this.longSpinZoomPanX);
+            }
+            // PanY: hạ pivot dưới reel → khi zoom, reel bị đẩy lên giữa màn
+            if (this.longSpinZoomPanY !== 0) {
+                pivot.y = reelWorld.y - this.longSpinZoomPanY;
+            }
+        } else if (this.longSpinZoomPanY !== 0) {
+            pivot.y -= this.longSpinZoomPanY;
         }
 
         // Nếu đang zoom dở → dừng tween, giữ baseline đã capture
@@ -1606,7 +1630,7 @@ export class SlotMachineController extends Component {
         Tween.stopAllByTarget(this._zoomProgress);
         tween(this._zoomProgress)
             .to(dur, { t: 1 }, {
-                easing: 'sineOut',
+                easing: 'cubicOut',
                 onUpdate: () => this._applyLongSpinZoomTransform(),
             })
             .start();

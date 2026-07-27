@@ -1,5 +1,5 @@
 /**
- * GuideFrameLoader — preload 10 guide slides độc lập với Base.prefab / GuideView.
+ * GuideFrameLoader — preload guide slides độc lập với Base.prefab / GuideView.
  *
  * Dùng bởi LoadingController (trước LOADING_BAR_100) và GuideController (reuse cache).
  */
@@ -14,6 +14,7 @@ export const GUIDE_PORTRAIT_PATHS = [
     'newTextures/guide/Verticle/Guide3/spriteFrame',
     'newTextures/guide/Verticle/Guide4/spriteFrame',
     'newTextures/guide/Verticle/Guide5/spriteFrame',
+    'newTextures/guide/Verticle/Guide6/spriteFrame',
 ] as const;
 
 export const GUIDE_LANDSCAPE_PATHS = [
@@ -22,6 +23,7 @@ export const GUIDE_LANDSCAPE_PATHS = [
     'newTextures/guide/Guide3/spriteFrame',
     'newTextures/guide/Guide4/spriteFrame',
     'newTextures/guide/Guide5/spriteFrame',
+    'newTextures/guide/Guide6/spriteFrame',
 ] as const;
 
 export interface GuideFrames {
@@ -47,6 +49,13 @@ export class GuideFrameLoader {
     static preload(bundle?: AssetManager.Bundle | null): Promise<GuideFrames | null> {
         if (GuideFrameLoader.isReady) {
             return Promise.resolve(GuideFrameLoader._cached);
+        }
+        // Cache thiếu slide mới (vd. thêm Guide6) → bỏ promise cũ, load lại
+        if (GuideFrameLoader._cached
+            && (GuideFrameLoader._cached.portrait.length < GUIDE_PORTRAIT_PATHS.length
+                || GuideFrameLoader._cached.landscape.length < GUIDE_LANDSCAPE_PATHS.length)) {
+            GuideFrameLoader._promise = null;
+            GuideFrameLoader._cached = null;
         }
         if (GuideFrameLoader._promise) return GuideFrameLoader._promise;
 

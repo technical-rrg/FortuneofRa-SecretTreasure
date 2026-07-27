@@ -36,24 +36,24 @@ export class GuideController extends Component {
     guidePanel: Node | null = null;
 
 
-    // ─── Background Carousel (5 slides) ───
-    @property({ type: [Node], tooltip: '5 background nodes (mỗi node có Sprite component, spriteFrame sẽ được set động theo orientation)' })
+    // ─── Background Carousel ───
+    @property({ type: [Node], tooltip: 'Background nodes (mỗi node có Sprite; spriteFrame set động theo orientation)' })
     bgNodes: Node[] = [];
 
-    @property({ type: [SpriteFrame], tooltip: '5 sprite frames cho PORTRAIT (match index bgNodes). Để trống = giữ spriteFrame gốc trên node.' })
+    @property({ type: [SpriteFrame], tooltip: 'Sprite frames PORTRAIT (match index bgNodes). Để trống = giữ spriteFrame gốc trên node.' })
     bgPortraitFrames: SpriteFrame[] = [];
 
-    @property({ type: [SpriteFrame], tooltip: '5 sprite frames cho LANDSCAPE (match index bgNodes). Để trống = giữ spriteFrame gốc trên node.' })
+    @property({ type: [SpriteFrame], tooltip: 'Sprite frames LANDSCAPE (match index bgNodes). Để trống = giữ spriteFrame gốc trên node.' })
     bgLandscapeFrames: SpriteFrame[] = [];
 
     @property({ type: Label, tooltip: 'Label hiển thị title/guide text — đổi theo từng background' })
     guideTitleLabel: Label | null = null;
 
-    @property({ type: [CCString], tooltip: '5 localization keys cho guideTitleLabel (match index với bgNodes)' })
+    @property({ type: [CCString], tooltip: 'Localization keys cho guideTitleLabel (match index với bgNodes)' })
     guideTitleKeys: string[] = [];
 
     // ─── Tab Icons ───
-    @property({ type: [Node], tooltip: '5 tab icon nodes (mỗi node có Sprite component)' })
+    @property({ type: [Node], tooltip: 'Tab icon nodes (mỗi node có Sprite component)' })
     tabIcons: Node[] = [];
 
     @property({ type: SpriteFrame, tooltip: 'Sprite frame NORMAL cho TẤT CẢ tab icons' })
@@ -509,8 +509,8 @@ export class GuideController extends Component {
             node.active = (i === 0); // ★ chỉ bg[0] active khi mới vào
             Log.d(`[GuideController] _setupBgNodes — bgNodes[${i}] name=${node.name} pos=${i===0?'ZERO':'(5000,0,0)'} active=${i===0}`);
         }
-        if (this.bgNodes.length < 5) {
-            Log.w(`[GuideController] _setupBgNodes — WARNING: only ${this.bgNodes.length} bgNodes assigned (expected 5)!`);
+        if (this.bgNodes.length === 0) {
+            Log.w(`[GuideController] _setupBgNodes — WARNING: no bgNodes assigned!`);
         }
     }
 

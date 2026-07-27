@@ -154,7 +154,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1920,
+      "width": 1920.0000000000002,
       "height": 1080
     },
     "_anchorPoint": {
@@ -4025,7 +4025,7 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 1920,
+      "width": 1920.0000000000002,
       "height": 1080
     },
     "_anchorPoint": {
@@ -4088,7 +4088,7 @@
     },
     "iconZoomInDuration": 0.25,
     "holdBeforeFlyDuration": 1,
-    "iconFlyDuration": 2,
+    "iconFlyDuration": 2.2,
     "flyDipOffset": 70,
     "flyArcHeight": 200,
     "iconZoomOutDuration": 0.1,

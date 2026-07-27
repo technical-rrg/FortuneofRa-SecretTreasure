@@ -5,7 +5,7 @@
  * - Spin button mờ đi khi không thể spin
  */
 
-import { _decorator, Component, Node, Label, Button, tween, Vec3, Color, Tween, Sprite, SpriteFrame, RichText, sp, input, Input, KeyCode, EventKeyboard, UITransform, EventTouch } from 'cc';
+import { _decorator, Component, Node, Label, Button, tween, Vec3, Color, Tween, Sprite, SpriteFrame, RichText, sp, input, Input, KeyCode, EventKeyboard, UITransform, EventTouch, screen } from 'cc';
 import { formatCurrencyFixed } from '../core/FormatUtils';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
@@ -15,6 +15,7 @@ import { WalletManager } from '../manager/WalletManager';
 import { SoundManager } from '../manager/SoundManager';
 import { GameData } from '../data/GameData';
 import { JackpotDisplay } from './JackpotDisplay';
+import { OrientationLayout } from './OrientationLayout';
 import { L } from '../core/LocalizationManager';
 import { AutoSpinManager, SpeedMode } from '../manager/AutoSpinManager';
 import { Log } from '../core/Logger';
@@ -119,8 +120,6 @@ export class UIController extends Component {
     private _spinEnabled: boolean = true;
     /** Reel đang quay — cho phép nhấn Spin lại để quick stop */
     private _isSpinning: boolean = false;
-    /** Scale hiện tại của spin button — lưu giữ khi đổi sprite */
-    private _spinButtonCurrentScale: Vec3 = new Vec3(1, 1, 1);
     /** Số popup đang mở — phím Space bị khoá khi > 0 */
     private _openPopupCount: number = 0;
     private _showCurrencySymbol: boolean = true;
@@ -183,6 +182,15 @@ export class UIController extends Component {
         }
         this._balanceCoinLoopActive = false;
         this._freeSpinCoinLoopActive = false;
+
+        // Claim đã sync Wallet trước khi hiện end popup. Snap label ngay để
+        // không kẹt số cũ đến lúc Normal spin kế tiếp (animation bị hủy giữa chừng).
+        const balance = WalletManager.instance.balance;
+        if (this._displayedBalance !== balance || this._targetBalance !== balance) {
+            this._displayedBalance = balance;
+            this._targetBalance = balance;
+            this._refreshBalanceLabel();
+        }
     }
 
     onDestroy(): void {
@@ -191,6 +199,7 @@ export class UIController extends Component {
         }
         EventBus.instance.offTarget(this);
         this._spinButtonAnimationRunning = false;
+        this._stopSpinButtonRotation();
         if (this.spinButton) {
             Tween.stopAllByTarget(this.spinButton.node);
         }
@@ -209,6 +218,10 @@ export class UIController extends Component {
 
     private _bindUI(): void {
         if (this.spinButton) {
+            // Giữ SCALE press feedback trên BtnSpin; tween xoay chạy trên spine child
+            // để Tween.stopAllByTarget không cắt zoom và làm scale phình dần.
+            this.spinButton.transition = Button.Transition.SCALE;
+            this.spinButton.zoomScale = 1.05;
             this.spinButton.node.on('click', this._onSpinClick, this);
         }
         if (this.betUpButton) {
@@ -709,10 +722,36 @@ export class UIController extends Component {
         if (this.autoSpinFreeButton) this.autoSpinFreeButton.node.active = true;
     }
 
-    private _startSpinButtonRotationLoop(): void {
-        if (!this.spinButton) return;
+    /** Node dùng cho tween xoay — tách khỏi BtnSpin để không đụng Button SCALE. */
+    private _getSpinButtonRotationNode(): Node | null {
+        return this.spinButtonSpine?.node ?? null;
+    }
 
+    private _stopSpinButtonRotation(): void {
+        const rotNode = this._getSpinButtonRotationNode();
+        if (!rotNode) return;
+        Tween.stopAllByTarget(rotNode);
+        rotNode.setRotationFromEuler(0, 0, 0);
+    }
+
+    /** Snap scale BtnSpin về giá trị OrientationLayout (sau khi cắt Button zoom tween). */
+    private _snapSpinButtonScaleToLayout(): void {
+        if (!this.spinButton) return;
         const node = this.spinButton.node;
+        Tween.stopAllByTarget(node);
+        const layout = node.getComponent(OrientationLayout);
+        if (layout) {
+            const size = screen.windowSize;
+            const data = size.height > size.width ? layout.portrait : layout.landscape;
+            node.setScale(data.scaleX, data.scaleY, data.scaleZ);
+        }
+    }
+
+    private _startSpinButtonRotationLoop(): void {
+        const node = this._getSpinButtonRotationNode();
+        if (!node) return;
+
+        this._stopSpinButtonRotation();
         this._spinButtonAnimationRunning = true;
         const animationLoop = () => {
             if (!this._spinButtonAnimationRunning) return;
@@ -731,27 +770,20 @@ export class UIController extends Component {
         const sprite = this.spinButton.node.getComponentInChildren(Sprite);
         if (!sprite) return;
 
-        // Lưu scale hiện tại trước khi đổi sprite
-        const currentScale = new Vec3(this.spinButton.node.scale);
-        this._spinButtonCurrentScale = currentScale;
+        this._spinButtonAnimationRunning = false;
+        this._stopSpinButtonRotation();
+        // Cắt Button zoom giữa chừng (nếu đang hold) rồi snap về scale layout — không để phình dần.
+        this._snapSpinButtonScaleToLayout();
 
         if (normal) {
             // Spin được: hiện spine, ẩn sprite → bắt đầu xoay
             if (sprite.node) sprite.node.active = false;
             if (this.spinButtonSpine) this.spinButtonSpine.node.active = true;
-            // Restore scale và reset eulerAngles về 0
-            this.spinButton.node.setScale(currentScale);
-            this.spinButton.node.setRotationFromEuler(0, 0, 0);
             this._startSpinButtonRotationLoop();
         } else {
             // Không spin được: hiện sprite, ẩn spine → dừng xoay
             if (sprite.node) sprite.node.active = true;
             if (this.spinButtonSpine) this.spinButtonSpine.node.active = false;
-            // Restore scale, dừng animation và reset eulerAngles về 0
-            this.spinButton.node.setScale(currentScale);
-            this._spinButtonAnimationRunning = false;
-            Tween.stopAllByTarget(this.spinButton.node);
-            this.spinButton.node.setRotationFromEuler(0, 0, 0);
         }
     }
 

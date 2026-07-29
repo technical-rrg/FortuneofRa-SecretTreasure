@@ -2,7 +2,7 @@
   "ver": "1.0.27",
   "importer": "image",
   "imported": true,
-  "uuid": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a",
+  "uuid": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041",
   "files": [
     ".json",
     ".png"
@@ -10,14 +10,14 @@
   "subMetas": {
     "6c48a": {
       "importer": "texture",
-      "uuid": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a@6c48a",
-      "displayName": "TitleGame",
+      "uuid": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041@6c48a",
+      "displayName": "HK$",
       "id": "6c48a",
       "name": "texture",
       "userData": {
         "wrapModeS": "clamp-to-edge",
         "wrapModeT": "clamp-to-edge",
-        "imageUuidOrDatabaseUri": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a",
+        "imageUuidOrDatabaseUri": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041",
         "isUuid": true,
         "visible": false,
         "minfilter": "linear",
@@ -34,21 +34,21 @@
     },
     "f9941": {
       "importer": "sprite-frame",
-      "uuid": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a@f9941",
-      "displayName": "TitleGame",
+      "uuid": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041@f9941",
+      "displayName": "HK$",
       "id": "f9941",
       "name": "spriteFrame",
       "userData": {
         "trimThreshold": 1,
         "rotated": false,
-        "offsetX": 1,
-        "offsetY": -1,
-        "trimX": 2,
-        "trimY": 2,
-        "width": 1802,
-        "height": 648,
-        "rawWidth": 1804,
-        "rawHeight": 650,
+        "offsetX": 0,
+        "offsetY": 0,
+        "trimX": 0,
+        "trimY": 0,
+        "width": 350,
+        "height": 163,
+        "rawWidth": 350,
+        "rawHeight": 163,
         "borderTop": 0,
         "borderBottom": 0,
         "borderLeft": 0,
@@ -60,17 +60,17 @@
         "meshType": 0,
         "vertices": {
           "rawPosition": [
-            -901,
-            -324,
+            -175,
+            -81.5,
             0,
-            901,
-            -324,
+            175,
+            -81.5,
             0,
-            -901,
-            324,
+            -175,
+            81.5,
             0,
-            901,
-            324,
+            175,
+            81.5,
             0
           ],
           "indexes": [
@@ -82,40 +82,40 @@
             3
           ],
           "uv": [
-            2,
-            648,
-            1804,
-            648,
-            2,
             0,
-            1804,
+            163,
+            350,
+            163,
+            0,
+            0,
+            350,
             0
           ],
           "nuv": [
-            0.0011086474501108647,
+            0,
             0,
             1,
             0,
-            0.0011086474501108647,
-            0.9969230769230769,
+            0,
             1,
-            0.9969230769230769
+            1,
+            1
           ],
           "minPos": [
-            -901,
-            -324,
+            -175,
+            -81.5,
             0
           ],
           "maxPos": [
-            901,
-            324,
+            175,
+            81.5,
             0
           ]
         },
         "isUuid": true,
-        "imageUuidOrDatabaseUri": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a@6c48a",
+        "imageUuidOrDatabaseUri": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041@6c48a",
         "atlasUuid": "",
-        "trimType": "auto"
+        "trimType": "none"
       },
       "ver": "1.0.12",
       "imported": true,
@@ -129,10 +129,6 @@
     "type": "sprite-frame",
     "fixAlphaTransparencyArtifacts": false,
     "hasAlpha": true,
-    "redirect": "aec1805c-c89c-4a9d-a078-e96a0d73ba6a@6c48a",
-    "compressSettings": {
-      "useCompressTexture": true,
-      "presetId": "spineBootWebp60"
-    }
+    "redirect": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041@6c48a"
   }
 }

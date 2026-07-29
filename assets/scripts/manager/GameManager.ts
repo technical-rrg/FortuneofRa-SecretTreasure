@@ -247,9 +247,9 @@ export class GameManager extends Component {
     /** Count chờ prepare khi Transition fade-in xong (READY) */
     private _pendingTopUpPrepareCount: number | null = null;
     private _pendingFreespinPrepareCount: number | null = null;
-    /** Pot transition animation đang chạy — block spin cho đến khi POT_TRANSITION_END */
+    /** Pot transition animation đang chạy — chỉ defer stage đặc biệt (non-SPIN), không chặn Spin thường */
     private _isPotTransitioning: boolean = false;
-    /** _afterWinProcessed bị defer vì pot transition chưa xong — sẽ gọi lại khi POT_TRANSITION_END */
+    /** _afterWinProcessed bị defer vì pot transition chưa xong (non-SPIN) — flush khi POT_TRANSITION_END */
     private _pendingAfterWinProcessed: boolean = false;
     /** Free Spin end pending sau khi Pick Game đóng */
     private _pendingFreeSpinEnd: boolean = false;
@@ -2261,7 +2261,9 @@ export class GameManager extends Component {
             return;
         }
 
-        // Nếu pot transition animation chưa xong → defer cho đến khi POT_TRANSITION_END
+        // Pot level-up animation không được chặn Spin.
+        // Highlight win (show-all) xong → mở Spin ngay, chạy song song với Pot transition.
+        // Chỉ defer khi nextStage không phải SPIN (POT_WIN / FEATURE_SELECT / …).
         const data = GameData.instance;
         const resp = data.lastSpinResponse;
         if (!resp) {
@@ -2269,16 +2271,12 @@ export class GameManager extends Component {
             return;
         }
 
-        const hasLineOrWaysWin = resp.matchedLinePays.length > 0 || ((resp.waysPayWins ?? []).length > 0);
         const canContinueDuringPotTransition =
-            AutoSpinManager.instance.isAutoSpinActive &&
-            (resp.nextStage as SlotStageType) === SlotStageType.SPIN &&
-            !hasLineOrWaysWin &&
-            resp.totalWin <= 0;
+            (resp.nextStage as SlotStageType) === SlotStageType.SPIN;
 
         if (this._isPotTransitioning && !canContinueDuringPotTransition) {
             this._pendingAfterWinProcessed = true;
-            this._logSpinState('_afterWinProcessed DEFER — pot transitioning');
+            this._logSpinState('_afterWinProcessed DEFER — pot transitioning (non-SPIN stage)');
             return;
         }
 

@@ -59,6 +59,16 @@
       },
       {
         "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇦🇺  Australia — English (AU)  (au)",
+        "message": "set-lang-au"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇭🇰  Hong Kong — English (HK)  (hk)",
+        "message": "set-lang-hk"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
         "label": "⬛  Auto (clear override)",
         "message": "set-lang-auto"
       }
@@ -74,6 +84,8 @@
       "set-lang-sg":    { "methods": ["setLangSg"] },
       "set-lang-ms":    { "methods": ["setLangMs"] },
       "set-lang-vi":    { "methods": ["setLangVi"] },
+      "set-lang-au":    { "methods": ["setLangAu"] },
+      "set-lang-hk":    { "methods": ["setLangHk"] },
       "set-lang-auto":  { "methods": ["setLangAuto"] }
     }
   }

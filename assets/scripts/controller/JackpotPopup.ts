@@ -40,6 +40,7 @@ import { AutoSpinManager } from '../manager/AutoSpinManager';
 import { GameData } from '../data/GameData';
 import { SoundManager } from '../manager/SoundManager';
 import { SpriteNumber } from '../core/SpriteNumber';
+import { naturalCountUpValue } from '../core/FormatUtils';
 import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
@@ -386,9 +387,9 @@ export class JackpotPopup extends Component {
                 SoundManager.instance?.playCoinLoop();
             }
 
-            const cur = to * t; // linear — consistent tick size at 30fps
-            const curTrunc = Math.floor(cur * 1000) / 1000;
-            this.amountDisplay!.setData(curTrunc, this.currencyIndex, 3);
+            // Natural count-up: tránh pattern đều (11.111→22.222) khi đích là số tròn
+            const cur = naturalCountUpValue(0, to, t, 3);
+            this.amountDisplay!.setData(cur, this.currencyIndex, 3);
 
             if (elapsed >= this.countUpDuration) {
                 this._isCountingUp = false;

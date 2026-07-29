@@ -54,6 +54,7 @@ import { GameData } from '../data/GameData';
 import { BetManager } from '../manager/BetManager';
 import { SoundManager } from '../manager/SoundManager';
 import { SpriteNumber } from '../core/SpriteNumber';
+import { naturalCountUpValue } from '../core/FormatUtils';
 import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
@@ -553,11 +554,9 @@ export class ProgressiveWinPopup extends Component {
             const seg = this._segments[segIndex];
             const segDuration = Math.max(this._getTierDuration(segIndex), 0.0001);
             const localT = Math.min(Math.max((elapsed - segStartTime) / segDuration, 0), 1);
-            // Linear interpolation within segment: constant small increments at 30fps
-            const cur = seg.startAmount + (seg.endAmount - seg.startAmount) * localT;
-            // Truncate to 3 decimals (do NOT round) to match JackpotPopup behavior
-            const curTrunc = Math.floor(cur * 1000) / 1000;
-            this.amountDisplay!.setData(curTrunc, this.currencyIndex, 3);
+            // Natural count-up: tránh pattern đều (11.111→22.222) khi đích là số tròn
+            const cur = naturalCountUpValue(seg.startAmount, seg.endAmount, localT, 3);
+            this.amountDisplay!.setData(cur, this.currencyIndex, 3);
 
             // Finish when time is up OR amount already reached target.
             // Zero-range trailing segments (finalAmount == tier threshold) reach `to` early;

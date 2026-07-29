@@ -530,6 +530,7 @@ export class BroadcastManager extends Component {
             'fil':   'ph',  'vi':    'vn',  'id':    'id',
             'ms':    'my',  'ar':    'sa',  'pt':    'pt',
             'es':    'es',  'fr':    'fr',  'de':    'de',
+            'sg':    'sg',  'au':    'au',  'hk':    'hk',
         };
         const iso = LANG_TO_ISO[(langId ?? '').toLowerCase()];
         if (!iso) return '';

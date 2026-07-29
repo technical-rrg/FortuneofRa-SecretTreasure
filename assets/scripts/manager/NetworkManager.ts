@@ -505,7 +505,7 @@ class MockNetworkAdapter implements INetworkAdapter {
         const mockCurrencyByLang: Record<string, string> = {
             'en': 'USD', 'ko': 'KRW', 'zh-cn': 'CNY', 'zh-tw': 'TWD',
             'fil': 'PHP', 'ja': 'JPY', 'th': 'THB', 'sg': 'SGD',
-            'ms': 'MYR', 'vi': 'VND',
+            'ms': 'MYR', 'vi': 'VND', 'au': 'AUD', 'hk': 'HKD',
         };
         const mockCurrency = TestLoginConfig.Currency ?? mockCurrencyByLang[gl.toLowerCase()] ?? 'USD';
 
@@ -3352,6 +3352,8 @@ class RealNetworkAdapter implements INetworkAdapter {
         const MAP: Record<string, number> = {
             'en':    0,   // English
             'sg':    0,   // Singapore English
+            'au':    0,   // Australia English
+            'hk':    0,   // Hong Kong English
             'ja':    1,   // Japanese
             'ko':    2,   // Korean
             'th':    3,   // Thai

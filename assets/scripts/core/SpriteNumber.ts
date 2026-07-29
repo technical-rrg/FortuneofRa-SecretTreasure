@@ -104,7 +104,7 @@ export class SpriteNumber extends Component {
 
     @property({
         tooltip: 'Bật để tự động đổi icon tiền tệ theo currency server trả về (ưu tiên) hoặc ngôn ngữ hiện tại.\n' +
-                 'currencySprites phải có đúng 10 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th, sg, ms, vi.\n' +
+                 'currencySprites phải có đúng 12 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th, sg, ms, vi, au, hk.\n' +
                  'Khi ngôn ngữ/currency thay đổi, SpriteNumber tự dùng index tương ứng làm currency index.',
     })
     enableLangCurrency: boolean = false;
@@ -253,7 +253,9 @@ export class SpriteNumber extends Component {
     private _hasSeenNonZeroDecimal: boolean = false;
 
     /** Thứ tự ngôn ngữ khớp với SUPPORTED_LANGUAGES trong LocalizationManager. */
-    private static readonly LANG_ORDER: LanguageCode[] = ['en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi'];
+    private static readonly LANG_ORDER: LanguageCode[] = [
+        'en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi', 'au', 'hk',
+    ];
 
     /**
      * Map currency code (ISO 4217) → index trong currencySprites (khớp LANG_ORDER).
@@ -261,7 +263,8 @@ export class SpriteNumber extends Component {
      * Ưu tiên hơn ngôn ngữ UI đang chọn.
      */
     private static readonly CURRENCY_CODE_TO_SPRITE_INDEX: Record<string, number> = {
-        // index khớp LANG_ORDER: en=0, ko=1, zh-cn=2, zh-tw=3, fil=4, ja=5, th=6, sg=7, ms=8, vi=9
+        // index khớp LANG_ORDER:
+        // en=0, ko=1, zh-cn=2, zh-tw=3, fil=4, ja=5, th=6, sg=7, ms=8, vi=9, au=10, hk=11
         'USD': 0,  // $   → en sprite
         'KRW': 1,  // ₩   → ko sprite
         'CNY': 2,  // ¥   → zh-cn sprite
@@ -272,11 +275,11 @@ export class SpriteNumber extends Component {
         'SGD': 7,  // S$  → sg sprite
         'MYR': 8,  // RM  → ms sprite
         'VND': 9,  // ₫   → vi sprite
+        'AUD': 10, // A$  → au sprite
+        'HKD': 11, // HK$ → hk sprite
         'EUR': 0,  // €   → en sprite (fallback)
         'GBP': 0,  // £   → en sprite (fallback)
-        'AUD': 0,  // A$  → en sprite (fallback)
         'CAD': 0,  // C$  → en sprite (fallback)
-        'HKD': 0,  // HK$ → en sprite (fallback)
         'IDR': 0,  // Rp  → en sprite (fallback)
         'INR': 0,  // ₹   → en sprite (fallback)
     };

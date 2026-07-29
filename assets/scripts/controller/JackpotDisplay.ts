@@ -26,6 +26,7 @@ import { GameData } from '../data/GameData';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { SpriteNumber } from '../core/SpriteNumber';
+import { naturalCountUpValue } from '../core/FormatUtils';
 import { JackpotType } from '../data/SlotTypes';
 import { Log } from '../core/Logger';
 
@@ -455,9 +456,9 @@ export class JackpotDisplay extends Component {
         const tw = tween(obj)
             .to(duration, { val: to }, {
                 easing: 'quadOut',
-                onUpdate: () => {
-                    const curTrunc = Math.floor(obj.val * 1000) / 1000;
-                    label.setData(curTrunc, currencyIndex, 3);
+                onUpdate: (_obj, ratio) => {
+                    const cur = naturalCountUpValue(from, to, ratio ?? 0, 3);
+                    label.setData(cur, currencyIndex, 3);
                 },
             })
             .call(() => {

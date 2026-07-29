@@ -28,6 +28,8 @@ const LANGUAGES = [
     { code: 'sg',    label: 'Singapore',                native: 'English (SG)',   flag: '🇸🇬' },
     { code: 'ms',    label: 'Malay',                    native: 'Bahasa Melayu',  flag: '🇲🇾' },
     { code: 'vi',    label: 'Vietnamese',               native: 'Tiếng Việt',      flag: '🇻🇳' },
+    { code: 'au',    label: 'Australia',                native: 'English (AU)',   flag: '🇦🇺' },
+    { code: 'hk',    label: 'Hong Kong',                native: 'English (HK)',   flag: '🇭🇰' },
 ];
 
 // ─── Extension lifecycle ──────────────────────────────────────────────────────
@@ -54,6 +56,8 @@ exports.methods = {
     setLangSg()    { _setLang('sg'); },
     setLangMs()    { _setLang('ms'); },
     setLangVi()    { _setLang('vi'); },
+    setLangAu()    { _setLang('au'); },
+    setLangHk()    { _setLang('hk'); },
     setLangAuto()  { _setLang(null); },
 };
 

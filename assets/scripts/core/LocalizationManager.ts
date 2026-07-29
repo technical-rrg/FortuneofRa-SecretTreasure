@@ -22,6 +22,8 @@
  *   sg    — Singapore English
  *   ms    — Malay (Bahasa Melayu)
  *   vi    — Vietnamese (Tiếng Việt)
+ *   au    — Australia English (AUD / A$)
+ *   hk    — Hong Kong English (HKD / HK$)
  *
  * ★ 2 CHẾ ĐỘ HOẠT ĐỘNG:
  *   LOCAL:  Dùng file .ts build sẵn trong game (mặc định, offline-safe).
@@ -55,11 +57,13 @@ import { LOCALE_TH } from '../data/locales/th';
 import { LOCALE_SG } from '../data/locales/sg';
 import { LOCALE_MS } from '../data/locales/ms';
 import { LOCALE_VI } from '../data/locales/vi';
+import { LOCALE_AU } from '../data/locales/au';
+import { LOCALE_HK } from '../data/locales/hk';
 import { Log } from './Logger';
 
 // ─── Types ───
 
-export type LanguageCode = 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th' | 'sg' | 'ms' | 'vi';
+export type LanguageCode = 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th' | 'sg' | 'ms' | 'vi' | 'au' | 'hk';
 
 /**
  * Map từ currency code (ISO 4217) → ký hiệu tiền tệ hiển thị.
@@ -101,6 +105,8 @@ const LOCALE_MODULES: Record<LanguageCode, LocaleData> = {
     'sg':    LOCALE_SG,
     'ms':    LOCALE_MS,
     'vi':    LOCALE_VI,
+    'au':    LOCALE_AU,
+    'hk':    LOCALE_HK,
 };
 
 /**
@@ -117,6 +123,8 @@ export const SUPPORTED_LANGUAGES: { code: LanguageCode; name: string; nativeName
     { code: 'sg',    name: 'Singapore',            nativeName: 'English (SG)' },
     { code: 'ms',    name: 'Malay',                nativeName: 'Bahasa Melayu' },
     { code: 'vi',    name: 'Vietnamese',           nativeName: 'Tiếng Việt' },
+    { code: 'au',    name: 'Australia',            nativeName: 'English (AU)' },
+    { code: 'hk',    name: 'Hong Kong',            nativeName: 'English (HK)' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -200,7 +208,8 @@ export class LocalizationManager {
      * Nếu có currency override từ server, dùng symbol đó để tính.
      *
      * Dùng để canh size khung node chứa số tiền:
-     *   - 'zh-tw' → 3  (vì ký hiệu là "NT$" — 3 ký tự)
+     *   - 'zh-tw' / 'hk' → 3  (NT$ / HK$)
+     *   - 'sg' / 'au' / 'ms' → 2  (S$ / A$ / RM)
      *   - tất cả còn lại → 1  (ký hiệu là "$", "₩", "¥", "฿", "₱" — 1 ký tự)
      *
      * @param lang  (Tuỳ chọn) Ngôn ngữ cần kiểm tra. Mặc định là ngôn ngữ hiện tại.
@@ -208,7 +217,8 @@ export class LocalizationManager {
     getCurrencyCharCount(lang?: LanguageCode): number {
         if (this._currencyOverride !== null) return this._currencyOverride.length;
         const code = lang ?? this._currentLang;
-        if (code === 'zh-tw') return 3;  // NT$ — 3 ký tự
+        if (code === 'zh-tw' || code === 'hk') return 3;  // NT$ / HK$
+        if (code === 'sg' || code === 'au' || code === 'ms') return 2;  // S$ / A$ / RM
         return 1;
     }
 
@@ -405,6 +415,8 @@ export class LocalizationManager {
      *   zh-s, zh-c  → zh-cn  (Simplified Chinese / zh-Hans)
      *   zh-t        → zh-tw  (Traditional Chinese / zh-Hant)
      *   tl          → fil    (Filipino / fil-PH)
+     *   au / en-au  → au     (Australia English / AUD)
+     *   hk / en-hk  → hk     (Hong Kong English / HKD)
      *   Others      → as-is mapping (ko, en, ja, th, fil, ...)
      */
     private _normalizeLangCode(input: string): LanguageCode {
@@ -415,7 +427,12 @@ export class LocalizationManager {
         if (lower === 'zh-t') return 'zh-tw';                       // zh-Hant
         if (lower === 'tl') return 'fil';                           // fil-PH
 
-        // General Chinese variants
+        // Australia / Hong Kong English — phải check TRƯỚC Chinese variants
+        // (tránh 'zh-hk' bị bắt nhầm; 'hk'/'en-hk' = HKD English)
+        if (lower === 'au' || lower === 'en-au') return 'au';
+        if (lower === 'hk' || lower === 'en-hk') return 'hk';
+
+        // General Chinese variants (zh-hk / zh-hant → Traditional Chinese)
         if (lower.startsWith('zh')) {
             if (lower.includes('tw') || lower.includes('hant') || lower.includes('hk')) {
                 return 'zh-tw';

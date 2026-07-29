@@ -34,6 +34,7 @@ import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
 import { SpriteNumber } from '../core/SpriteNumber';
+import { naturalCountUpValue } from '../core/FormatUtils';
 import { SoundManager } from '../manager/SoundManager';
 import { Log } from '../core/Logger';
 
@@ -193,9 +194,9 @@ export class TopUpEndPopup extends Component {
         this._countUpTween = tween(progress)
             .to(this.countUpDuration, { value: totalWin }, {
                 easing: 'quadOut',
-                onUpdate: (target, ratio) => {
-                    // Truncate 3 chữ số thập phân để khớp hành vi các popup khác
-                    const cur = Math.floor(target.value * 1000) / 1000;
+                onUpdate: (_target, ratio) => {
+                    // Natural count-up: tránh pattern đều khi đích là số tròn
+                    const cur = naturalCountUpValue(0, totalWin, ratio ?? 0, 3);
                     this.amountLabel?.setData(cur, 0, 3);
                 },
             })

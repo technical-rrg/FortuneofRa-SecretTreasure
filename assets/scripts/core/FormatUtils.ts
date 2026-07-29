@@ -3,6 +3,55 @@
  */
 
 /**
+ * Truncate (không làm tròn) về đúng `decimals` chữ số thập phân.
+ */
+export function truncateDecimals(value: number, decimals: number = 3): number {
+    const scale = 10 ** decimals;
+    return Math.floor(value * scale + 1e-9) / scale;
+}
+
+/**
+ * Giá trị hiển thị khi count-up — tránh pattern số "đều" khi đích là số tròn.
+ *
+ * Nội suy tuyến tính thuần (ví dụ 0 → 500.000) dễ ra dãy kiểu
+ * 11.111 → 22.222 → 33.333 vì phần nguyên và phần lẻ khóa nhịp với nhau.
+ *
+ * Cách xử lý: warp nhẹ progress bằng hàm **đơn điệu** (derivative > 0),
+ * lệch khỏi các mốc hữu tỉ nhưng giá trị luôn chỉ tăng (hoặc chỉ giảm nếu to < from).
+ * Không random phần thập phân riêng — tránh chữ số sau dấu . nhảy lên/xuống loạn.
+ *
+ * @param from      Giá trị bắt đầu
+ * @param to        Giá trị đích
+ * @param t         Progress 0..1
+ * @param decimals  Số chữ số thập phân hiển thị (mặc định 3)
+ */
+export function naturalCountUpValue(
+    from: number,
+    to: number,
+    t: number,
+    decimals: number = 3,
+): number {
+    const tt = t <= 0 ? 0 : t >= 1 ? 1 : t;
+    if (tt <= 0) return truncateDecimals(from, decimals);
+    if (tt >= 1) return truncateDecimals(to, decimals);
+
+    // Warp đơn điệu: t + a·t·(1-t)·sin(k·π·t) — a nhỏ để derivative luôn > 0.
+    const a = 0.09;
+    const k = 5;
+    const warpedT = tt + a * tt * (1 - tt) * Math.sin(k * Math.PI * tt);
+    const wt = warpedT <= 0 ? 0 : warpedT >= 1 ? 0.9999 : warpedT;
+
+    let value = from + (to - from) * wt;
+
+    const lo = Math.min(from, to);
+    const hi = Math.max(from, to);
+    if (value < lo) value = lo;
+    if (value > hi) value = hi;
+
+    return truncateDecimals(value, decimals);
+}
+
+/**
  * Định dạng số thành chuỗi tiền tệ chuẩn Mỹ.
  * - >= 100K: tự động áp dụng KMBT notation
  * - < 100K: dấu phẩy phân cách hàng nghìn, dấu chấm cho phần thập phân (tối đa 3 chữ số)

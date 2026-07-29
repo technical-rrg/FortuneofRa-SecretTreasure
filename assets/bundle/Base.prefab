@@ -20544,12 +20544,12 @@
     "vfxFrames": [],
     "vfxFPS": 12,
     "enableLongSpinCameraZoom": true,
-    "longSpinZoomScale": 1.25,
-    "longSpinZoomInDuration": 0.4,
-    "longSpinZoomOutDelay": 0.5,
+    "longSpinZoomScale": 1.1,
+    "longSpinZoomInDuration": 1,
+    "longSpinZoomOutDelay": 0.2,
     "longSpinZoomOutDuration": 0.3,
-    "longSpinZoomPanX": 120,
-    "longSpinZoomPanY": 80,
+    "longSpinZoomPanX": 0,
+    "longSpinZoomPanY": 0,
     "enableLongSpinZoomShake": true,
     "longSpinZoomShakeAmplitude": 2.5,
     "longSpinZoomShakeStep": 0.055,
@@ -63857,7 +63857,7 @@
     "_debugSlots": false,
     "_enableBatch": false,
     "loop": true,
-    "_id": "2ehzhtX6RNoaOknHtt7P2l"
+    "_id": "de3zBbidlGRoOndFaQwak2"
   },
   {
     "__type__": "cc.CompPrefabInfo",

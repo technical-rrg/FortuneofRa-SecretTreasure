@@ -24435,7 +24435,7 @@
         "__id__": 1600
       }
     ],
-    "_active": false,
+    "_active": true,
     "_components": [
       {
         "__id__": 1643
@@ -25011,7 +25011,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": -697.924,
-      "y": 150.711,
+      "y": 121.16899999999998,
       "z": 0
     },
     "_lrot": {
@@ -25625,7 +25625,7 @@
     "_target": null,
     "_left": -689.1659146183699,
     "_right": 0,
-    "_top": -140.711,
+    "_top": -111.16899999999998,
     "_bottom": 0,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
@@ -25700,7 +25700,7 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": -277.924,
-    "posY": 570.711,
+    "posY": 541.169,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 100,
@@ -25716,7 +25716,7 @@
     "isAlignRight": false,
     "right": 0,
     "isAlignTop": true,
-    "top": -140.711,
+    "top": -111.16899999999998,
     "isAlignBottom": false,
     "bottom": 0,
     "isAlignHorizontalCenter": false,
@@ -25775,7 +25775,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 695.985,
-      "y": 150.711,
+      "y": 121.16899999999998,
       "z": 0
     },
     "_lrot": {
@@ -26365,7 +26365,7 @@
     "_target": null,
     "_left": -670.297,
     "_right": -687.22691461837,
-    "_top": -140.711,
+    "_top": -111.16899999999998,
     "_bottom": 0,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
@@ -26440,7 +26440,7 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 275.985,
-    "posY": 570.711,
+    "posY": 541.169,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 100,
@@ -26456,7 +26456,7 @@
     "isAlignRight": true,
     "right": -687.22691461837,
     "isAlignTop": true,
-    "top": -140.711,
+    "top": -111.16899999999998,
     "isAlignBottom": false,
     "bottom": 0,
     "isAlignHorizontalCenter": false,
@@ -31828,6 +31828,8 @@
       "__id__": 0
     },
     "fileId": "20CbWbY3FPda3QqZGZcH3W",
+    "instance": null,
+    "targetOverrides": null,
     "nestedPrefabInstanceRoots": null
   },
   {
@@ -63894,7 +63896,7 @@
     "_debugSlots": false,
     "_enableBatch": false,
     "loop": true,
-    "_id": "37HWPMI+pEbrds6R94RUE/"
+    "_id": "a5+5C6Y+hK8YaXtdkhNlC0"
   },
   {
     "__type__": "cc.CompPrefabInfo",
@@ -64449,7 +64451,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": -272.924,
-      "y": 570.711,
+      "y": 535.162,
       "z": 0
     },
     "_lrot": {
@@ -65039,7 +65041,7 @@
     "_target": null,
     "_left": -684.1659145,
     "_right": 0,
-    "_top": -140.71099999999996,
+    "_top": -105.16199999999998,
     "_bottom": 0,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
@@ -65114,7 +65116,7 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": -272.924,
-    "posY": 570.711,
+    "posY": 535.162,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 100,
@@ -65130,7 +65132,7 @@
     "isAlignRight": false,
     "right": 0,
     "isAlignTop": true,
-    "top": -140.71099999999996,
+    "top": -105.16199999999998,
     "isAlignBottom": false,
     "bottom": 0,
     "isAlignHorizontalCenter": false,
@@ -65189,7 +65191,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 270.985,
-      "y": 570.711,
+      "y": 535.162,
       "z": 0
     },
     "_lrot": {
@@ -65755,7 +65757,7 @@
     "_target": null,
     "_left": -670.297,
     "_right": -682.2269145,
-    "_top": -140.71099999999996,
+    "_top": -105.16199999999998,
     "_bottom": 0,
     "_horizontalCenter": 0,
     "_verticalCenter": 0,
@@ -65830,7 +65832,7 @@
   {
     "__type__": "OrientationLayoutData",
     "posX": 270.985,
-    "posY": 570.711,
+    "posY": 535.162,
     "anchorX": 0.5,
     "anchorY": 0.5,
     "width": 100,
@@ -65846,7 +65848,7 @@
     "isAlignRight": true,
     "right": -682.2269145,
     "isAlignTop": true,
-    "top": -140.71099999999996,
+    "top": -105.16199999999998,
     "isAlignBottom": false,
     "bottom": 0,
     "isAlignHorizontalCenter": false,
@@ -71467,7 +71469,9 @@
     "propertyPath": [
       "totalCoinCreditSpriteNumber"
     ],
-    "target": null,
+    "target": {
+      "__id__": 1519
+    },
     "targetInfo": {
       "__id__": 4628
     }

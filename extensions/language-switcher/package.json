@@ -69,6 +69,16 @@
       },
       {
         "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "🇨🇦  Canada — English (CA)  (ca)",
+        "message": "set-lang-ca"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
+        "label": "₮  USDT  (usdt)",
+        "message": "set-lang-usdt"
+      },
+      {
+        "path": "i18n:menu.extension/🌐 Language Switcher",
         "label": "⬛  Auto (clear override)",
         "message": "set-lang-auto"
       }
@@ -86,6 +96,8 @@
       "set-lang-vi":    { "methods": ["setLangVi"] },
       "set-lang-au":    { "methods": ["setLangAu"] },
       "set-lang-hk":    { "methods": ["setLangHk"] },
+      "set-lang-ca":    { "methods": ["setLangCa"] },
+      "set-lang-usdt":  { "methods": ["setLangUsdt"] },
       "set-lang-auto":  { "methods": ["setLangAuto"] }
     }
   }

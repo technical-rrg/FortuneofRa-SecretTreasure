@@ -579,7 +579,8 @@ export class PickGamePopup extends Component {
     }
 
     /**
-     * Set SpineData và play animation 'in' → 'loop' trên sp.Skeleton của CoinFront.
+     * Set SpineData và play animation 'In' → 'Loop' trên sp.Skeleton của CoinFront.
+     * Spine pickgame chỉ có 2 anim: In / Loop (không có win).
      */
     private _applySpineToFront(front: Node, jpType: JackpotType): void {
         const dataMap: Partial<Record<JackpotType, sp.SkeletonData | null>> = {
@@ -594,6 +595,7 @@ export class PickGamePopup extends Component {
             sk.skeletonData = data;
             sk.setAnimation(0, 'In', false);
             sk.setCompleteListener(() => {
+                sk.setCompleteListener(null);
                 sk.setAnimation(0, 'Loop', true);
             });
         } else if (!sk) {
@@ -643,7 +645,9 @@ export class PickGamePopup extends Component {
     }
 
     /**
-     * Kiểm tra nếu coin cuối cùng vừa reveal vẫn đang chạy 'In', chờ xong rồi mới highlight 3 ô.
+     * Kiểm tra nếu coin cuối cùng vừa reveal vẫn đang chạy 'In', chờ xong → Loop
+     * rồi mới highlight 3 ô. Tránh ghi đè listener In→Loop bằng setAnimation('win')
+     * (spine không có anim 'win') khiến coin cuối đứng im.
      */
     private _playWinAnimation(wonTier: JackpotType): void {
         const lastNode = this.coinNodes[this._lastRevealedIndex];
@@ -653,8 +657,10 @@ export class PickGamePopup extends Component {
             if (sk) {
                 const current = sk.getCurrent(0);
                 if (current?.animation?.name === 'In') {
-                    Log.d(`[PickGamePopup] Last revealed coin still playing 'In' — delaying win animation`);
+                    Log.d(`[PickGamePopup] Last revealed coin still playing 'In' — wait then Loop`);
                     sk.setCompleteListener(() => {
+                        sk.setCompleteListener(null);
+                        sk.setAnimation(0, 'Loop', true);
                         this._doPlayWinAnimation(wonTier);
                     });
                     return;
@@ -665,7 +671,7 @@ export class PickGamePopup extends Component {
     }
 
     /**
-     * Phát animation 'win' trên 3 coin đã match.
+     * Đảm bảo 3 coin match đang chạy Loop (spine pickgame chỉ có In / Loop).
      */
     private _doPlayWinAnimation(wonTier: JackpotType): void {
         if (!this._pickState) return;
@@ -683,8 +689,17 @@ export class PickGamePopup extends Component {
             const front = node.getChildByName('CoinFront');
             if (!front) continue;
             const sk = front.getComponent(sp.Skeleton);
-            if (sk) {
-                sk.setAnimation(0, 'win', true);
+            if (!sk) continue;
+            sk.setCompleteListener(null);
+            const current = sk.getCurrent(0)?.animation?.name;
+            // Đang In → đợi xong rồi Loop; đã Loop thì giữ nguyên.
+            if (current === 'In') {
+                sk.setCompleteListener(() => {
+                    sk.setCompleteListener(null);
+                    sk.setAnimation(0, 'Loop', true);
+                });
+            } else if (current !== 'Loop') {
+                sk.setAnimation(0, 'Loop', true);
             }
         }
     }

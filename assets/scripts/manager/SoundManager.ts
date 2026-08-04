@@ -14,8 +14,10 @@ type StickyCellLike = { symbolId?: number; credit?: number };
 /** UI volume 100% maps to this actual engine level (keeps relative balance). */
 const VOLUME_BASE_SCALE = 0.8;
 
-/** mx_normal_loop plays at this fraction of the normal BGM level. */
-const MX_NORMAL_LOOP_VOLUME_SCALE = 0.6;
+/** Per-clip BGM volume relative to the normal BGM level. */
+const MX_NORMAL_LOOP_VOLUME_SCALE = 0.72; // was 0.6 (+20%)
+const MX_BONUS_LOOP_VOLUME_SCALE = 1.44;  // +20% then another +20% vs default BGM (1.2 * 1.2)
+const MX_BONUS_IDLE_VOLUME_SCALE = 0.64;  // -20% then another -20% vs default BGM (0.8 * 0.8)
 
 /** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
 const LAZY_AUDIO_PATHS: Record<string, string> = {
@@ -68,6 +70,13 @@ const LAZY_AUDIO_PATHS: Record<string, string> = {
     sxBonusStickyLand3: 'sound/sx_bonus_sticky_land_3',
     sxBonusStickyLand4: 'sound/sx_bonus_sticky_land_4',
     sxBonusStickyLand5: 'sound/sx_bonus_sticky_land_5',
+    sxBonusStickyLand6: 'sound/sx_bonus_sticky_land_6',
+    sxBonusStickyLand7: 'sound/sx_bonus_sticky_land_7',
+    sxBonusStickyLand8: 'sound/sx_bonus_sticky_land_8',
+    sxBonusStickyLand9: 'sound/sx_bonus_sticky_land_9',
+    sxBonusStickyLand10: 'sound/sx_bonus_sticky_land_10',
+    sxBonusStickyLand11: 'sound/sx_bonus_sticky_land_11',
+    sxBonusStickyLand12: 'sound/sx_bonus_sticky_land_12',
     sxBonusStickyGoldLand: 'sound/sx_bonus_sticky_gold_land',
     sxBonusStickyGoldIncreaseHit: 'sound/sx_bonus_sticky_gold_increase_hit',
     sxBonusStickyWin: 'sound/sx_bonus_sticky_win',
@@ -157,6 +166,13 @@ export class SoundManager extends Component {
     @property({ type: AudioClip }) sxBonusStickyLand3: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusStickyLand4: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusStickyLand5: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand6: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand7: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand8: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand9: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand10: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand11: AudioClip | null = null;
+    @property({ type: AudioClip }) sxBonusStickyLand12: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusStickyGoldLand: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusStickyGoldIncreaseHit: AudioClip | null = null;
     @property({ type: AudioClip }) sxBonusStickyWin: AudioClip | null = null;
@@ -328,7 +344,10 @@ export class SoundManager extends Component {
             'mxBonusIdle', 'mxBonusLoop', 'mxBonusCongratulation',
             'sxBonusTrigger', 'sxTransition', 'sxCounterLoop', 'sxCounterEnd',
             'sxBonusStickyLand', 'sxBonusStickyLand2', 'sxBonusStickyLand3',
-            'sxBonusStickyLand4', 'sxBonusStickyLand5', 'sxBonusStickyWin',
+            'sxBonusStickyLand4', 'sxBonusStickyLand5', 'sxBonusStickyLand6',
+            'sxBonusStickyLand7', 'sxBonusStickyLand8', 'sxBonusStickyLand9',
+            'sxBonusStickyLand10', 'sxBonusStickyLand11', 'sxBonusStickyLand12',
+            'sxBonusStickyWin',
             'sxPotTrailWhoosh', 'sxPotHit', 'sxSelectAFeature', 'sxFeatureSelect',
             'mxGrandJackpotWin', 'mxMajorJackpotWin', 'mxMinorJackpotWin', 'mxMiniJackpotWin',
         ];
@@ -360,7 +379,7 @@ export class SoundManager extends Component {
     }
 
     /**
-     * Sticky Red land SFX — progressive sx_bonus_sticky_land → _5 (reset mỗi spin).
+     * Sticky Red land SFX — progressive sx_bonus_sticky_land → _12 (reset mỗi spin).
      * Dùng chung cho reel stop thường và StickyFillEffect (Force Feature Entry).
      */
     playStickyLandSfx(): void {
@@ -370,6 +389,13 @@ export class SoundManager extends Component {
             'sxBonusStickyLand3',
             'sxBonusStickyLand4',
             'sxBonusStickyLand5',
+            'sxBonusStickyLand6',
+            'sxBonusStickyLand7',
+            'sxBonusStickyLand8',
+            'sxBonusStickyLand9',
+            'sxBonusStickyLand10',
+            'sxBonusStickyLand11',
+            'sxBonusStickyLand12',
         ];
         const idx = Math.min(this._stickyLandCount, props.length - 1);
         // Sticky land: giữ volume UI 100% (không nhân VOLUME_BASE_SCALE).
@@ -1244,11 +1270,18 @@ export class SoundManager extends Component {
         return Math.max(0, Math.min(1, ratio)) * VOLUME_BASE_SCALE;
     }
 
-    /** BGM volume for a clip — mx_normal_loop is quieter than other tracks. */
+    /** BGM volume for a clip — per-track scales keep relative balance. */
     private _bgmVolumeForClip(clip: AudioClip | null): number {
         const base = this._scaledVolume(this.bgmVolume);
-        if (clip && this.mxNormalLoop && clip === this.mxNormalLoop) {
-            return base * MX_NORMAL_LOOP_VOLUME_SCALE;
+        if (!clip) return base;
+        if (this.mxNormalLoop && clip === this.mxNormalLoop) {
+            return Math.max(0, Math.min(1, base * MX_NORMAL_LOOP_VOLUME_SCALE));
+        }
+        if (this.mxBonusLoop && clip === this.mxBonusLoop) {
+            return Math.max(0, Math.min(1, base * MX_BONUS_LOOP_VOLUME_SCALE));
+        }
+        if (this.mxBonusIdle && clip === this.mxBonusIdle) {
+            return Math.max(0, Math.min(1, base * MX_BONUS_IDLE_VOLUME_SCALE));
         }
         return base;
     }

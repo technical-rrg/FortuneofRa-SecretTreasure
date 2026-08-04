@@ -24,6 +24,8 @@
  *   vi    — Vietnamese (Tiếng Việt)
  *   au    — Australia English (AUD / A$)
  *   hk    — Hong Kong English (HKD / HK$)
+ *   ca    — Canada English (CAD / C$)
+ *   usdt  — USDT (USDT)
  *
  * ★ 2 CHẾ ĐỘ HOẠT ĐỘNG:
  *   LOCAL:  Dùng file .ts build sẵn trong game (mặc định, offline-safe).
@@ -59,11 +61,15 @@ import { LOCALE_MS } from '../data/locales/ms';
 import { LOCALE_VI } from '../data/locales/vi';
 import { LOCALE_AU } from '../data/locales/au';
 import { LOCALE_HK } from '../data/locales/hk';
+import { LOCALE_CA } from '../data/locales/ca';
+import { LOCALE_USDT } from '../data/locales/usdt';
 import { Log } from './Logger';
 
 // ─── Types ───
 
-export type LanguageCode = 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th' | 'sg' | 'ms' | 'vi' | 'au' | 'hk';
+export type LanguageCode =
+    | 'en' | 'ko' | 'zh-cn' | 'zh-tw' | 'fil' | 'ja' | 'th'
+    | 'sg' | 'ms' | 'vi' | 'au' | 'hk' | 'ca' | 'usdt';
 
 /**
  * Map từ currency code (ISO 4217) → ký hiệu tiền tệ hiển thị.
@@ -86,6 +92,7 @@ export const CURRENCY_SYMBOL_MAP: Record<string, string> = {
     'HKD': 'HK$',
     'AUD': 'A$',
     'CAD': 'C$',
+    'USDT': 'USDT',
     'INR': '₹',
 };
 
@@ -107,6 +114,8 @@ const LOCALE_MODULES: Record<LanguageCode, LocaleData> = {
     'vi':    LOCALE_VI,
     'au':    LOCALE_AU,
     'hk':    LOCALE_HK,
+    'ca':    LOCALE_CA,
+    'usdt':  LOCALE_USDT,
 };
 
 /**
@@ -125,6 +134,8 @@ export const SUPPORTED_LANGUAGES: { code: LanguageCode; name: string; nativeName
     { code: 'vi',    name: 'Vietnamese',           nativeName: 'Tiếng Việt' },
     { code: 'au',    name: 'Australia',            nativeName: 'English (AU)' },
     { code: 'hk',    name: 'Hong Kong',            nativeName: 'English (HK)' },
+    { code: 'ca',    name: 'Canada',               nativeName: 'English (CA)' },
+    { code: 'usdt',  name: 'USDT',                 nativeName: 'USDT' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -208,8 +219,9 @@ export class LocalizationManager {
      * Nếu có currency override từ server, dùng symbol đó để tính.
      *
      * Dùng để canh size khung node chứa số tiền:
+     *   - 'usdt' → 4  (USDT)
      *   - 'zh-tw' / 'hk' → 3  (NT$ / HK$)
-     *   - 'sg' / 'au' / 'ms' → 2  (S$ / A$ / RM)
+     *   - 'sg' / 'au' / 'ms' / 'ca' → 2  (S$ / A$ / RM / C$)
      *   - tất cả còn lại → 1  (ký hiệu là "$", "₩", "¥", "฿", "₱" — 1 ký tự)
      *
      * @param lang  (Tuỳ chọn) Ngôn ngữ cần kiểm tra. Mặc định là ngôn ngữ hiện tại.
@@ -217,8 +229,9 @@ export class LocalizationManager {
     getCurrencyCharCount(lang?: LanguageCode): number {
         if (this._currencyOverride !== null) return this._currencyOverride.length;
         const code = lang ?? this._currentLang;
+        if (code === 'usdt') return 4;  // USDT
         if (code === 'zh-tw' || code === 'hk') return 3;  // NT$ / HK$
-        if (code === 'sg' || code === 'au' || code === 'ms') return 2;  // S$ / A$ / RM
+        if (code === 'sg' || code === 'au' || code === 'ms' || code === 'ca') return 2;  // S$ / A$ / RM / C$
         return 1;
     }
 
@@ -417,6 +430,8 @@ export class LocalizationManager {
      *   tl          → fil    (Filipino / fil-PH)
      *   au / en-au  → au     (Australia English / AUD)
      *   hk / en-hk  → hk     (Hong Kong English / HKD)
+     *   ca / en-ca  → ca     (Canada English / CAD)
+     *   usdt        → usdt   (USDT)
      *   Others      → as-is mapping (ko, en, ja, th, fil, ...)
      */
     private _normalizeLangCode(input: string): LanguageCode {
@@ -427,10 +442,12 @@ export class LocalizationManager {
         if (lower === 'zh-t') return 'zh-tw';                       // zh-Hant
         if (lower === 'tl') return 'fil';                           // fil-PH
 
-        // Australia / Hong Kong English — phải check TRƯỚC Chinese variants
+        // Currency-locale English variants — check TRƯỚC Chinese variants
         // (tránh 'zh-hk' bị bắt nhầm; 'hk'/'en-hk' = HKD English)
         if (lower === 'au' || lower === 'en-au') return 'au';
         if (lower === 'hk' || lower === 'en-hk') return 'hk';
+        if (lower === 'ca' || lower === 'en-ca') return 'ca';
+        if (lower === 'usdt') return 'usdt';
 
         // General Chinese variants (zh-hk / zh-hant → Traditional Chinese)
         if (lower.startsWith('zh')) {

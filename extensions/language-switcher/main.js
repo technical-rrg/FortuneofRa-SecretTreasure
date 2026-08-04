@@ -30,6 +30,8 @@ const LANGUAGES = [
     { code: 'vi',    label: 'Vietnamese',               native: 'Tiếng Việt',      flag: '🇻🇳' },
     { code: 'au',    label: 'Australia',                native: 'English (AU)',   flag: '🇦🇺' },
     { code: 'hk',    label: 'Hong Kong',                native: 'English (HK)',   flag: '🇭🇰' },
+    { code: 'ca',    label: 'Canada',                   native: 'English (CA)',   flag: '🇨🇦' },
+    { code: 'usdt',  label: 'USDT',                     native: 'USDT',           flag: '₮' },
 ];
 
 // ─── Extension lifecycle ──────────────────────────────────────────────────────
@@ -58,6 +60,8 @@ exports.methods = {
     setLangVi()    { _setLang('vi'); },
     setLangAu()    { _setLang('au'); },
     setLangHk()    { _setLang('hk'); },
+    setLangCa()    { _setLang('ca'); },
+    setLangUsdt()  { _setLang('usdt'); },
     setLangAuto()  { _setLang(null); },
 };
 

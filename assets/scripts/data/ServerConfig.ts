@@ -230,6 +230,8 @@ export const DEBUG_RANDS: readonly number[] | null =  null;//DEBUG_RANDS_PRESET.
  *  'vi'      — Vietnamese (Tiếng Việt)
  *  'au'      — Australia English (AUD / A$)
  *  'hk'      — Hong Kong English (HKD / HK$)
+ *  'ca'      — Canada English (CAD / C$)
+ *  'usdt'    — USDT
  */
 
 export const DEV_FORCE_LANG: string | null = null;  // null = auto-detect từ URL `gl` parameter

@@ -1,54 +1,54 @@
 
 Select-Feature-3.png
-size: 978,270
+size: 976,270
 format: RGBA8888
 filter: Linear,Linear
 repeat: none
 88
-  rotate: false
-  xy: 744, 44
+  rotate: true
+  xy: 773, 96
   size: 78, 53
   orig: 80, 55
   offset: 1, 1
   index: -1
 Body
-  rotate: true
-  xy: 809, 172
+  rotate: false
+  xy: 744, 3
   size: 58, 91
   orig: 61, 93
   offset: 2, 1
   index: -1
 Bodyef_01
   rotate: false
-  xy: 824, 36
+  xy: 913, 179
   size: 61, 51
   orig: 71, 109
   offset: 6, 9
   index: -1
 Bodyef_02
-  rotate: false
-  xy: 744, 4
+  rotate: true
+  xy: 930, 44
   size: 59, 38
   orig: 71, 109
   offset: 7, 47
   index: -1
 Gem
   rotate: false
-  xy: 902, 158
+  xy: 828, 103
   size: 74, 72
   orig: 76, 74
   offset: 1, 1
   index: -1
 Layer 33
-  rotate: false
-  xy: 887, 44
+  rotate: true
+  xy: 930, 7
   size: 35, 42
   orig: 40, 49
   offset: 4, 3
   index: -1
 Leg_01
   rotate: true
-  xy: 848, 89
+  xy: 804, 13
   size: 81, 51
   orig: 81, 51
   offset: 0, 0
@@ -96,15 +96,15 @@ freegames
   offset: 1, 2
   index: -1
 gemef_01
-  rotate: false
-  xy: 773, 99
+  rotate: true
+  xy: 857, 28
   size: 73, 71
   orig: 76, 74
   offset: 2, 2
   index: -1
 gemef_02
-  rotate: false
-  xy: 901, 88
+  rotate: true
+  xy: 904, 105
   size: 70, 68
   orig: 76, 74
   offset: 3, 3
@@ -115,4 +115,11 @@ onreels
   size: 165, 36
   orig: 168, 40
   offset: 1, 2
+  index: -1
+text
+  rotate: false
+  xy: 809, 177
+  size: 102, 53
+  orig: 104, 55
+  offset: 1, 1
   index: -1

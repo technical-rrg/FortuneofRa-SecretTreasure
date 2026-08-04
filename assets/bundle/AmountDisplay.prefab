@@ -197,6 +197,14 @@
       {
         "__uuid__": "8a13487a-32a1-4bd0-a6ec-fcb3e2970041@f9941",
         "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "6f3f3144-f338-4194-a380-1ae9bea64839@f9941",
+        "__expectedType__": "cc.SpriteFrame"
+      },
+      {
+        "__uuid__": "68556458-e8d8-4372-ae79-503dbdca1f13@f9941",
+        "__expectedType__": "cc.SpriteFrame"
       }
     ],
     "kmbtSprites": [

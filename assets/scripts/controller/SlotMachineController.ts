@@ -1263,8 +1263,34 @@ export class SlotMachineController extends Component {
 
         if (this._stoppedCount === this.reels.length && !this._allReelsStopped) {
             this._allReelsStopped = true;
+            // TEMP: rào log SPIN-GRID visual
+            // this._logVisualGrid5x3();
             this._logSpinState('[SPIN-HANG][SlotMC] EMIT REELS_STOPPED');
             EventBus.instance.emit(GameEvents.REELS_STOPPED);
+        }
+    }
+
+    /**
+     * Debug: đọc SymbolView đang hiện trên 5 reel × 3 hàng (TOP/MID/BOT)
+     * để so với [SPIN-GRID] từ server.
+     */
+    private _logVisualGrid5x3(): void {
+        const symName = (id: number) =>
+            Object.keys(SymbolId).find(n => (SymbolId as any)[n] === id) ?? `?${id}`;
+
+        const visualRows: Array<'TOP' | 'MID' | 'BOT'> = ['TOP', 'MID', 'BOT'];
+        // symbolNodes: [0]=ExtraTop [1]=Top [2]=Mid [3]=Bot [4]=ExtraBot
+        const nodeIdx = [1, 2, 3];
+
+        Log.e('[SPIN-GRID] === Client VISUAL (SymbolView sau khi reel dừng) ===');
+        for (let r = 0; r < visualRows.length; r++) {
+            const cells = this.reels.map((reel, reelIdx) => {
+                const node = reel.symbolNodes?.[nodeIdx[r]];
+                const view = node?.getComponent(SymbolView);
+                const id = view?.symbolId ?? -1;
+                return `R${reelIdx}:${id}(${symName(id)})`;
+            });
+            Log.e(`[SPIN-GRID] ${visualRows[r]}: ${cells.join(' | ')}`);
         }
     }
 

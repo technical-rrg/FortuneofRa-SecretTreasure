@@ -104,7 +104,7 @@ export class SpriteNumber extends Component {
 
     @property({
         tooltip: 'Bật để tự động đổi icon tiền tệ theo currency server trả về (ưu tiên) hoặc ngôn ngữ hiện tại.\n' +
-                 'currencySprites phải có đúng 12 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th, sg, ms, vi, au, hk.\n' +
+                 'currencySprites phải có đúng 14 phần tử theo thứ tự: en, ko, zh-cn, zh-tw, fil, ja, th, sg, ms, vi, au, hk, ca, usdt.\n' +
                  'Khi ngôn ngữ/currency thay đổi, SpriteNumber tự dùng index tương ứng làm currency index.',
     })
     enableLangCurrency: boolean = false;
@@ -254,7 +254,7 @@ export class SpriteNumber extends Component {
 
     /** Thứ tự ngôn ngữ khớp với SUPPORTED_LANGUAGES trong LocalizationManager. */
     private static readonly LANG_ORDER: LanguageCode[] = [
-        'en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi', 'au', 'hk',
+        'en', 'ko', 'zh-cn', 'zh-tw', 'fil', 'ja', 'th', 'sg', 'ms', 'vi', 'au', 'hk', 'ca', 'usdt',
     ];
 
     /**
@@ -264,24 +264,26 @@ export class SpriteNumber extends Component {
      */
     private static readonly CURRENCY_CODE_TO_SPRITE_INDEX: Record<string, number> = {
         // index khớp LANG_ORDER:
-        // en=0, ko=1, zh-cn=2, zh-tw=3, fil=4, ja=5, th=6, sg=7, ms=8, vi=9, au=10, hk=11
-        'USD': 0,  // $   → en sprite
-        'KRW': 1,  // ₩   → ko sprite
-        'CNY': 2,  // ¥   → zh-cn sprite
-        'TWD': 3,  // NT$ → zh-tw sprite
-        'PHP': 4,  // ₱   → fil sprite
-        'JPY': 5,  // ¥   → ja sprite
-        'THB': 6,  // ฿   → th sprite
-        'SGD': 7,  // S$  → sg sprite
-        'MYR': 8,  // RM  → ms sprite
-        'VND': 9,  // ₫   → vi sprite
-        'AUD': 10, // A$  → au sprite
-        'HKD': 11, // HK$ → hk sprite
-        'EUR': 0,  // €   → en sprite (fallback)
-        'GBP': 0,  // £   → en sprite (fallback)
-        'CAD': 0,  // C$  → en sprite (fallback)
-        'IDR': 0,  // Rp  → en sprite (fallback)
-        'INR': 0,  // ₹   → en sprite (fallback)
+        // en=0, ko=1, zh-cn=2, zh-tw=3, fil=4, ja=5, th=6, sg=7, ms=8, vi=9,
+        // au=10, hk=11, ca=12, usdt=13
+        'USD': 0,   // $    → en sprite
+        'KRW': 1,   // ₩    → ko sprite
+        'CNY': 2,   // ¥    → zh-cn sprite
+        'TWD': 3,   // NT$  → zh-tw sprite
+        'PHP': 4,   // ₱    → fil sprite
+        'JPY': 5,   // ¥    → ja sprite
+        'THB': 6,   // ฿    → th sprite
+        'SGD': 7,   // S$   → sg sprite
+        'MYR': 8,   // RM   → ms sprite
+        'VND': 9,   // ₫    → vi sprite
+        'AUD': 10,  // A$   → au sprite
+        'HKD': 11,  // HK$  → hk sprite
+        'CAD': 12,  // C$   → ca sprite
+        'USDT': 13, // USDT → usdt sprite
+        'EUR': 0,   // €    → en sprite (fallback)
+        'GBP': 0,   // £    → en sprite (fallback)
+        'IDR': 0,   // Rp   → en sprite (fallback)
+        'INR': 0,   // ₹    → en sprite (fallback)
     };
 
     /** Params của lần setData() cuối cùng — dùng để re-render khi đổi ngôn ngữ. */

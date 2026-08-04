@@ -19,6 +19,8 @@
  *   fil   → defaultFont (Latin-based, dùng chung font English)
  *   au    → defaultFont (Australia English / AUD — dùng chung font English)
  *   hk    → defaultFont (Hong Kong English / HKD — dùng chung font English)
+ *   ca    → defaultFont (Canada English / CAD — dùng chung font English)
+ *   usdt  → defaultFont (USDT — dùng chung font English)
  *   ko    → koreanFont  (Noto Sans KR / Pretendard)
  *   zh-cn → simplifiedChineseFont (Noto Sans SC)
  *   zh-tw → traditionalChineseFont (Noto Sans TC)
@@ -29,7 +31,7 @@
  *   vi    → vietnameseFont (Noto Sans / Latin + Vietnamese diacritics)
  *
  * ★ CACHE MODE TỐI ƯU:
- *   CHAR   — en, fil, ko, sg, ms, vi, au, hk (alphabet nhỏ / Hangul syllables giới hạn trong game)
+ *   CHAR   — en, fil, ko, sg, ms, vi, au, hk, ca, usdt (alphabet nhỏ / Hangul syllables giới hạn trong game)
  *   BITMAP — zh-cn, zh-tw, ja, th (nhiều unique glyphs / combining marks phức tạp)
  */
 
@@ -63,6 +65,8 @@ const CACHE_MODE_MAP: Record<LanguageCode, number> = {
     'vi':    CacheMode.CHAR,
     'au':    CacheMode.CHAR,  // Latin — dùng chung defaultFont
     'hk':    CacheMode.CHAR,  // Latin — dùng chung defaultFont
+    'ca':    CacheMode.CHAR,  // Latin — dùng chung defaultFont
+    'usdt':  CacheMode.CHAR,  // Latin — dùng chung defaultFont
 };
 
 @ccclass('FontManager')
@@ -153,6 +157,8 @@ export class FontManager extends Component {
             case 'fil':
             case 'au':
             case 'hk':
+            case 'ca':
+            case 'usdt':
             default:      return this.defaultFont ?? null;
         }
     }
@@ -193,7 +199,9 @@ export class FontManager extends Component {
                 case 'en':
                 case 'fil':
                 case 'au':
-                case 'hk':   this.defaultFont = font;              updated++; break;
+                case 'hk':
+                case 'ca':
+                case 'usdt': this.defaultFont = font;              updated++; break;
                 case 'ko':    this.koreanFont = font;               updated++; break;
                 case 'zh-cn': this.simplifiedChineseFont = font;    updated++; break;
                 case 'zh-tw': this.traditionalChineseFont = font;   updated++; break;

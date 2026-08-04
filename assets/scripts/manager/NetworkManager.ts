@@ -506,6 +506,7 @@ class MockNetworkAdapter implements INetworkAdapter {
             'en': 'USD', 'ko': 'KRW', 'zh-cn': 'CNY', 'zh-tw': 'TWD',
             'fil': 'PHP', 'ja': 'JPY', 'th': 'THB', 'sg': 'SGD',
             'ms': 'MYR', 'vi': 'VND', 'au': 'AUD', 'hk': 'HKD',
+            'ca': 'CAD', 'usdt': 'USDT',
         };
         const mockCurrency = TestLoginConfig.Currency ?? mockCurrencyByLang[gl.toLowerCase()] ?? 'USD';
 
@@ -1195,39 +1196,7 @@ class RealNetworkAdapter implements INetworkAdapter {
                 : ' (no wins)')
         );
 
-        // ─── DEBUG: Rands → raw PS strip window (row -1, 0, +1 per reel) ───
-        {
-            const strips = GameData.instance.rawPsStrips;
-            const clientStrips = GameData.instance.config.reelStrips;
-            const symName = (clientId: number) => {
-                if (clientId === -1) return 'EMPTY';
-                if (clientId === -2 || clientId === undefined) return '???';
-                return Object.keys(SymbolId).find(n => (SymbolId as any)[n] === clientId) ?? `?${clientId}`;
-            };
-            if (strips && strips.length > 0 && rawRands.length === strips.length) {
-                const rows: string[] = ['TOP r+1', 'MID r  ', 'BOT r-1'];
-                const offsets = [1, 0, -1];
-                Log.e(`[SPIN-REEL] Rands=[${rawRands.join(',')}]`);
-                for (let off = 0; off < offsets.length; off++) {
-                    const cells = rawRands.map((rand, reel) => {
-                        const strip = strips[reel];
-                        if (!strip || strip.length === 0) return `R${reel}:?`;
-                        const idx = ((rand + offsets[off]) % strip.length + strip.length) % strip.length;
-                        const psId = strip[idx];
-                        const clientStrip = clientStrips[reel];
-                        const clientId = clientStrip ? clientStrip[idx] : -2;
-                        return `${psId}(${symName(clientId)})`;
-                    });
-                    Log.e(`[SPIN-REEL] ${rows[off]}: ${cells.map((c, i) => `Reel${i}=${c}`).join(' | ')}`);
-                }
-            } else {
-                Log.e(`[SPIN-REEL] strips.length=${strips?.length ?? 'N/A'} rands.length=${rawRands.length} — mismatch or not loaded`);
-            }
-        }
-
-        // ═══ DEBUG MULTIPLIER ═══
-        // Log.d(`%c[MULTIPLIER DEBUG] FeatureMultiple=${result.featureMultiple} (từ server: FreeSpinMultiplier=${raw.Res.FreeSpinMultiplier} | FeatureMultiple=${raw.Res.FeatureMultiple} | MysteryMultiple=${raw.Res.MysteryMultiple})`, 'color:#f80;font-weight:bold');
-
+        // Chi tiết lưới 5×3 (PS + client) được log trong _convertSpinResponse → [SPIN-GRID]
         return result;
     }
 
@@ -2212,6 +2181,8 @@ class RealNetworkAdapter implements INetworkAdapter {
             || data.currentMode === 'freespin_gold'
             || (data.currentMode !== 'respin' && (reelIdx === 1 || isFreeSpinTierReelIndex(reelIdx)));
         const grid = data.getBaseGrid(rands, isFreeSpin, reelIdx);
+        // TEMP: rào log SPIN-GRID
+        // this._logSpinGrid5x3(rands, grid, isFreeSpin, reelIdx);
         const waysPayWins = res.TotalWin > 0
             ? WaysPayCalculator.calculate(grid, res.TotalBet as number, isFreeSpin)
             : [];
@@ -2272,6 +2243,73 @@ class RealNetworkAdapter implements INetworkAdapter {
         this._applyFeatureEntryLogic(spinResp, res, grid, raw);
 
         return spinResp;
+    }
+
+    /**
+     * Debug: in lưới 5×3 từ Rands + strip (PS ID server + Client SymbolId).
+     * Logical: row0=center-1, row1=mid, row2=center+1.
+     * Visual TOP/MID/BOT trên màn hình = đảo dọc (TOP=row2, BOT=row0).
+     */
+    private _logSpinGrid5x3(
+        rands: number[],
+        clientGrid: number[][],
+        isFreeSpin: boolean,
+        reelIdx: number,
+    ): void {
+        const data = GameData.instance;
+        const symName = (clientId: number) => {
+            if (clientId === -1) return 'EMPTY';
+            if (clientId === -2 || clientId === undefined) return '???';
+            return Object.keys(SymbolId).find(n => (SymbolId as any)[n] === clientId) ?? `?${clientId}`;
+        };
+
+        const rawStrips = data.getRawPsStrips(isFreeSpin, reelIdx);
+        const psGrid: number[][] = [];
+        for (let reel = 0; reel < rands.length; reel++) {
+            const strip = rawStrips[reel];
+            if (!strip?.length) {
+                psGrid.push([-1, -1, -1]);
+                continue;
+            }
+            const len = strip.length;
+            const c = ((rands[reel] % len) + len) % len;
+            psGrid.push([
+                strip[((c - 1) % len + len) % len],
+                strip[c],
+                strip[(c + 1) % len],
+            ]);
+        }
+
+        Log.e(
+            `[SPIN-GRID] mode=${data.currentMode} ReelIndex=${reelIdx} isFS=${isFreeSpin}` +
+            ` Rands=[${rands.join(',')}] stripLens=[${rawStrips.map(s => s?.length ?? 0).join(',')}]`
+        );
+
+        // Compact: mỗi cột = [row0,row1,row2]
+        Log.e(`[SPIN-GRID] PS 5x3 (cols): ${JSON.stringify(psGrid)}`);
+        Log.e(`[SPIN-GRID] Client 5x3 (cols): ${JSON.stringify(clientGrid)}`);
+
+        const fmtRow = (row: number, usePs: boolean) =>
+            rands.map((_, reel) => {
+                if (usePs) {
+                    const ps = psGrid[reel]?.[row] ?? -1;
+                    const client = clientGrid[reel]?.[row] ?? -1;
+                    return `R${reel}:${ps}→${client}(${symName(client)})`;
+                }
+                const client = clientGrid[reel]?.[row] ?? -1;
+                return `R${reel}:${client}(${symName(client)})`;
+            }).join(' | ');
+
+        Log.e('[SPIN-GRID] === Logical (row0=center-1 / mid / row2=center+1) ===');
+        Log.e(`[SPIN-GRID] row0: ${fmtRow(0, true)}`);
+        Log.e(`[SPIN-GRID] row1: ${fmtRow(1, true)}`);
+        Log.e(`[SPIN-GRID] row2: ${fmtRow(2, true)}`);
+
+        // Visual như trên màn hình (đã đảo dọc)
+        Log.e('[SPIN-GRID] === Visual TOP/MID/BOT (như trên màn hình) ===');
+        Log.e(`[SPIN-GRID] TOP: ${fmtRow(2, true)}`);
+        Log.e(`[SPIN-GRID] MID: ${fmtRow(1, true)}`);
+        Log.e(`[SPIN-GRID] BOT: ${fmtRow(0, true)}`);
     }
 
     /**
@@ -3354,6 +3392,8 @@ class RealNetworkAdapter implements INetworkAdapter {
             'sg':    0,   // Singapore English
             'au':    0,   // Australia English
             'hk':    0,   // Hong Kong English
+            'ca':    0,   // Canada English
+            'usdt':  0,   // USDT
             'ja':    1,   // Japanese
             'ko':    2,   // Korean
             'th':    3,   // Thai

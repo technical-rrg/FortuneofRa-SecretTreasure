@@ -47,7 +47,7 @@ export const ServerConfig = {
      *  Để null → bỏ qua CDN, dùng local bundled assets.
      *  Để test: set CDN_BASE = null, xoá localStorage 'sn_cdn_*' để clear cache.
      */
-    CDN_BASE: 'https://downloads.realreelsgaming.com/slotlanguage/shangrila' as string | null,
+    CDN_BASE: 'https://downloads.realreelsgaming.com/slotlanguage/secrettreasure' as string | null,
 
     /**
      * Bật/tắt tải locale từ CDN.
@@ -57,7 +57,7 @@ export const ServerConfig = {
      * ★ Khi chạy localization-tool-update để tạo .ts mới từ Excel,
      *   set USE_CDN_LOCALE = false để game dùng đúng file đó thay vì bị CDN override.
      */
-    USE_CDN_LOCALE: false,
+    USE_CDN_LOCALE: true,
 
     /** Bật/tắt log của Jackpot polling (mỗi 2s sẽ rất nhiều log) */
     LOG_JACKPOT_POLLING: false,

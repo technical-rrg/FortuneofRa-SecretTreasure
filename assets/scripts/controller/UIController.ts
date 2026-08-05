@@ -6,7 +6,7 @@
  */
 
 import { _decorator, Component, Node, Label, Button, tween, Vec3, Color, Tween, Sprite, SpriteFrame, RichText, sp, input, Input, KeyCode, EventKeyboard, UITransform, EventTouch, screen } from 'cc';
-import { formatCurrencyFixed } from '../core/FormatUtils';
+import { formatCurrencyFixed, naturalCountUpValue } from '../core/FormatUtils';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { BetManager } from '../manager/BetManager';
@@ -870,7 +870,7 @@ export class UIController extends Component {
     }
 
     /**
-     * Animate count-up từ from → to trên winLabel.
+     * Animate count-up từ from → to trên winLabel (naturalCountUpValue).
      * Luôn bắt đầu từ _displayedFreeSpinWin hiện tại để đảm bảo số tăng liên tục,
      * không bao giờ giật về giá trị cũ hay 0 trong cùng 1 session.
      */
@@ -924,8 +924,8 @@ export class UIController extends Component {
         this._freeSpinWinCountCb = () => {
             elapsed += interval;
             const t = Math.min(elapsed / duration, 1);
-            const eased = 1 - (1 - t) * (1 - t); // ease-out quad
-            this._displayedFreeSpinWin = startVal + (to - startVal) * eased;
+            // Natural count-up: tránh pattern đều (11.111→22.222) khi đích là số tròn
+            this._displayedFreeSpinWin = naturalCountUpValue(startVal, to, t, 3);
             this._updateFreeSpinWinLabel();
 
             if (t >= 1) {
@@ -997,8 +997,8 @@ export class UIController extends Component {
             elapsed += interval;
             const t = Math.min(elapsed / duration, 1);
 
-            const eased = 1 - (1 - t) * (1 - t); // ease-out quad
-            const cur = startVal + (to - startVal) * eased;
+            // Natural count-up: tránh pattern đều khi số đích tròn
+            const cur = naturalCountUpValue(startVal, to, t, 3);
             this._displayedBalance = cur;
             const symbol = this._showCurrencySymbol ? L('CLIENT_CURRENENCY_SYMBOL') : '';
             this.balanceLabel!.string = symbol + formatCurrencyFixed(cur);

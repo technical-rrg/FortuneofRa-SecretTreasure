@@ -15,7 +15,7 @@
 export const USE_REAL_API: boolean = true; // true = gọi API thật, false = dùng MockDataProvider (dev/test)
 
 /** Bật OpenDebug panel + DebugManager shortcuts (mọi build). Tắt trước release production. */
-export const ENABLE_DEBUG_TOOLS: boolean = true;
+export const ENABLE_DEBUG_TOOLS: boolean = false;
 
 // ═══════════════════════════════════════════════════════════
 //  Server endpoints
@@ -281,17 +281,7 @@ export const TestLoginConfig = {
 };
 
 // ═══════════════════════════════════════════════════════════
-//  Tắt toàn bộ console.log/warn/info/debug trong game.
-//  Chỉ giữ lại console.error cho các debug log quan trọng.
-//  Xoá / comment block này để bật lại log đầy đủ.
+//  Console silence: do Logger.ts (noop console.log/warn/info/debug/trace).
+//  Log.* chỉ in khi whitelist có tag (prod mặc định trống).
 // ═══════════════════════════════════════════════════════════
-/* eslint-disable no-console */
-// (function _silenceGameLogs() {
-//     const noop = (..._a: any[]) => {};
-//     console.log   = noop;
-//     console.warn  = noop;
-//     console.info  = noop;
-//     console.debug = noop;
-// })();
-// ↑ Tạm tắt để debug — bỏ comment để re-enable khi production
 

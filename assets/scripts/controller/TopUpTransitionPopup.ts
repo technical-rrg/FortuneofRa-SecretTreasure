@@ -388,6 +388,10 @@ export class TopUpTransitionPopup extends Component {
     private _emitDone(): void {
         if (this._doneEmitted) return;
         this._doneEmitted = true;
+        // Tắt BlockInput ngay khi DONE — tránh Transition (đang fade-out phía trên)
+        // nuốt click của PickGame/feature bên dưới.
+        const block = this.node.getComponent(BlockInputEvents);
+        if (block) block.enabled = false;
         EventBus.instance.emit(GameEvents.TOPUP_TRANSITION_DONE);
     }
 
@@ -465,6 +469,8 @@ export class TopUpTransitionPopup extends Component {
         const holdTime = Math.max(0.15, this.duration);
 
         this.node.active = true;
+        const block = this.node.getComponent(BlockInputEvents);
+        if (block) block.enabled = true;
         this._bringToFront();
 
         // Ẩn effect trong lúc đen phủ vào từ Normal
@@ -501,13 +507,14 @@ export class TopUpTransitionPopup extends Component {
 
     /**
      * Đóng: KHÔNG phủ đen lại (đã tan đen lúc reveal Transition).
-     * DONE trước → PickGame setup dưới Transition → fade effect → lộ PickGame.
+     * DONE trước → PickGame/feature setup → đóng Transition.
+     *
+     * ★ PickGame: đóng Transition NGAY sau DONE.
+     *   Nếu giữ effect fade-out phía trên, UITransform của Transition vẫn nuốt
+     *   mọi touch (kể cả khi đã tắt BlockInputEvents) → không chọn coin được.
      */
     private _fadeOutAndClose(): void {
         if (this._closed) return;
-
-        const fadeOut = Math.max(0.05, this.fadeOutDuration);
-        this._bringToFront();
 
         // Overlay giữ trong suốt — tránh nháy đen thêm lần nữa
         if (this.overlayNode) {
@@ -518,8 +525,17 @@ export class TopUpTransitionPopup extends Component {
             }
         }
 
-        // PickGame/UI sẵn dưới Transition trước khi effect tan
+        // PickGame/UI sẵn sàng trước khi Transition biến mất
         this._emitDone();
+
+        // PickGame: đóng ngay — không fade-out đè lên grid coin
+        if (this._currentMode === TransitionMode.PickGame) {
+            this._forceClose();
+            return;
+        }
+
+        const fadeOut = Math.max(0.05, this.fadeOutDuration);
+        this._bringToFront();
 
         const target = this.effectNode;
         if (target?.active) {

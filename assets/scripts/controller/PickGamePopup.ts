@@ -187,8 +187,14 @@ export class PickGamePopup extends Component {
     @property({ tooltip: 'Delay giữa mỗi coin auto-reveal sau khi match (giây).' })
     autoRevealDelay: number = 0.18;
 
-    @property({ tooltip: 'Delay sau auto-reveal trước khi emit JACKPOT_TRIGGER (giây).' })
-    jackpotTriggerDelay: number = 0.5;
+    @property({ tooltip: 'Delay sau match (nhún 3 ô) trước khi emit JACKPOT_TRIGGER (giây).' })
+    jackpotTriggerDelay: number = 1.4;
+
+    @property({ tooltip: 'Số lần nhún của 3 ô match khi trúng jackpot.' })
+    matchBouncePulses: number = 2;
+
+    @property({ tooltip: 'Biên độ nhún lên (px) của 3 ô match khi trúng jackpot.' })
+    matchBounceHeight: number = 10;
 
     // ── STATE ────────────────────────────────────────────────────────────────
 
@@ -427,7 +433,16 @@ export class PickGamePopup extends Component {
 
     private _onEntryDone = (): void => {
         Log.d('[PickGamePopup] Entry done — showing coin grid');
-        // _inEntry vẫn true — chờ intro bounce coin xong mới mở khóa click
+
+        // Mở khóa click NGAY — không chờ scale-in / bounce
+        this._inEntry = false;
+        this._pickBlocked = false;
+
+        // Đưa PickGame lên trên cùng (trên Transition nếu còn) để nhận touch
+        const parent = this.node.parent;
+        if (parent?.isValid) {
+            this.node.setSiblingIndex(parent.children.length - 1);
+        }
 
         const onContentShown = (): void => {
             this._playCoinIntroBounce();
@@ -513,26 +528,39 @@ export class PickGamePopup extends Component {
     }
 
     /**
-     * Intro bounce — tất cả coin nhún zoom lên xuống trong 1 giây trước khi cho chơi.
+     * Intro bounce — nhún CoinBack/CoinFront (cosmetic).
+     * Không tween scale trên node gốc (có Button) — tránh hit-test lệch lúc đang nhún.
      */
     private _playCoinIntroBounce(): void {
-        const DURATION = 1;
+        this._inEntry = false;
+        this._pickBlocked = false;
+
         const PULSES = 2;
-        const half = DURATION / (PULSES * 2);
+        const half = 0.25;
 
         for (const node of this.coinNodes) {
             if (!node) continue;
-            Tween.stopAllByTarget(node);
-            const t = tween(node);
-            for (let i = 0; i < PULSES; i++) {
-                t.to(half, { scale: new Vec3(1.1, 1.1, 1) }, { easing: 'sineInOut' })
-                 .to(half, { scale: new Vec3(1, 1, 1) }, { easing: 'sineInOut' });
-            }
-            t.start();
-        }
+            // Đảm bảo Button gốc sẵn sàng nhận click trong lúc nhún
+            const btn = node.getComponent(Button);
+            if (btn) btn.interactable = true;
 
-        // Mở khóa click sau khi bounce xong
-        this.scheduleOnce(() => { this._inEntry = false; }, DURATION);
+            const visuals = [
+                node.getChildByName('CoinBack'),
+                node.getChildByName('CoinFront'),
+            ].filter((n): n is Node => !!n?.isValid);
+            const targets = visuals.length > 0 ? visuals : [node];
+
+            for (const visual of targets) {
+                Tween.stopAllByTarget(visual);
+                const base = visual.scale.clone();
+                let t = tween(visual);
+                for (let i = 0; i < PULSES; i++) {
+                    t = t.to(half, { scale: new Vec3(base.x * 1.1, base.y * 1.1, base.z) }, { easing: 'sineInOut' })
+                         .to(half, { scale: new Vec3(base.x, base.y, base.z) }, { easing: 'sineInOut' });
+                }
+                t.start();
+            }
+        }
     }
 
     /**
@@ -671,7 +699,8 @@ export class PickGamePopup extends Component {
     }
 
     /**
-     * Đảm bảo 3 coin match đang chạy Loop (spine pickgame chỉ có In / Loop).
+     * Đảm bảo 3 coin match đang chạy Loop (spine pickgame chỉ có In / Loop)
+     * + hiệu ứng nhún nhún lên khi trúng jackpot.
      */
     private _doPlayWinAnimation(wonTier: JackpotType): void {
         if (!this._pickState) return;
@@ -687,21 +716,50 @@ export class PickGamePopup extends Component {
             const node = this.coinNodes[idx];
             if (!node) continue;
             const front = node.getChildByName('CoinFront');
-            if (!front) continue;
-            const sk = front.getComponent(sp.Skeleton);
-            if (!sk) continue;
-            sk.setCompleteListener(null);
-            const current = sk.getCurrent(0)?.animation?.name;
-            // Đang In → đợi xong rồi Loop; đã Loop thì giữ nguyên.
-            if (current === 'In') {
-                sk.setCompleteListener(() => {
+            if (front) {
+                const sk = front.getComponent(sp.Skeleton);
+                if (sk) {
                     sk.setCompleteListener(null);
-                    sk.setAnimation(0, 'Loop', true);
-                });
-            } else if (current !== 'Loop') {
-                sk.setAnimation(0, 'Loop', true);
+                    const current = sk.getCurrent(0)?.animation?.name;
+                    // Đang In → đợi xong rồi Loop; đã Loop thì giữ nguyên.
+                    if (current === 'In') {
+                        sk.setCompleteListener(() => {
+                            sk.setCompleteListener(null);
+                            sk.setAnimation(0, 'Loop', true);
+                        });
+                    } else if (current !== 'Loop') {
+                        sk.setAnimation(0, 'Loop', true);
+                    }
+                }
             }
+            this._playMatchBounce(node);
         }
+    }
+
+    /** Nhún nhún lên cho 1 ô coin match jackpot. */
+    private _playMatchBounce(node: Node): void {
+        Tween.stopAllByTarget(node);
+        const basePos = node.position.clone();
+        node.setScale(1, 1, 1);
+
+        const pulses = Math.max(1, Math.floor(this.matchBouncePulses));
+        const height = Math.max(4, this.matchBounceHeight);
+        const hopUp = 0.22;
+        const hopDown = 0.28;
+
+        let t = tween(node);
+        for (let i = 0; i < pulses; i++) {
+            t = t
+                .to(hopUp, {
+                    position: new Vec3(basePos.x, basePos.y + height, basePos.z),
+                    scale: new Vec3(1.06, 1.06, 1),
+                }, { easing: 'sineOut' })
+                .to(hopDown, {
+                    position: new Vec3(basePos.x, basePos.y, basePos.z),
+                    scale: new Vec3(1, 1, 1),
+                }, { easing: 'sineInOut' });
+        }
+        t.start();
     }
 
     private _extractPickWin(resp: any): number {

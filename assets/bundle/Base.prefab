@@ -63896,7 +63896,7 @@
     "_debugSlots": false,
     "_enableBatch": false,
     "loop": true,
-    "_id": "a5+5C6Y+hK8YaXtdkhNlC0"
+    "_id": "60nR8s7uhGJYCNuCjPSHzK"
   },
   {
     "__type__": "cc.CompPrefabInfo",
@@ -65981,6 +65981,7 @@
     "spinsRemainingSpriteNumber": null,
     "eachWinSpriteNumber": null,
     "goldTotalSpriteNumber": null,
+    "goldCountUpDuration": 0.45,
     "_id": ""
   },
   {
@@ -70433,6 +70434,13 @@
     "sxBonusStickyLand3": null,
     "sxBonusStickyLand4": null,
     "sxBonusStickyLand5": null,
+    "sxBonusStickyLand6": null,
+    "sxBonusStickyLand7": null,
+    "sxBonusStickyLand8": null,
+    "sxBonusStickyLand9": null,
+    "sxBonusStickyLand10": null,
+    "sxBonusStickyLand11": null,
+    "sxBonusStickyLand12": null,
     "sxBonusStickyGoldLand": null,
     "sxBonusStickyGoldIncreaseHit": null,
     "sxBonusStickyWin": null,

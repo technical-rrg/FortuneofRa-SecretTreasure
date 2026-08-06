@@ -870,9 +870,9 @@ export class UIController extends Component {
     }
 
     /**
-     * Animate count-up từ from → to trên winLabel (naturalCountUpValue).
-     * Luôn bắt đầu từ _displayedFreeSpinWin hiện tại để đảm bảo số tăng liên tục,
-     * không bao giờ giật về giá trị cũ hay 0 trong cùng 1 session.
+     * Animate count-up từ from → to trên winLabel (Total win Free Spin).
+     * Dùng naturalCountUpValue giống ProgressiveWinPopup — tránh pattern đều
+     * (10.111→10.222→10.333) khi lerp tuyến tính.
      */
     private _animateFreeSpinWin(from: number, to: number): void {
         if (!this.winLabel) {
@@ -924,7 +924,7 @@ export class UIController extends Component {
         this._freeSpinWinCountCb = () => {
             elapsed += interval;
             const t = Math.min(elapsed / duration, 1);
-            // Natural count-up: tránh pattern đều (11.111→22.222) khi đích là số tròn
+            // Natural count-up: tránh pattern đều khi đích là số tròn
             this._displayedFreeSpinWin = naturalCountUpValue(startVal, to, t, 3);
             this._updateFreeSpinWinLabel();
 
@@ -997,8 +997,8 @@ export class UIController extends Component {
             elapsed += interval;
             const t = Math.min(elapsed / duration, 1);
 
-            // Natural count-up: tránh pattern đều khi số đích tròn
-            const cur = naturalCountUpValue(startVal, to, t, 3);
+            const eased = 1 - (1 - t) * (1 - t); // ease-out quad
+            const cur = startVal + (to - startVal) * eased;
             this._displayedBalance = cur;
             const symbol = this._showCurrencySymbol ? L('CLIENT_CURRENENCY_SYMBOL') : '';
             this.balanceLabel!.string = symbol + formatCurrencyFixed(cur);

@@ -4,7 +4,6 @@ import { GameEvents } from '../core/GameEvents';
 import { GameData } from '../data/GameData';
 import { JackpotType, SpinResponse } from '../data/SlotTypes';
 import { SpeedMode } from './AutoSpinManager';
-import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
 
@@ -15,9 +14,9 @@ type StickyCellLike = { symbolId?: number; credit?: number };
 const VOLUME_BASE_SCALE = 0.8;
 
 /** Per-clip BGM volume relative to the normal BGM level. */
-const MX_NORMAL_LOOP_VOLUME_SCALE = 0.72; // was 0.6 (+20%)
-const MX_BONUS_LOOP_VOLUME_SCALE = 1.44;  // +20% then another +20% vs default BGM (1.2 * 1.2)
-const MX_BONUS_IDLE_VOLUME_SCALE = 0.64;  // -20% then another -20% vs default BGM (0.8 * 0.8)
+const MX_NORMAL_LOOP_VOLUME_SCALE = 0.5;//0.72; // was 0.6 (+20%)
+const MX_BONUS_LOOP_VOLUME_SCALE = 0.5;//1.44;  // +20% then another +20% vs default BGM (1.2 * 1.2)
+const MX_BONUS_IDLE_VOLUME_SCALE = 0.5;//0.64;  // -20% then another -20% vs default BGM (0.8 * 0.8)
 
 /** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
 const LAZY_AUDIO_PATHS: Record<string, string> = {
@@ -399,7 +398,7 @@ export class SoundManager extends Component {
         ];
         const idx = Math.min(this._stickyLandCount, props.length - 1);
         // Sticky land: giữ volume UI 100% (không nhân VOLUME_BASE_SCALE).
-        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand', true);
+        this._playSfxProp(props[idx] ?? 'sxBonusStickyLand', false);
         this._stickyLandCount++;
     }
 
@@ -543,7 +542,6 @@ export class SoundManager extends Component {
         this._progressiveSkipPlaying = false;
         this._cancelProgressiveTransImpact();
         this._playMusicProp('mxProgressiveWin', false);
-        this._logProgressivePlaying('mx_progressive_win');
     }
 
     /**
@@ -556,17 +554,12 @@ export class SoundManager extends Component {
         // this._scheduleProgressiveTransImpact();
     }
 
-    private _logProgressivePlaying(label: string): void {
-        Log.d(`[ProgressiveBGM] playing: ${label}`);
-    }
-
     private _scheduleProgressiveTransImpact(): void {
         this._cancelProgressiveTransImpact();
         this._progressiveTransImpactCb = () => {
             this._progressiveTransImpactCb = null;
             if (!this._progressiveWinActive) return;
             this._playSfxProp('mxProgressiveTransImpact');
-            this._logProgressivePlaying('mx_progressive_trans_impact');
         };
         this.scheduleOnce(this._progressiveTransImpactCb, Math.max(0, this.progressiveTransImpactDelay));
     }
@@ -614,7 +607,6 @@ export class SoundManager extends Component {
             };
             this.bgmSource.node.once(AudioSource.EventType.ENDED, this._bonusLoopCallback, this);
             if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
-            this._logProgressivePlaying('mx_progressive_win_skip');
         };
 
         const clip = this.mxProgressiveWinSkip;

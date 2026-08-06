@@ -3444,20 +3444,17 @@ export class NetworkManager {
     private _jackpotTimer: any = null;
 
     private constructor() {
-        // ★ Bật log tag cho StickyAccumulated / StickyEarned debug — phải enable trước khi login/enter.
-        Log.enable('featuregauge');
-        // ★ Log WinPopup tiers khi Enter (chỉ debug) — tag riêng 'winpopup' để không lẫn log PS khác.
         if (ENABLE_DEBUG_TOOLS) {
+            // StickyAccumulated / StickyEarned + WinPopup tiers (chỉ khi debug tools bật)
+            Log.enable('featuregauge');
             Log.enable('winpopup');
         }
 
         // ★ Chuyển đổi Mock ↔ Real dựa trên USE_REAL_API
         if (USE_REAL_API) {
             this._adapter = new RealNetworkAdapter();
-            // Log.d('[NetworkManager] Mode: REAL API');
         } else {
             this._adapter = new MockNetworkAdapter();
-            // Log.d('[NetworkManager] Mode: MOCK DATA');
         }
     }
 

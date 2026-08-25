@@ -278,8 +278,8 @@ export class SpriteNumber extends Component {
         'VND': 9,   // ₫    → vi sprite
         'AUD': 10,  // A$   → au sprite
         'HKD': 11,  // HK$  → hk sprite
-        'CAD': 12,  // C$   → ca sprite
-        'USDT': 13, // USDT → usdt sprite
+        'CAD': 12,  // CA$  → ca sprite
+        'USDT': 13, // USD₮ → usdt sprite
         'EUR': 0,   // €    → en sprite (fallback)
         'GBP': 0,   // £    → en sprite (fallback)
         'IDR': 0,   // Rp   → en sprite (fallback)

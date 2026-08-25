@@ -1,5 +1,5 @@
 /**
- * USDT locale (usdt) — USDT
+ * USDT locale (usdt) — USD₮
  *
  * Dùng chung text English; chỉ khác ký hiệu tiền tệ.
  * Không cần font riêng (dùng default Latin font).
@@ -9,6 +9,6 @@ import { LOCALE_EN } from './en';
 
 export const LOCALE_USDT: LocaleData = {
     ...LOCALE_EN,
-    currency_symbol: 'USDT',
-    CLIENT_CURRENENCY_SYMBOL: 'USDT',
+    currency_symbol: 'USD₮',
+    CLIENT_CURRENENCY_SYMBOL: 'USD₮',
 };

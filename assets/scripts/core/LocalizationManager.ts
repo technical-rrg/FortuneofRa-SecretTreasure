@@ -24,8 +24,8 @@
  *   vi    — Vietnamese (Tiếng Việt)
  *   au    — Australia English (AUD / A$)
  *   hk    — Hong Kong English (HKD / HK$)
- *   ca    — Canada English (CAD / C$)
- *   usdt  — USDT (USDT)
+ *   ca    — Canada English (CAD / CA$)
+ *   usdt  — USDT (USD₮)
  *
  * ★ 2 CHẾ ĐỘ HOẠT ĐỘNG:
  *   LOCAL:  Dùng file .ts build sẵn trong game (mặc định, offline-safe).
@@ -91,8 +91,8 @@ export const CURRENCY_SYMBOL_MAP: Record<string, string> = {
     'IDR': 'Rp',
     'HKD': 'HK$',
     'AUD': 'A$',
-    'CAD': 'C$',
-    'USDT': 'USDT',
+    'CAD': 'CA$',
+    'USDT': 'USD₮',
     'INR': '₹',
 };
 
@@ -135,7 +135,7 @@ export const SUPPORTED_LANGUAGES: { code: LanguageCode; name: string; nativeName
     { code: 'au',    name: 'Australia',            nativeName: 'English (AU)' },
     { code: 'hk',    name: 'Hong Kong',            nativeName: 'English (HK)' },
     { code: 'ca',    name: 'Canada',               nativeName: 'English (CA)' },
-    { code: 'usdt',  name: 'USDT',                 nativeName: 'USDT' },
+    { code: 'usdt',  name: 'USDT',                 nativeName: 'USD₮' },
 ];
 
 // ═══════════════════════════════════════════════════════════
@@ -219,9 +219,9 @@ export class LocalizationManager {
      * Nếu có currency override từ server, dùng symbol đó để tính.
      *
      * Dùng để canh size khung node chứa số tiền:
-     *   - 'usdt' → 4  (USDT)
-     *   - 'zh-tw' / 'hk' → 3  (NT$ / HK$)
-     *   - 'sg' / 'au' / 'ms' / 'ca' → 2  (S$ / A$ / RM / C$)
+     *   - 'usdt' → 4  (USD₮)
+     *   - 'zh-tw' / 'hk' / 'ca' → 3  (NT$ / HK$ / CA$)
+     *   - 'sg' / 'au' / 'ms' → 2  (S$ / A$ / RM)
      *   - tất cả còn lại → 1  (ký hiệu là "$", "₩", "¥", "฿", "₱" — 1 ký tự)
      *
      * @param lang  (Tuỳ chọn) Ngôn ngữ cần kiểm tra. Mặc định là ngôn ngữ hiện tại.
@@ -229,9 +229,9 @@ export class LocalizationManager {
     getCurrencyCharCount(lang?: LanguageCode): number {
         if (this._currencyOverride !== null) return this._currencyOverride.length;
         const code = lang ?? this._currentLang;
-        if (code === 'usdt') return 4;  // USDT
-        if (code === 'zh-tw' || code === 'hk') return 3;  // NT$ / HK$
-        if (code === 'sg' || code === 'au' || code === 'ms' || code === 'ca') return 2;  // S$ / A$ / RM / C$
+        if (code === 'usdt') return 4;  // USD₮
+        if (code === 'zh-tw' || code === 'hk' || code === 'ca') return 3;  // NT$ / HK$ / CA$
+        if (code === 'sg' || code === 'au' || code === 'ms') return 2;  // S$ / A$ / RM
         return 1;
     }
 
@@ -431,7 +431,7 @@ export class LocalizationManager {
      *   au / en-au  → au     (Australia English / AUD)
      *   hk / en-hk  → hk     (Hong Kong English / HKD)
      *   ca / en-ca  → ca     (Canada English / CAD)
-     *   usdt        → usdt   (USDT)
+     *   usdt        → usdt   (USD₮)
      *   Others      → as-is mapping (ko, en, ja, th, fil, ...)
      */
     private _normalizeLangCode(input: string): LanguageCode {

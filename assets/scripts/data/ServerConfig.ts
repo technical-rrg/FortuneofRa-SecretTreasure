@@ -230,8 +230,8 @@ export const DEBUG_RANDS: readonly number[] | null =  null;//DEBUG_RANDS_PRESET.
  *  'vi'      — Vietnamese (Tiếng Việt)
  *  'au'      — Australia English (AUD / A$)
  *  'hk'      — Hong Kong English (HKD / HK$)
- *  'ca'      — Canada English (CAD / C$)
- *  'usdt'    — USDT
+ *  'ca'      — Canada English (CAD / CA$)
+ *  'usdt'    — USDT (USD₮)
  */
 
 export const DEV_FORCE_LANG: string | null = null;  // null = auto-detect từ URL `gl` parameter
@@ -276,7 +276,7 @@ export const TestLoginConfig = {
     PlatformId: 'testuser01',
     DeviceToken: 'a2b07025fdc0416c8ef8cb68ea39c1ef',
     IsPractice: false,
-    Currency: 'USD',
+    Currency: 'CAD',
     PartnerId: null as number | null,
 };
 

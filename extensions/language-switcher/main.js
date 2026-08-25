@@ -31,7 +31,7 @@ const LANGUAGES = [
     { code: 'au',    label: 'Australia',                native: 'English (AU)',   flag: '🇦🇺' },
     { code: 'hk',    label: 'Hong Kong',                native: 'English (HK)',   flag: '🇭🇰' },
     { code: 'ca',    label: 'Canada',                   native: 'English (CA)',   flag: '🇨🇦' },
-    { code: 'usdt',  label: 'USDT',                     native: 'USDT',           flag: '₮' },
+    { code: 'usdt',  label: 'USDT',                     native: 'USD₮',           flag: '₮' },
 ];
 
 // ─── Extension lifecycle ──────────────────────────────────────────────────────

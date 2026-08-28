@@ -17,6 +17,8 @@ const VOLUME_BASE_SCALE = 0.8;
 const MX_NORMAL_LOOP_VOLUME_SCALE = 0.5;//0.72; // was 0.6 (+20%)
 const MX_BONUS_LOOP_VOLUME_SCALE = 0.5;//1.44;  // +20% then another +20% vs default BGM (1.2 * 1.2)
 const MX_BONUS_IDLE_VOLUME_SCALE = 0.5;//0.64;  // -20% then another -20% vs default BGM (0.8 * 0.8)
+/** Start next BGM copy this many seconds before current ends, then stop the old one. */
+const BGM_LOOP_HANDOFF_LEAD = 0.05;
 
 /** Bundle path (no extension) for clips nulled out of Base.prefab to shrink boot deps. */
 const LAZY_AUDIO_PATHS: Record<string, string> = {
@@ -228,6 +230,8 @@ export class SoundManager extends Component {
     private _progressiveTransImpactCb: (() => void) | null = null;
     /** Đang play mx_progressive_win_skip trên BGM chính */
     private _progressiveSkipPlaying = false;
+    /** Source đang nhả trong cửa sổ overlap khi ping-pong BGM loop. */
+    private _bgmLoopOutgoing: AudioSource | null = null;
 
     onLoad(): void {
         SoundManager._instance = this;
@@ -245,6 +249,7 @@ export class SoundManager extends Component {
     onDestroy(): void {
         if (SoundManager._instance === this) SoundManager._instance = null;
         this._removeBonusLoopCallback();
+        this._disarmBgmLoopRestart();
         this.unscheduleAllCallbacks();
         EventBus.instance.offTarget(this);
     }
@@ -402,9 +407,14 @@ export class SoundManager extends Component {
         this._stickyLandCount++;
     }
 
+    private _isClipPlayable(clip: AudioClip | null | undefined): clip is AudioClip {
+        return !!clip && clip.validate();
+    }
+
     private _ensureClip(prop: string): Promise<AudioClip | null> {
         const current = (this as any)[prop] as AudioClip | null | undefined;
-        if (current) return Promise.resolve(current);
+        if (this._isClipPlayable(current)) return Promise.resolve(current);
+        if (current) (this as any)[prop] = null;
 
         const path = LAZY_AUDIO_PATHS[prop];
         if (!path) return Promise.resolve(null);
@@ -423,6 +433,10 @@ export class SoundManager extends Component {
                 this._lazyLoading.delete(prop);
                 if (err || !clip) {
                     // Log.w(`[SoundManager] Lazy load failed: ${path}`, err);
+                    resolve(null);
+                    return;
+                }
+                if (!this._isClipPlayable(clip)) {
                     resolve(null);
                     return;
                 }
@@ -686,8 +700,6 @@ export class SoundManager extends Component {
             this.unschedule(this._bgmFadeTick);
             this._bgmFadeTick = null;
         }
-        this._removeBonusLoopCallback();
-
         const wantBonus = this._inFeatureMusic;
         const prop = wantBonus ? 'mxBonusLoop' : 'mxNormalLoop';
         const clip = wantBonus ? this.mxBonusLoop : this.mxNormalLoop;
@@ -695,11 +707,13 @@ export class SoundManager extends Component {
 
         const start = (c: AudioClip) => {
             if (!this.bgmSource) return;
-            if (this.bgmSource.clip === c && this.bgmSource.playing && this.bgmSource.loop) return;
+            if (this.bgmSource.clip === c && this.bgmSource.playing) return;
+            this._removeBonusLoopCallback();
             this.bgmSource.stop();
             this.bgmSource.clip = c;
-            this.bgmSource.loop = true;
+            this.bgmSource.loop = false;
             this.bgmSource.volume = this._bgmVolumeForClip(c);
+            this._armBgmLoopHandoffForClip(c, 0);
             if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
         };
 
@@ -897,7 +911,7 @@ export class SoundManager extends Component {
     }
 
     private _playMusic(clip: AudioClip | null, loop: boolean, onEnded?: () => void): void {
-        if (!this.bgmSource || !clip) return;
+        if (!this.bgmSource || !this._isClipPlayable(clip)) return;
         this._removeBonusLoopCallback();
         // Đừng cắt crossfade đang fade-out progressive skip
         if (this.bgmCrossfadeSource?.playing && !this._crossfadeFadeTick) {
@@ -907,11 +921,14 @@ export class SoundManager extends Component {
             if (!this.bgmSource || !clip) return;
             this.bgmSource.stop();
             this.bgmSource.clip = clip;
-            this.bgmSource.loop = loop;
+            const useSoftLoop = loop && this._isLongBgmLoopClip(clip) && !onEnded;
+            this.bgmSource.loop = useSoftLoop ? false : loop;
             this.bgmSource.volume = this._bgmVolumeForClip(clip);
             if (onEnded) {
                 this._bonusLoopCallback = onEnded;
                 this.bgmSource.node.once(AudioSource.EventType.ENDED, onEnded, this);
+            } else if (useSoftLoop) {
+                this._armBgmLoopHandoffForClip(clip, 0);
             }
             if (!this._masterMuted && !this._bgmMuted) this.bgmSource.play();
         };
@@ -948,9 +965,99 @@ export class SoundManager extends Component {
     }
 
     private _removeBonusLoopCallback(): void {
-        if (!this._bonusLoopCallback || !this.bgmSource) return;
+        this._disarmBgmLoopRestart();
+        if (!this._bonusLoopCallback || !this.bgmSource) {
+            this._bonusLoopCallback = null;
+            return;
+        }
         this.bgmSource.node.off(AudioSource.EventType.ENDED, this._bonusLoopCallback, this);
         this._bonusLoopCallback = null;
+    }
+
+    private _isLongBgmLoopClip(clip: AudioClip | null | undefined): clip is AudioClip {
+        return !!clip && (clip === this.mxNormalLoop || clip === this.mxBonusLoop);
+    }
+
+    private _armBgmLoopHandoffForClip(clip: AudioClip, elapsed: number): void {
+        this._disarmBgmLoopRestart();
+        const dur = (this.bgmSource?.duration && this.bgmSource.duration > 0)
+            ? this.bgmSource.duration
+            : this._clipDurationSeconds(clip);
+        if (dur <= 0) {
+            this.bgmSource?.node.once(AudioSource.EventType.ENDED, this._onBgmLoopEnded, this);
+            return;
+        }
+        const remain = Math.max(0, dur - Math.max(0, elapsed));
+        const handoffIn = remain - BGM_LOOP_HANDOFF_LEAD;
+        if (handoffIn > 0.02) {
+            this.scheduleOnce(this._handoffBgmLoop, handoffIn);
+            this.scheduleOnce(this._onBgmLoopEnded, remain + 0.12);
+        } else {
+            this.scheduleOnce(this._handoffBgmLoop, 0);
+        }
+    }
+
+    private _disarmBgmLoopRestart(): void {
+        this.unschedule(this._handoffBgmLoop);
+        this.unschedule(this._finishBgmLoopHandoff);
+        this.unschedule(this._onBgmLoopEnded);
+        this.bgmSource?.node.off(AudioSource.EventType.ENDED, this._onBgmLoopEnded, this);
+        this._bgmLoopOutgoing = null;
+    }
+
+    private _onBgmLoopEnded(): void {
+        this._handoffBgmLoop();
+    }
+
+    /**
+     * Ping-pong sang bgmCrossfadeSource trước khi clip cũ hết.
+     * Play source mới trước, stop source cũ sau — không khe hở như stop+play cùng 1 node.
+     */
+    private _handoffBgmLoop(): void {
+        const cur = this.bgmSource;
+        const clip = cur?.clip;
+        if (!cur || !this._isLongBgmLoopClip(clip)) return;
+        if (this._progressiveWinActive || this._progressiveSkipPlaying) return;
+
+        this._disarmBgmLoopRestart();
+
+        const nxt = this.bgmCrossfadeSource;
+        if (!nxt || this._crossfadeFadeTick) {
+            cur.stop();
+            cur.clip = clip;
+            cur.loop = false;
+            cur.volume = this._bgmVolumeForClip(clip);
+            if (!this._masterMuted && !this._bgmMuted) cur.play();
+            this._armBgmLoopHandoffForClip(clip, 0);
+            return;
+        }
+
+        nxt.stop();
+        nxt.clip = clip;
+        nxt.loop = false;
+        nxt.volume = this._bgmVolumeForClip(clip);
+        if (!this._masterMuted && !this._bgmMuted) nxt.play();
+
+        this._armBgmLoopHandoffForClip(clip, 0);
+        this._bgmLoopOutgoing = cur;
+        this.scheduleOnce(this._finishBgmLoopHandoff, BGM_LOOP_HANDOFF_LEAD);
+    }
+
+    private _finishBgmLoopHandoff(): void {
+        const outgoing = this._bgmLoopOutgoing ?? this.bgmSource;
+        const incoming = this.bgmCrossfadeSource;
+        this._bgmLoopOutgoing = null;
+        if (!outgoing || !incoming || outgoing === incoming) return;
+        if (!this._isLongBgmLoopClip(incoming.clip)) return;
+        outgoing.stop();
+        this.bgmSource = incoming;
+        this.bgmCrossfadeSource = outgoing;
+    }
+
+    private _resumeBgmLoopHandoffIfNeeded(): void {
+        const clip = this.bgmSource?.clip;
+        if (!this._isLongBgmLoopClip(clip)) return;
+        this._armBgmLoopHandoffForClip(clip, this.bgmSource?.currentTime ?? 0);
     }
 
     private _startAmbience(): void {
@@ -1283,11 +1390,17 @@ export class SoundManager extends Component {
         this._bgmMuted = muted;
         if (!this.bgmSource) return;
         if (muted) {
+            this._disarmBgmLoopRestart();
+            if (this._isLongBgmLoopClip(this.bgmCrossfadeSource?.clip) && !this._crossfadeFadeTick) {
+                this.bgmCrossfadeSource?.stop();
+            }
             this.bgmSource.pause();
             this.bgmCrossfadeSource?.pause();
         } else if (!this._masterMuted) {
-            if (this.bgmSource.clip) this.bgmSource.play();
-            else this._restoreCurrentLoop();
+            if (this.bgmSource.clip) {
+                this.bgmSource.play();
+                this._resumeBgmLoopHandoffIfNeeded();
+            } else this._restoreCurrentLoop();
         }
     }
 
@@ -1312,6 +1425,7 @@ export class SoundManager extends Component {
         if (this._masterMuted === muted) return;
         this._masterMuted = muted;
         if (muted) {
+            this._disarmBgmLoopRestart();
             this.bgmSource?.pause();
             this.bgmCrossfadeSource?.pause();
             this.sfxSource?.pause();
@@ -1319,7 +1433,10 @@ export class SoundManager extends Component {
             this._winSource?.pause();
             this.ambienceSource?.pause();
         } else {
-            if (this.bgmSource?.clip && !this._bgmMuted) this.bgmSource.play();
+            if (this.bgmSource?.clip && !this._bgmMuted) {
+                this.bgmSource.play();
+                this._resumeBgmLoopHandoffIfNeeded();
+            }
             if (!this._sfxMuted) {
                 if (this._coinLoopActive) this.playCoinLoop();
                 this._startAmbience();

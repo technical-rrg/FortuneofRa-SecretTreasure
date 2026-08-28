@@ -45,7 +45,7 @@ export const ServerConfig = {
     // ─── CDN ───────────────────────────────────────────────
     /** Base URL của CDN assets (locale-online.json, fonts).
      *  Để null → bỏ qua CDN, dùng local bundled assets.
-     *  Để test: set CDN_BASE = null, xoá localStorage 'sn_cdn_*' để clear cache.
+     *  Để test: set CDN_BASE = null, xoá localStorage 'sn_cdn_{SLOT_ID}_*' để clear cache.
      */
     CDN_BASE: 'https://downloads.realreelsgaming.com/slotlanguage/secrettreasure' as string | null,
 

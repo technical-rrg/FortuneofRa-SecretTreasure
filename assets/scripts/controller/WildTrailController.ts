@@ -27,7 +27,7 @@
 import {
     _decorator, Component, Node, Vec3, tween, Tween,
     UITransform, Color, Graphics, instantiate, sp,
-    ParticleSystem, Camera,
+    ParticleSystem, Camera, Canvas,
     input, Input, EventKeyboard, EventMouse, KeyCode,
 } from 'cc';
 import { EventBus } from '../core/EventBus';
@@ -545,7 +545,7 @@ export class WildTrailController extends Component {
             return;
         }
 
-        this._attachParticleOutsideCanvas(particle);
+        this._attachParticleToPotCanvas(particle);
         particle.active = true;
         this._activeParticles.add(particle);
         this._debugFollowParticle = particle;
@@ -805,8 +805,8 @@ export class WildTrailController extends Component {
             return;
         }
 
-        // Parent ra ngoài Canvas (Scene root) — tránh UI batcher / Canvas scale làm particle mờ/sai.
-        this._attachParticleOutsideCanvas(particle);
+        // Parent vào Canvas chứa Pot — cùng hệ UI với hũ, không đưa lên Scene root.
+        this._attachParticleToPotCanvas(particle);
         particle.active = true;
         this._activeParticles.add(particle);
 
@@ -922,17 +922,42 @@ export class WildTrailController extends Component {
     }
 
     /**
-     * Gắn particle bay lên Scene (sibling Canvas), không nằm trong Canvas hierarchy.
+     * Gắn particle trong Canvas chứa Pot, sibling TRƯỚC node PopUp
+     * (siblingIndex < PopUp → layer dưới popup).
      * World position vẫn set sau đó từ symbol / pot / chuột.
      */
-    private _attachParticleOutsideCanvas(particle: Node): void {
-        const scene = this.node.scene;
-        if (scene) {
-            particle.setParent(scene, false);
-        } else {
-            this.node.addChild(particle);
-        }
+    private _attachParticleToPotCanvas(particle: Node): void {
+        const popup = this._findPopupLayerNode();
+        const parent = popup?.parent
+            ?? this.potNode?.parent
+            ?? this.node.parent
+            ?? this._resolvePotCanvasNode();
+        particle.setParent(parent, false);
         particle.setScale(1, 1, 1);
+        if (popup?.isValid && popup.parent === parent) {
+            particle.setSiblingIndex(popup.getSiblingIndex());
+        }
+    }
+
+    /** Node "PopUp" cùng cây với Pot (GameRoot). */
+    private _findPopupLayerNode(): Node | null {
+        let n: Node | null = this.potNode ?? this.node;
+        while (n) {
+            const popup = n.getChildByName('PopUp') ?? n.getChildByName('Popup');
+            if (popup) return popup;
+            n = n.parent;
+        }
+        return null;
+    }
+
+    /** Canvas tổ tiên của potNode; fallback WildTrailController (đã nằm trong Canvas đó). */
+    private _resolvePotCanvasNode(): Node {
+        let n: Node | null = this.potNode;
+        while (n) {
+            if (n.getComponent(Canvas)) return n;
+            n = n.parent;
+        }
+        return this.node;
     }
 
     /**

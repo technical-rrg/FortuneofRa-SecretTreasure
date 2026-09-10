@@ -13,12 +13,15 @@
  *   Sau khi đã instantiate: PayTablePopUp.instance?.open();
  */
 
-import { _decorator, Component, Node, Label, Button, RichText, Widget, view, screen, tween, Vec3 } from 'cc';
+import { _decorator, Component, Node, Label, Button, RichText, Widget, view, screen, tween, Vec3, Camera, director } from 'cc';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { L } from '../core/LocalizationManager';
 import { Log } from '../core/Logger';
 import { OrientationLayout } from './OrientationLayout';
+
+/** Camera 3D particle — priority cao hơn UI, phải tắt khi PayTable mở để không đè popup. */
+const PARTICLE_3D_CAMERA_NAME = 'Particle3DCamera';
 
 const { ccclass, property } = _decorator;
 
@@ -214,6 +217,7 @@ export class PayTablePopUp extends Component {
     private _currentPage: number = 1;
     private readonly _totalPages: number = 8;
     private _isOpen: boolean = false;
+    private _particle3DCamera: Camera | null = null;
 
     onLoad(): void {
         PayTablePopUp._instance = this;
@@ -241,6 +245,7 @@ export class PayTablePopUp extends Component {
         screen.off('orientation-change', this._onScreenChange, this);
         this.unschedule(this._resyncArrowBases);
         EventBus.instance?.off(GameEvents.PAY_TABLE_OPEN, this.open, this);
+        if (this._isOpen) this._setParticle3DCameraEnabled(true);
     }
 
     open(): void {
@@ -257,6 +262,7 @@ export class PayTablePopUp extends Component {
         this._showPage(this._currentPage);
 
         this.node.active = true;
+        this._setParticle3DCameraEnabled(false);
 
         // Delay 0: chạy sau OrientationLayout._applyOrientation (cùng frame schedule).
         this.unschedule(this._resyncArrowBases);
@@ -269,8 +275,25 @@ export class PayTablePopUp extends Component {
         this._arrowBasesReady = false;
         this._stopArrowAnimations();
         this.unschedule(this._resyncArrowBases);
+        this._setParticle3DCameraEnabled(true);
         EventBus.instance.emit(GameEvents.POPUP_CLOSED);
         this.node.active = false;
+    }
+
+    /** Tắt / bật Particle3DCamera — camera 3D luôn vẽ sau UI nên phải tắt khi popup phủ màn. */
+    private _setParticle3DCameraEnabled(enabled: boolean): void {
+        const cam = this._findParticle3DCamera();
+        if (!cam?.isValid) return;
+        cam.enabled = enabled;
+    }
+
+    private _findParticle3DCamera(): Camera | null {
+        if (this._particle3DCamera?.isValid) return this._particle3DCamera;
+        const scene = this.node.scene ?? director.getScene();
+        this._particle3DCamera = scene?.getComponentsInChildren(Camera)
+            .find((c) => c.node.name === PARTICLE_3D_CAMERA_NAME)
+            ?? null;
+        return this._particle3DCamera;
     }
 
     private _onLeft(): void {

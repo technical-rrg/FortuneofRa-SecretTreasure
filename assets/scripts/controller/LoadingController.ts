@@ -26,6 +26,8 @@ import { Log } from '../core/Logger';
 import { GuideFrameLoader } from '../core/GuideFrameLoader';
 import { GuideShellLoader } from '../core/GuideShellLoader';
 import { GameEntryController } from './GameEntryController';
+import { ResponsiveController } from './ResponsiveController';
+import { syncRenderWindowSize } from '../core/RenderWindowSync';
 
 const { ccclass, property } = _decorator;
 
@@ -278,6 +280,11 @@ export class LoadingController extends Component {
         // ★ Defer sang frame tiếp theo để canvas kích thước ổn định (đặc biệt portrait mobile)
         this.scheduleOnce(() => this._syncHtmlLoadingOverlay(), 0);
 
+        // Zoom fullscreen lúc engine đang boot: swapchain có thể kẹt size cũ.
+        // Gán ngay khi loading chạy, rồi gán lại sau 0.5s khi layout fullscreen đã settle.
+        this._fitFrameAfterFullscreen();
+        this.scheduleOnce(this._fitFrameAfterFullscreen, 0.5);
+
         this._startLoadingBar();
     }
 
@@ -292,7 +299,14 @@ export class LoadingController extends Component {
             this.unschedule(this._loadCb);
             this._loadCb = null;
         }
+        this.unschedule(this._fitFrameAfterFullscreen);
     }
+
+    private _fitFrameAfterFullscreen = (): void => {
+        syncRenderWindowSize();
+        director.getScene()?.getComponentInChildren(ResponsiveController)?.forceApply();
+        this._syncHtmlLoadingOverlay();
+    };
 
     private _resolveHtmlOverlayNodes(): void {
         if (!this._htmlLogoNode?.isValid) {

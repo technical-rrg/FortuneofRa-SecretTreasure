@@ -22,6 +22,7 @@ import { AutoSpinManager, SpeedMode } from './AutoSpinManager';
 import { PopUpMessage, PopupCase } from '../core/PopUpMessage';
 import { ServerApiError } from './NetworkManager';
 import { Log } from '../core/Logger';
+import { maintenance } from '../core/Maintenance';
 import { TopUpManager } from '../controller/TopUpManager';
 import { SlotMachineController } from '../controller/SlotMachineController';
 import { StickyOverlayController } from '../controller/StickyOverlayController';
@@ -906,6 +907,11 @@ export class GameManager extends Component {
 
     private async _onSpinRequest(): Promise<void> {
         this._logSpinState('SPIN_REQUEST received');
+        // PLATFORM_SPEC D12 ②③: no spin during maintenance Block / Shutdown (the server refuses it too).
+        if (!maintenance.isNetworkActionValid()) {
+            this._logSpinState('SPIN_REQUEST ignored — server maintenance');
+            return;
+        }
         if (this._isSpinning) {
             this._logSpinState('SPIN_REQUEST ignored because GameManager is spinning');
             return;

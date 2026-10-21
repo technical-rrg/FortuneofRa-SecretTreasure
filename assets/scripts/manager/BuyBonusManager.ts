@@ -71,6 +71,7 @@ import { WalletManager } from './WalletManager';
 import { GameData } from '../data/GameData';
 import { AutoSpinManager } from './AutoSpinManager';
 import { Log } from '../core/Logger';
+import { maintenance } from '../core/Maintenance';
 
 // ─── BONUS SYSTEM TYPES ───────────────────────────────────────────────────────
 // Định nghĩa trực tiếp để tránh phụ thuộc vào cache của TS language server.
@@ -619,6 +620,13 @@ itemTemplate: Node | null = null;
 
     /** Recheck OK: đóng toàn bộ popup, xử lý theo applyType */
     private _onRecheckConfirm(): void {
+        // PLATFORM_SPEC D12 ②③: no bonus purchase during maintenance Block / Shutdown.
+        if (!maintenance.isNetworkActionValid()) {
+            Log.w('[BuyBonusManager] purchase refused — server maintenance');
+            this._closeRecheckPopup();
+            this._closePopup();
+            return;
+        }
         const item = this._pendingRecheckItem;
         if (!item) {
             Log.w('[BuyBonusManager] Recheck OK nhưng không có pending item');

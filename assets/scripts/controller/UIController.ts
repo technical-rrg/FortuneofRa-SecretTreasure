@@ -6,7 +6,7 @@
  */
 
 import { _decorator, Component, Node, Label, Button, tween, Vec3, Color, Tween, Sprite, SpriteFrame, RichText, sp, input, Input, KeyCode, EventKeyboard, UITransform, EventTouch, screen } from 'cc';
-import { formatCurrencyFixed, naturalCountUpValue } from '../core/FormatUtils';
+import { formatCurrencyFixed, naturalCountUpValue, moneyDecimals } from '../core/FormatUtils';
 import { EventBus } from '../core/EventBus';
 import { GameEvents } from '../core/GameEvents';
 import { BetManager } from '../manager/BetManager';
@@ -934,7 +934,7 @@ export class UIController extends Component {
             elapsed += interval;
             const t = Math.min(elapsed / duration, 1);
             // Natural count-up: tránh pattern đều khi đích là số tròn
-            this._displayedFreeSpinWin = naturalCountUpValue(startVal, to, t, 3);
+            this._displayedFreeSpinWin = naturalCountUpValue(startVal, to, t, moneyDecimals());
             this._updateFreeSpinWinLabel();
 
             if (t >= 1) {

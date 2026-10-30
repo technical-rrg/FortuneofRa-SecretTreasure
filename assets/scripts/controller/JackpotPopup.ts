@@ -40,7 +40,7 @@ import { AutoSpinManager } from '../manager/AutoSpinManager';
 import { GameData } from '../data/GameData';
 import { SoundManager } from '../manager/SoundManager';
 import { SpriteNumber } from '../core/SpriteNumber';
-import { naturalCountUpValue } from '../core/FormatUtils';
+import { naturalCountUpValue, moneyDecimals, truncateMoney } from '../core/FormatUtils';
 import { Log } from '../core/Logger';
 
 const { ccclass, property } = _decorator;
@@ -257,7 +257,7 @@ export class JackpotPopup extends Component {
 
         // Init amount display
         if (this.amountDisplay) {
-            this.amountDisplay.setData(0, this.currencyIndex, 3);
+            this.amountDisplay.setData(0, this.currencyIndex, moneyDecimals());
             this.amountDisplay.node.active = false;
             Tween.stopAllByTarget(this.amountDisplay.node);
             this.amountDisplay.node.setScale(1, 1, 1);
@@ -375,7 +375,7 @@ export class JackpotPopup extends Component {
         let elapsed = 0;
         let soundStarted = false;
         // Lock width with 3 decimal capacity so fractional part scrolls during count-up
-        this.amountDisplay.lockWidth(to, this.currencyIndex, 3);
+        this.amountDisplay.lockWidth(to, this.currencyIndex, moneyDecimals());
 
         this._countUpCb = () => {
             elapsed += interval;
@@ -388,8 +388,8 @@ export class JackpotPopup extends Component {
             }
 
             // Natural count-up: tránh pattern đều (11.111→22.222) khi đích là số tròn
-            const cur = naturalCountUpValue(0, to, t, 3);
-            this.amountDisplay!.setData(cur, this.currencyIndex, 3);
+            const cur = naturalCountUpValue(0, to, t, moneyDecimals());
+            this.amountDisplay!.setData(cur, this.currencyIndex, moneyDecimals());
 
             if (elapsed >= this.countUpDuration) {
                 this._isCountingUp = false;
@@ -398,8 +398,8 @@ export class JackpotPopup extends Component {
                 if (isInt) {
                     this.amountDisplay!.setData(Math.floor(to), this.currencyIndex, 0);
                 } else {
-                    const toTrunc = Math.floor(to * 1000) / 1000;
-                    this.amountDisplay!.setData(toTrunc, this.currencyIndex, 3);
+                    const toTrunc = truncateMoney(to);
+                    this.amountDisplay!.setData(toTrunc, this.currencyIndex, moneyDecimals());
                 }
                 this.amountDisplay!.unlockWidth();
                 this._stopCountUp();
@@ -445,8 +445,8 @@ export class JackpotPopup extends Component {
             if (isInt) {
                 this.amountDisplay?.setData(Math.floor(to), this.currencyIndex, 0);
             } else {
-                const toTrunc = Math.floor(to * 1000) / 1000;
-                this.amountDisplay?.setData(toTrunc, this.currencyIndex, 3);
+                const toTrunc = truncateMoney(to);
+                this.amountDisplay?.setData(toTrunc, this.currencyIndex, moneyDecimals());
             }
             this.amountDisplay?.unlockWidth();
             SoundManager.instance?.stopCoinLoop();

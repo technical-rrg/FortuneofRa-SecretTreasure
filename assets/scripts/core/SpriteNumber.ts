@@ -34,7 +34,7 @@ import { EventBus } from './EventBus';
 import { GameEvents } from './GameEvents';
 import { LocalizationManager, LanguageCode } from './LocalizationManager';
 import { SoundManager } from '../manager/SoundManager';
-import { formatKMBT } from './FormatUtils';
+import { formatKMBT, moneyDecimals } from './FormatUtils';
 import { Log } from './Logger';
 
 const { ccclass, property } = _decorator;
@@ -372,7 +372,7 @@ export class SpriteNumber extends Component {
     lockWidth(finalValue: number, currencyIndex: number = -1, minDecimals: number = 0): void {
         // Khi hiển thị tiền tệ, luôn tính size bao gồm phần thập phân .000
         if (this.enableLangCurrency && currencyIndex >= 0) {
-            minDecimals = Math.max(minDecimals, 3);
+            minDecimals = Math.max(minDecimals, moneyDecimals());
         }
         currencyIndex = this._visibleCurrencyIndex(currencyIndex);
         const sizeResult = this._computeSize(finalValue, currencyIndex, minDecimals);
@@ -493,7 +493,7 @@ export class SpriteNumber extends Component {
 
         // Khi hiển thị tiền tệ, luôn show phần thập phân .000
         if (this.enableLangCurrency && currencyIndex >= 0) {
-            minDecimals = Math.max(minDecimals, 3);
+            minDecimals = Math.max(minDecimals, moneyDecimals());
         }
 
         // Khi enableLangCurrency=true và caller muốn hiển thị tiền tệ (>= 0),
@@ -666,7 +666,7 @@ export class SpriteNumber extends Component {
             // Dùng "full size" (bao gồm .000 dù số tròn) để tính container và scale,
             // tránh trường hợp bỏ .000 làm totalWidth nhỏ hơn → scale ít hơn → tràn khung.
             const sizeRef = (this.enableLangCurrency && currencyIndex >= 0)
-                ? this._computeSize(value, currencyIndex, Math.max(this._lastMinDecimals, 3)).totalWidth
+                ? this._computeSize(value, currencyIndex, Math.max(this._lastMinDecimals, moneyDecimals())).totalWidth
                 : totalWidth;
             const parentTf = this.node.getComponent(UITransform);
             if (this.shrinkToFit) {
